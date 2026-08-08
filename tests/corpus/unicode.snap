@@ -1,0 +1,12 @@
+# kind        role            range      reveal        source
+Style         heading            0..22   never         "# 😀 Emoji **heading**"
+Conceal       marker             0..2    caret_in_line "# "
+Conceal       marker            11..13   caret_in_node "**"
+Style         strong            13..20   never         "heading"
+Conceal       marker            20..22   caret_in_node "**"
+Conceal       marker            29..31   caret_in_node "**"
+Style         strong            31..33   never         "太字"
+Conceal       marker            33..35   caret_in_node "**"
+Conceal       marker            38..39   caret_in_node "["
+Style         link.text         39..42   never         "リンク"
+Conceal       link              42..58   caret_in_node "](https://例え.jp)"

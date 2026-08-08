@@ -1,0 +1,148 @@
+import { Aside, H2, H3, Lede, Note, SeeAlso, TableFrame } from '../../components/Doc.jsx';
+import Gallery from '../../components/Gallery.jsx';
+import { Link } from '../../lib/router.jsx';
+
+const PRIMITIVES = [
+  ['Style', 'NSAttributedString attributes from Theme'],
+  ['Conceal', '0.01pt font and a clear colour'],
+  [
+    'InlineWidget / BlockWidget',
+    'NSTextAttachmentViewProvider, installed by paragraph substitution',
+  ],
+  ['Gutter', 'the marker character, themed'],
+  ['Hit', 'tap-tested against the live decorations'],
+];
+
+export default function Apple() {
+  return (
+    <>
+      <H2 id="shared">Two hosts, one applier</H2>
+      <Lede>
+        iOS is a <code>UITextView</code> and macOS an <code>NSTextView</code>, both on TextKit 2,
+        both called <code>MarkdownTextView</code>. Everything that decides what a decoration{' '}
+        <em>means</em> — reveal resolution, paint ordering, conceal, widget substitution, the
+        moved-does-not-repaint rule, hit testing — lives in <code>DecorationApplier</code>, which
+        has no UIKit or AppKit in it and is shared verbatim.
+      </Lede>
+      <p>
+        The two text views hold only what genuinely differs: first-responder handling, gesture
+        versus <code>mouseDown</code>, and the inert undo manager. Type divergence between UIKit and
+        AppKit is absorbed by aliases in <code>Platform.swift</code>. This split is the guard
+        against three renderers quietly disagreeing about atomic selection or reveal — they cannot
+        disagree about code they share.
+      </p>
+
+      <H2 id="primitives">How each primitive is drawn</H2>
+      <TableFrame className="mt-6">
+        <thead>
+          <tr>
+            <th>Primitive</th>
+            <th className="desc">How it is drawn</th>
+          </tr>
+        </thead>
+        <tbody>
+          {PRIMITIVES.map(([name, how]) => (
+            <tr key={name}>
+              <td className="role">{name}</td>
+              <td className="desc">{how}</td>
+            </tr>
+          ))}
+        </tbody>
+      </TableFrame>
+
+      <H2 id="attachments">Attachments need a U+FFFC, and the storage must stay pure markdown</H2>
+      <p>
+        Setting <code>.attachment</code> on an ordinary character does nothing — TextKit only draws
+        an attachment where that character sits. The resolution is{' '}
+        <code>NSTextContentStorageDelegate</code>, which lets the <em>display</em> string for a
+        paragraph differ from the backing store: the widget’s first character is swapped for the
+        attachment character, one for one.
+      </p>
+      <Note>
+        The substitution is strictly length-preserving. A length change there desynchronises every
+        selection and edit offset in the view. A multi-line block widget then works for free — the
+        remaining characters are concealed, and a 0.01pt newline contributes almost no height, so
+        only the attachment’s own height shows.
+      </Note>
+
+      <H2 id="conceal">Concealing by shrinking, not by removing</H2>
+      <p>
+        A hairline font keeps the character count 1:1 with the source, which is what keeps every
+        offset in the system honest. Line height is the max over the line, so shrinking a heading’s{' '}
+        <code>#</code> does not shrink the heading. The cost is that concealed characters remain
+        selectable — which is exactly why{' '}
+        <Link to="/concepts/reveal">the core snaps selection endpoints out of concealed ranges</Link>
+        .
+      </p>
+
+      <H2 id="traps">Two silent UIKit traps</H2>
+      <Aside tone="caution" title="Both of these present as “the editor accepts no input at all”">
+        <p>
+          A <code>UITapGestureRecognizer</code> added for <code>Hit</code> testing wins gesture
+          arbitration and stops <code>UITextView</code>’s own text interaction from ever firing — so
+          the view never becomes first responder. It needs{' '}
+          <code>cancelsTouchesInView = false</code> <em>and</em> a delegate permitting simultaneous
+          recognition; neither alone is enough.
+        </p>
+        <p>
+          Separately, overriding <code>prepare(withInvocationTarget:)</code> on the replacement undo
+          manager makes UIKit invoke text mutations on the undo manager instead of on the text view,
+          swallowing every keystroke. Refusing to <em>perform</em> undo is sufficient; the
+          registrations can pile up harmlessly.
+        </p>
+      </Aside>
+
+      <H2 id="widget-sizing">A widget view may size itself by frame, not only by Auto Layout</H2>
+      <p>
+        Measuring only with <code>systemLayoutSizeFitting</code> reports zero for such a view, which
+        clamped a resolved image to one point and rendered it as an invisible gap. Related:
+        substitution can run before the text container has a width, so resolution must wait for a
+        real one — and asking for a <em>size</em> has to start the load, or a resource skipped for
+        want of a width is never requested again.
+      </p>
+
+      <H3 id="moves">Moves must not repaint</H3>
+      <p>
+        <code>NSTextStorage</code> carries attributes along with characters, so a decoration that
+        only shifted is already correct on screen. Including <code>moved</code> in the repaint region
+        drags it to the end of the document on every keystroke — O(document) per character instead
+        of O(paragraph). Only <code>added</code>, <code>removed</code> and the edited range are
+        dirty, and they are a set rather than a bounding box.
+      </p>
+
+      <H2 id="gallery">The reference apps</H2>
+      <Lede>
+        Both apps are real: a UIKit app in the simulator and an AppKit app on the desktop, each
+        driving the shared package against the same manifest as the web demo. These are captures of
+        them, produced by <code>./scripts/capture.sh</code>.
+      </Lede>
+      <Gallery />
+      <Note>
+        Nothing drives the apps from outside — <code>simctl</code> can screenshot a simulator but
+        cannot inject a touch into one. The apps compose their own shots: both are launched with{' '}
+        <code>--mde-capture &lt;shot&gt;</code> and set their scroll offset and selection to match.
+        Rendering is untouched.
+      </Note>
+
+      <SeeAlso
+        links={[
+          {
+            to: '/platforms/web',
+            title: 'Web',
+            note: 'the same primitives against contenteditable',
+          },
+          {
+            to: '/reference/swift',
+            title: 'Swift API',
+            note: 'MarkdownTextView, MarkdownEngine and the host protocols',
+          },
+          {
+            to: '/install',
+            title: 'Install and embed',
+            note: 'the Swift package, and building the XCFramework',
+          },
+        ]}
+      />
+    </>
+  );
+}

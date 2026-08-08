@@ -1,0 +1,1708 @@
+/* ============================================================================
+   mde — showcase styling. Compiled by the Tailwind Vite plugin; there is no
+   separate build step and no vendored stylesheet to keep in sync.
+
+   Direction: "the spec, published." The page is an engineering document that has
+   been properly typeset, not a product landing page.
+
+   Three materials, and nothing else:
+     paper    the page itself
+     surface  things that hold live content — the editor, gallery frames
+     ink      source code, always dark, in both themes
+
+   One family, two registers — which are the product's own two registers:
+     Geist        rendered text: statements, prose, interface
+     Geist Mono   source: markers, paths, data, code
+
+   That pairing is the point rather than a convenience. The hero's markdown markers
+   are set in Geist Mono inside a Geist headline, so the page shows the same
+   proportional/monospaced boundary the editor draws on every line.
+
+   Layout is expressed in utilities, in the components. This file holds the four
+   things utilities are the wrong tool for: the design tokens, the base typography,
+   the handful of bespoke components (the source panel, the signature, the gallery),
+   and the editor integration at the bottom.
+   ========================================================================== */
+
+/* `source(none)` plus explicit globs rather than automatic detection: this repo is
+   not a git checkout, so Tailwind's root heuristic has nothing to anchor on and would
+   otherwise walk `target/` and `build/` looking for class names. */
+@import "tailwindcss" source(none);
+@source "../index.html";
+@source "./**/*.{js,jsx}";
+
+/* Self-hosted variable faces, SIL OFL — see `site/fonts/LICENSE.txt`. Nothing is
+   fetched from another origin, at build time or at runtime. Absolute paths because
+   `site/fonts/` is served verbatim rather than bundled (see vite.config.js), which is
+   also what lets `index.html` preload these exact URLs. */
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/GeistMono-Variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------- tokens */
+
+/* `static` so every token reaches the stylesheet: the component rules below and the
+   gallery both read these through `var()`, which the source scanner cannot see. */
+@theme static {
+  /* materials */
+  --color-paper: #f2f3f6;
+  --color-paper-2: #e9ebf0;
+  --color-surface: #ffffff;
+  --color-inset: #eceef3;
+
+  /* ink — the source panel, identical in intent across themes */
+  --color-ink: #12151c;
+  --color-ink-line: rgba(255, 255, 255, 0.09);
+
+  /* text */
+  --color-text: #0e1116;
+  --color-muted: #4f566a;
+  --color-faint: #7d8496;
+
+  /* rules */
+  --color-rule: rgba(14, 17, 22, 0.13);
+  --color-rule-soft: rgba(14, 17, 22, 0.07);
+
+  /* the rendered / live state */
+  --color-accent: #2348e0;
+  --color-accent-hi: #1a37b4;
+  --color-accent-soft: rgba(35, 72, 224, 0.09);
+
+  /* the raw / source state — markers, strings, "before" numbers */
+  --color-syntax: #8a5a0f;
+  --color-syntax-soft: rgba(138, 90, 15, 0.11);
+
+  --shadow-lift: 0 1px 1px rgba(14, 17, 22, 0.04), 0 18px 40px -28px rgba(14, 17, 22, 0.45);
+  --shadow-ink: 0 1px 2px rgba(14, 17, 22, 0.16), 0 22px 46px -32px rgba(14, 17, 22, 0.6);
+
+  /* System faces trail each stack so the page is readable before the woff2 lands. */
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --container-page: 1140px;
+  --container-measure: 66ch;
+}
+
+/* Dark is designed, not derived: the accent is lifted rather than merely lightened,
+   the rules are alpha-white at a different weight, and paper sits *above* ink so the
+   source panel still reads as the deepest material in the stack.
+
+   Written as token overrides rather than as `dark:` variants on every utility. The
+   page has one palette with two settings, not two palettes — and this way the
+   gallery and the editor follow without knowing the theme exists.
+
+   Unlayered on purpose, so these beat the `@theme` block whatever the layer order. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-paper: #121519;
+    --color-paper-2: #171b21;
+    --color-surface: #1a1e25;
+    --color-inset: #242932;
+
+    --color-ink: #0b0d12;
+    --color-ink-line: rgba(255, 255, 255, 0.08);
+
+    --color-text: #e8ebf2;
+    --color-muted: #a2aab9;
+    --color-faint: #757d8e;
+
+    --color-rule: rgba(255, 255, 255, 0.13);
+    --color-rule-soft: rgba(255, 255, 255, 0.07);
+
+    --color-accent: #82a5ff;
+    --color-accent-hi: #a6c0ff;
+    --color-accent-soft: rgba(130, 165, 255, 0.15);
+
+    --color-syntax: #e3b463;
+    --color-syntax-soft: rgba(227, 180, 99, 0.14);
+
+    --shadow-lift: 0 0 0 1px rgba(255, 255, 255, 0.02);
+    --shadow-ink: 0 1px 0 rgba(255, 255, 255, 0.04);
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-paper: #121519;
+  --color-paper-2: #171b21;
+  --color-surface: #1a1e25;
+  --color-inset: #242932;
+
+  --color-ink: #0b0d12;
+  --color-ink-line: rgba(255, 255, 255, 0.08);
+
+  --color-text: #e8ebf2;
+  --color-muted: #a2aab9;
+  --color-faint: #757d8e;
+
+  --color-rule: rgba(255, 255, 255, 0.13);
+  --color-rule-soft: rgba(255, 255, 255, 0.07);
+
+  --color-accent: #82a5ff;
+  --color-accent-hi: #a6c0ff;
+  --color-accent-soft: rgba(130, 165, 255, 0.15);
+
+  --color-syntax: #e3b463;
+  --color-syntax-soft: rgba(227, 180, 99, 0.14);
+
+  --shadow-lift: 0 0 0 1px rgba(255, 255, 255, 0.02);
+  --shadow-ink: 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+:root { color-scheme: light dark; }
+
+/* ---------------------------------------------------------------- base */
+
+@layer base {
+  html {
+    /* Not `smooth`: the router moves the viewport itself on every navigation, and a
+       smooth scroll from halfway down one page to the top of the next reads as the
+       browser losing its place. Anchor clicks within a page are instant for the same
+       reason — the heading you asked for should already be there. */
+    scroll-behavior: auto;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-paper);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  /* Hierarchy is carried by weight and tracking rather than by a second family.
+     Geist tightens well, so display sizes take a real negative track and a heavier
+     axis position; body text sits at 400 and never moves. */
+  h1, h2 {
+    font-weight: 620;
+    letter-spacing: -0.032em;
+    line-height: 1.18;
+  }
+
+  h3 {
+    font-size: 0.96rem;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    line-height: 1.35;
+  }
+
+  p { margin-bottom: 1.05em; }
+  p:last-child { margin-bottom: 0; }
+
+  a {
+    color: var(--color-accent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+  }
+  a:hover { color: var(--color-accent-hi); }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection { background: var(--color-accent-soft); }
+
+  /* Inline source in prose: a tint, never a bordered box — at this density borders
+     turn a paragraph into a fence. */
+  p code, li code, td code, figcaption code, dd code {
+    background: var(--color-inset);
+    border-radius: 4px;
+    padding: 0.1em 0.34em;
+    color: var(--color-text);
+    font-size: 0.875em;
+    /* Breaks only when it genuinely will not fit. `nowrap` was the original rule and it
+       was wrong at phone width: one `editor.resourceResolver = DiskResourceResolver(…)`
+       in a paragraph pushed the whole page sideways. */
+    overflow-wrap: anywhere;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- components */
+
+@layer components {
+
+  /* -- typographic roles ------------------------------------------------- */
+
+  .lede {
+    color: var(--color-muted);
+    font-size: 1.08rem;
+    line-height: 1.65;
+    max-width: var(--container-measure);
+  }
+
+  .note {
+    color: var(--color-faint);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    /* A note nearly always follows a table or a figure and needs to be visibly *after*
+       it. A utility on the element still wins, for the handful that need more. */
+    margin-top: 1.1em;
+  }
+
+  /* The section marker is a `§`, because the page is a design document and the
+     sections are its clauses. Not a number: the page is not a sequence. */
+  .eyebrow {
+    display: flex;
+    align-items: baseline;
+    gap: 0.7em;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    margin-bottom: 20px;
+  }
+  .eyebrow::before {
+    content: "§";
+    color: var(--color-accent);
+    font-size: 0.95rem;
+    letter-spacing: 0;
+    transform: translateY(0.04em);
+  }
+
+  /* -- the signature ------------------------------------------------------
+
+     The headline conceals and reveals its own markdown, with the mechanic the
+     editor actually uses: the marker characters are in the DOM the whole time,
+     collapsed to nothing, and they come back when attention arrives. Hover a
+     marked word, or wait for the one-shot on load.
+
+     Reduced motion is not a degraded version — the markers simply rest visible,
+     which is the same statement without the movement. */
+
+  .node {
+    display: inline;
+    border-radius: 4px;
+    transition: background-color 0.25s ease;
+  }
+  .node:hover { background: var(--color-syntax-soft); }
+
+  .mk {
+    display: inline-block;
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    vertical-align: baseline;
+    font-family: var(--font-mono);
+    font-size: 0.5em;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--color-syntax);
+    transform: translateY(-0.06em);
+    transition: max-width 0.3s cubic-bezier(0.22, 0.7, 0.2, 1), opacity 0.22s ease;
+    /* No fill mode on purpose: once the one-shot has run the base rule takes back
+       over, and hover behaves normally. */
+    animation: mk-peek 3.6s 1.15s cubic-bezier(0.22, 0.7, 0.2, 1) 1;
+  }
+  .node:hover .mk { max-width: 3em; opacity: 1; }
+  .node:nth-of-type(2) .mk { animation-delay: 1.45s; }
+
+  @keyframes mk-peek {
+    0%, 100% { max-width: 0; opacity: 0; }
+    14%, 56% { max-width: 3em; opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mk { animation: none; max-width: 3em; opacity: 0.7; }
+    .node:hover { background: transparent; }
+  }
+
+  /* -- top bar ----------------------------------------------------------- */
+
+  .topbar {
+    background: color-mix(in srgb, var(--color-paper) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(14px);
+    -webkit-backdrop-filter: saturate(180%) blur(14px);
+  }
+
+  /* Scroll spy. A quiet mark rather than a filled pill: it says where you are, it
+     does not compete with the heading it points at. */
+  .navlink { position: relative; }
+  .navlink[aria-current="true"] { color: var(--color-text); }
+  .navlink[aria-current="true"]::after {
+    content: "";
+    position: absolute;
+    left: 9px;
+    right: 9px;
+    bottom: 1px;
+    height: 1.5px;
+    border-radius: 1px;
+    background: var(--color-accent);
+  }
+
+  .theme-toggle .i-moon { display: none; }
+  :root[data-theme="dark"] .theme-toggle .i-moon { display: block; }
+  :root[data-theme="dark"] .theme-toggle .i-sun { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .theme-toggle .i-moon { display: block; }
+    :root:not([data-theme="light"]) .theme-toggle .i-sun { display: none; }
+  }
+
+  /* ==================================================================== */
+  /* the documentation shell                                              */
+  /* ==================================================================== */
+
+  /* Three columns: navigation, the document, the document's own contents. The middle
+     one is the only one that has to exist — the outer two withdraw at their own
+     breakpoints rather than together, because they answer different questions and a
+     laptop has room for one of them but not both. */
+  .shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 1560px;
+    margin: 0 auto;
+  }
+
+  @media (min-width: 1024px) {
+    .shell { grid-template-columns: 264px minmax(0, 1fr); }
+  }
+  @media (min-width: 1400px) {
+    .shell { grid-template-columns: 264px minmax(0, 1fr) 232px; }
+  }
+
+  .doc-column {
+    min-width: 0;
+    padding: 40px 20px 0;
+    max-width: 940px;
+  }
+  @media (min-width: 640px) { .doc-column { padding: 48px 40px 0; } }
+
+  /* -- sidebar ----------------------------------------------------------- */
+
+  .sidebar {
+    position: sticky;
+    top: 54px;
+    align-self: start;
+    height: calc(100vh - 54px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-right: 1px solid var(--color-rule-soft);
+    background: var(--color-paper);
+  }
+
+  .sidebar-inner { padding: 30px 18px 60px 24px; }
+
+  .nav-group + .nav-group { margin-top: 26px; }
+
+  .nav-group-title {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    margin-bottom: 9px;
+  }
+
+  .nav-group ul { list-style: none; padding: 0; margin: 0; }
+
+  /* A hairline rail down the group, and the current page lights its own segment. Less
+     shouty than a filled pill, and it says "you are inside this list" rather than
+     "this is a button". */
+  .nav-link {
+    display: block;
+    padding: 5px 10px 5px 13px;
+    margin-left: -1px;
+    border-left: 1.5px solid var(--color-rule-soft);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: var(--color-muted);
+    text-decoration: none;
+    transition: color 0.12s ease, border-color 0.12s ease;
+  }
+  .nav-link:hover { color: var(--color-text); border-left-color: var(--color-rule); }
+  .nav-link[aria-current="page"] {
+    color: var(--color-accent);
+    border-left-color: var(--color-accent);
+    font-weight: 550;
+  }
+
+  .nav-foot {
+    margin-top: 34px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-rule-soft);
+    font-size: 0.76rem;
+    line-height: 1.5;
+    color: var(--color-faint);
+  }
+
+  .nav-scrim {
+    position: fixed;
+    inset: 54px 0 0;
+    z-index: 18;
+    background: color-mix(in srgb, var(--color-text) 26%, transparent);
+    backdrop-filter: blur(2px);
+  }
+
+  /* Below `lg` the same list becomes a drawer. Off-canvas rather than collapsed, so the
+     page underneath keeps its layout and the reader keeps their place in it. */
+  @media (max-width: 1023px) {
+    .sidebar {
+      position: fixed;
+      z-index: 19;
+      top: 54px;
+      left: 0;
+      width: 282px;
+      max-width: 86vw;
+      transform: translateX(-101%);
+      transition: transform 0.18s ease;
+      box-shadow: var(--shadow-lift);
+    }
+    .sidebar.is-open { transform: none; }
+  }
+
+  /* -- top bar controls -------------------------------------------------- */
+
+  .docs-label {
+    font-size: 0.78rem;
+    color: var(--color-faint);
+    padding-left: 11px;
+    margin-left: 2px;
+    border-left: 1px solid var(--color-rule-soft);
+  }
+  @media (max-width: 460px) { .docs-label { display: none; } }
+
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 30px;
+    margin-left: -6px;
+    border: 0;
+    background: transparent;
+    color: var(--color-muted);
+    cursor: pointer;
+    border-radius: 8px;
+  }
+  .nav-toggle:hover { background: var(--color-rule-soft); color: var(--color-text); }
+  .nav-toggle svg { width: 17px; height: 17px; }
+
+  .search-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    padding: 0 8px 0 9px;
+    border: 1px solid var(--color-rule);
+    border-radius: 8px;
+    background: var(--color-surface);
+    color: var(--color-faint);
+    font-size: 0.82rem;
+    cursor: pointer;
+    min-width: 0;
+    transition: border-color 0.14s ease, color 0.14s ease;
+  }
+  .search-trigger:hover { border-color: var(--color-accent); color: var(--color-text); }
+  .search-trigger svg { width: 14px; height: 14px; flex: none; }
+  .search-trigger .label { padding-right: 26px; }
+  @media (max-width: 560px) {
+    .search-trigger .label, .search-trigger kbd { display: none; }
+    .search-trigger { padding: 0 8px; }
+  }
+
+  kbd {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    line-height: 1;
+    padding: 3px 5px;
+    border: 1px solid var(--color-rule);
+    border-radius: 5px;
+    color: var(--color-faint);
+    background: var(--color-paper-2);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* -- table of contents -------------------------------------------------- */
+
+  .toc { display: none; }
+  @media (min-width: 1400px) {
+    .toc {
+      display: block;
+      position: sticky;
+      top: 54px;
+      align-self: start;
+      height: calc(100vh - 54px);
+      overflow-y: auto;
+      padding: 44px 24px 60px 4px;
+    }
+  }
+
+  .toc-title {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    margin-bottom: 12px;
+  }
+
+  .toc ul { list-style: none; padding: 0; margin: 0; }
+  .toc li[data-level="3"] a { padding-left: 24px; font-size: 0.79rem; }
+
+  .toc a {
+    display: block;
+    padding: 4px 0 4px 12px;
+    border-left: 1.5px solid var(--color-rule-soft);
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: var(--color-faint);
+    text-decoration: none;
+  }
+  .toc a:hover { color: var(--color-text); }
+  .toc a[aria-current="true"] {
+    color: var(--color-accent);
+    border-left-color: var(--color-accent);
+  }
+
+  /* -- the document ------------------------------------------------------- */
+
+  .doc-head { padding-bottom: 6px; }
+  .doc-head h1 {
+    font-size: clamp(2rem, 4vw, 2.6rem);
+    line-height: 1.08;
+    letter-spacing: -0.036em;
+    margin-bottom: 0.42em;
+    text-wrap: balance;
+    max-width: 20ch;
+  }
+  .doc-summary { max-width: 62ch; font-size: 1.06rem; }
+
+  /* Headings own the space above them, so a section never needs a margin of its own. */
+  .doc-h2 {
+    position: relative;
+    margin: 3.4em 0 0.7em;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--color-rule-soft);
+    font-size: clamp(1.35rem, 2.4vw, 1.62rem);
+    line-height: 1.2;
+    letter-spacing: -0.028em;
+    font-weight: 620;
+    text-wrap: balance;
+    max-width: 30ch;
+    /* Clears the 54px bar plus a little air, for an anchor jump. */
+    scroll-margin-top: 74px;
+  }
+  .doc-h2:first-child { margin-top: 2.2em; }
+
+  .doc-h3 {
+    position: relative;
+    margin: 2.4em 0 0.6em;
+    font-size: 1.02rem;
+    font-weight: 620;
+    letter-spacing: -0.012em;
+    scroll-margin-top: 74px;
+  }
+
+  /* The deep link. Present in the DOM always so it cannot shift the heading when it
+     appears, and revealed by hovering the heading — or by focusing it, which is how it
+     is reachable without a pointer. */
+  .anchor {
+    position: absolute;
+    margin-left: 0.35em;
+    font-family: var(--font-mono);
+    font-weight: 400;
+    color: var(--color-faint);
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 0.14s ease;
+  }
+  .doc-h2:hover .anchor,
+  .doc-h3:hover .anchor,
+  .anchor:focus-visible { opacity: 1; }
+  .anchor:hover { color: var(--color-accent); }
+  @media (hover: none) { .anchor { opacity: 0.4; } }
+
+  .doc-body > p { max-width: var(--container-measure); }
+  .doc-body > p + p { margin-top: -0.15em; }
+
+  .ref-preamble { margin-top: 1.6em; }
+
+  /* -- hero (overview only) ----------------------------------------------- */
+
+  .hero { padding: 18px 0 6px; }
+  .hero-title {
+    margin-bottom: 26px;
+    max-width: 15.4em;
+    /* The display cut. The landing is the only page with a hero now, so the size lives
+       here rather than as a per-page override. */
+    font-size: clamp(2.3rem, 5.2vw, 4.2rem);
+    line-height: 1.05;
+    font-weight: 640;
+    letter-spacing: -0.042em;
+  }
+
+  .readouts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 0;
+    margin-top: 34px;
+    border-top: 1px solid var(--color-rule);
+  }
+  @media (min-width: 640px) {
+    .readouts { display: flex; flex-wrap: wrap; gap: 0; }
+    .readouts > div { margin-right: 24px; border-right: 1px solid var(--color-rule-soft); }
+    .readouts > div:last-child { margin-right: 0; border-right: 0; padding-right: 0; }
+  }
+  .readouts > div { padding: 14px 24px 0 0; }
+  .readouts dt {
+    margin-bottom: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    white-space: nowrap;
+  }
+  .readouts dd {
+    font-size: 0.94rem;
+    font-weight: 550;
+    color: var(--color-text);
+    white-space: nowrap;
+  }
+
+  /* -- cards, for the one page that offers a choice of routes -------------- */
+
+  .cards {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    margin-top: 26px;
+  }
+
+  .card {
+    position: relative;
+    display: block;
+    padding: 18px 18px 20px;
+    border: 1px solid var(--color-rule);
+    border-radius: 13px;
+    background: var(--color-surface);
+    text-decoration: none;
+    transition: border-color 0.14s ease, transform 0.14s ease;
+  }
+  .card:hover { border-color: var(--color-accent); transform: translateY(-1px); }
+  .card-title {
+    display: block;
+    font-weight: 600;
+    color: var(--color-text);
+    margin-bottom: 6px;
+  }
+  .card-body {
+    display: block;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--color-muted);
+  }
+  .card-go {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+    opacity: 0;
+    transition: opacity 0.14s ease;
+  }
+  .card:hover .card-go { opacity: 1; }
+
+  /* -- asides -------------------------------------------------------------- */
+
+  .aside {
+    margin: 2em 0;
+    max-width: 900px;
+    padding: 18px 20px;
+    border: 1px solid var(--color-rule);
+    border-left-width: 3px;
+    border-radius: 10px;
+    background: var(--color-paper-2);
+  }
+  .aside-note { border-left-color: var(--color-accent); }
+  .aside-caution { border-left-color: var(--color-syntax); }
+  .aside-next { border-left-color: var(--color-faint); border-style: dashed; }
+
+  .aside-title {
+    margin-bottom: 7px;
+    font-size: 0.875rem;
+    font-weight: 620;
+    color: var(--color-text);
+  }
+  .aside-body { font-size: 0.9rem; line-height: 1.62; color: var(--color-muted); }
+  .aside-body p + p { margin-top: 0.9em; }
+
+  /* -- steps --------------------------------------------------------------- */
+
+  .steps {
+    counter-reset: step;
+    list-style: none;
+    padding: 0;
+    margin: 1.6em 0;
+    max-width: var(--container-measure);
+  }
+  .steps > li {
+    position: relative;
+    padding-left: 38px;
+    padding-bottom: 20px;
+    font-size: 0.9rem;
+    line-height: 1.62;
+    color: var(--color-muted);
+  }
+  .steps > li::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: -1px;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1px solid var(--color-rule);
+    background: var(--color-surface);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--color-accent);
+  }
+  /* The rail between the markers, which is what makes it read as a sequence. */
+  .steps > li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    top: 27px;
+    bottom: 6px;
+    width: 1px;
+    background: var(--color-rule-soft);
+  }
+  .step-title { color: var(--color-text); font-weight: 550; margin-bottom: 2px; }
+
+  /* -- see also, defs, q&a -------------------------------------------------- */
+
+  .see-also {
+    margin-top: 3.4em;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--color-rule-soft);
+  }
+  .see-also ul { list-style: none; padding: 0; margin: 0; }
+  .see-also li {
+    padding: 5px 0;
+    font-size: 0.9rem;
+    color: var(--color-faint);
+  }
+  .see-also li a { font-weight: 550; text-decoration: none; }
+  .see-also li a:hover { text-decoration: underline; }
+
+  .defs { margin: 1.6em 0; max-width: 900px; }
+  .defs > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: 11px 0;
+    border-top: 1px solid var(--color-rule-soft);
+  }
+  @media (min-width: 720px) {
+    .defs > div { grid-template-columns: 220px minmax(0, 1fr); gap: 20px; }
+  }
+  .defs dt {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--color-text);
+  }
+  .defs dd { font-size: 0.9rem; line-height: 1.55; color: var(--color-muted); }
+
+  .qa { margin-top: 1.6em; max-width: 900px; }
+  .qa > div { padding: 16px 0; border-top: 1px solid var(--color-rule-soft); }
+  .qa h3 { margin-bottom: 5px; }
+  .qa p { font-size: 0.9rem; line-height: 1.62; color: var(--color-muted); }
+  .qa-closed h3 { color: var(--color-faint); text-decoration: line-through; }
+
+  .key-formula {
+    margin: 1.4em 0;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--color-inset);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    overflow-x: auto;
+    color: var(--color-text);
+  }
+
+  /* -- API reference -------------------------------------------------------- */
+
+  .api-file {
+    margin: -0.3em 0 1em;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--color-faint);
+  }
+
+  /* `minmax(0, 1fr)` and `min-width: 0` together: a grid item's automatic minimum size
+     is its *content's* minimum, and a signature is `white-space: pre`, so without both
+     of these the card grows to the width of the longest signature and takes the page
+     with it. The signature scrolls inside its own box instead. */
+  .api-list {
+    margin-top: 26px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .api-symbol {
+    min-width: 0;
+    padding: 16px 18px 18px;
+    border: 1px solid var(--color-rule-soft);
+    border-radius: 12px;
+    background: var(--color-paper-2);
+    scroll-margin-top: 74px;
+  }
+  .api-symbol > header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 9px;
+    /* `MarkdownEditor.setSelectionRange` plus a badge is wider than a phone. */
+    flex-wrap: wrap;
+  }
+  .api-symbol h3 {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text);
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .api-kind {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    border: 1px solid var(--color-rule-soft);
+    border-radius: 5px;
+    padding: 2px 5px;
+  }
+  .api-kind-event { color: var(--color-syntax); border-color: var(--color-syntax-soft); }
+  .api-kind-type, .api-kind-protocol { color: var(--color-accent); border-color: var(--color-accent-soft); }
+
+  .api-signature {
+    overflow-x: auto;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--color-ink);
+    color: #c7d0e0;
+    font-family: var(--font-mono);
+    font-size: 0.775rem;
+    line-height: 1.65;
+    white-space: pre;
+  }
+
+  .api-summary {
+    margin: 10px 0 0;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--color-muted);
+    max-width: 70ch;
+  }
+
+  .api-params { margin-top: 10px; }
+  .api-params > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 5px 0;
+  }
+  @media (min-width: 720px) {
+    .api-params > div { grid-template-columns: 190px minmax(0, 1fr); gap: 16px; }
+  }
+  .api-params dt {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--color-text);
+  }
+  .api-params dd { font-size: 0.86rem; color: var(--color-muted); line-height: 1.5; }
+
+  .api-returns { margin-top: 8px; font-size: 0.86rem; color: var(--color-muted); }
+  .api-returns span {
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    margin-right: 8px;
+  }
+
+  /* The thing that bites. Marked, because a reader skimming signatures should still
+     catch it. */
+  .api-note {
+    margin-top: 10px;
+    padding-left: 12px;
+    border-left: 2px solid var(--color-syntax);
+    font-size: 0.85rem;
+    line-height: 1.55;
+    color: var(--color-faint);
+    max-width: 70ch;
+  }
+
+  /* -- pager and footer ------------------------------------------------------ */
+
+  .pager {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 4em;
+    padding-top: 1.6rem;
+    border-top: 1px solid var(--color-rule-soft);
+  }
+
+  .pager-link {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--color-rule);
+    border-radius: 11px;
+    text-decoration: none;
+    transition: border-color 0.14s ease;
+  }
+  .pager-link:hover { border-color: var(--color-accent); }
+  .pager-next { text-align: right; align-items: flex-end; }
+  .pager-dir {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+  .pager-title { font-size: 0.94rem; font-weight: 550; color: var(--color-text); }
+
+  .doc-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 22px;
+    margin-top: 3.4em;
+    padding: 22px 0 56px;
+    border-top: 1px solid var(--color-rule-soft);
+    font-size: 0.8rem;
+    color: var(--color-faint);
+  }
+
+  /* -- search palette --------------------------------------------------------- */
+
+  .search-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    justify-content: center;
+    padding: 12vh 16px 16px;
+    background: color-mix(in srgb, var(--color-text) 32%, transparent);
+    backdrop-filter: blur(3px);
+  }
+  @media (max-width: 560px) { .search-scrim { padding-top: 6vh; } }
+
+  .search-panel {
+    width: min(660px, 100%);
+    max-height: min(560px, 80vh);
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-rule);
+    border-radius: 15px;
+    background: var(--color-surface);
+    box-shadow: 0 24px 70px -24px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+  }
+
+  .search-field {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 13px 15px;
+    border-bottom: 1px solid var(--color-rule-soft);
+  }
+  .search-field svg { width: 16px; height: 16px; color: var(--color-faint); flex: none; }
+  .search-field input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    font: 400 1rem var(--font-sans);
+    color: var(--color-text);
+  }
+  .search-field input::-webkit-search-cancel-button { display: none; }
+
+  .search-results { overflow-y: auto; padding: 8px; overscroll-behavior: contain; }
+
+  .search-empty {
+    padding: 22px 12px 26px;
+    font-size: 0.86rem;
+    line-height: 1.6;
+    color: var(--color-faint);
+    text-align: center;
+  }
+
+  .search-hit {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 9px 11px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+  }
+  .search-hit[data-active="1"] { background: var(--color-accent-soft); }
+
+  .hit-crumb {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    color: var(--color-faint);
+    text-transform: uppercase;
+  }
+  .hit-crumb i { font-style: normal; opacity: 0.5; padding: 0 3px; }
+  .hit-kind {
+    font-style: normal;
+    margin-left: 8px;
+    color: var(--color-accent);
+    letter-spacing: 0.1em;
+  }
+
+  .hit-title {
+    display: block;
+    margin: 2px 0 2px;
+    font-size: 0.94rem;
+    font-weight: 550;
+    color: var(--color-text);
+  }
+
+  .hit-snippet {
+    display: block;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: var(--color-muted);
+    /* Two lines is the most that helps; beyond that the list stops being scannable. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .hit-snippet mark {
+    background: var(--color-syntax-soft);
+    color: var(--color-text);
+    border-radius: 3px;
+    padding: 0 1px;
+  }
+
+  /* -- the editor's chrome ------------------------------------------------
+     Bespoke rather than utilities: the shell, its bar and the scroll box are one
+     object with one set of decisions, and reading them in one place is worth more
+     than spreading them across three class attributes. */
+
+  .editor-shell {
+    border: 1px solid var(--color-rule);
+    border-radius: 16px;
+    background: var(--color-surface);
+    overflow: hidden;
+    box-shadow: var(--shadow-lift);
+  }
+
+  .editor-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-rule-soft);
+    background: color-mix(in srgb, var(--color-surface) 70%, var(--color-paper));
+  }
+
+  /* Two columns while the timeline is open: the document keeps three quarters, the
+     history takes the last quarter. The editor node itself never moves — only this
+     wrapper's template changes — so the toggle cannot disturb the caret. */
+
+  .editor-body {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .editor-body.with-history {
+    grid-template-columns: 3fr 1fr;
+  }
+
+  /* The revision timeline (DESIGN §9): a sidebar column, newest at the bottom, the
+     current position marked, click to land anywhere. It scrolls with the editor's own
+     height rather than floating over the page. */
+  .history-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px;
+    border-left: 1px solid var(--color-rule-soft);
+    background: color-mix(in srgb, var(--color-surface) 45%, var(--color-paper));
+    overflow-y: auto;
+    min-width: 0;
+    /* Match the editor column's cap, or a long timeline would stretch the row past it. */
+    max-height: 64vh;
+  }
+
+  /* Below tablet width a quarter column is unusably narrow; stack it instead. */
+  @media (max-width: 720px) {
+    .editor-body.with-history {
+      grid-template-columns: 1fr;
+    }
+
+    .history-panel {
+      border-left: 0;
+      border-top: 1px solid var(--color-rule-soft);
+    }
+  }
+
+  .history-entry {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 7px;
+    text-align: left;
+    border: 1px solid var(--color-rule-soft);
+    border-radius: 7px;
+    background: none;
+    padding: 5px 10px;
+    font-size: 0.8rem;
+    color: var(--color-text);
+    cursor: pointer;
+  }
+
+  .history-entry:hover {
+    border-color: var(--color-accent);
+  }
+
+  .history-entry[aria-current='true'] {
+    border-color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+    font-weight: 600;
+  }
+
+  .history-when {
+    font-size: 0.68rem;
+    color: var(--color-faint);
+    white-space: nowrap;
+  }
+
+  .editor-bar .doc {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--color-faint);
+    padding-right: 12px;
+    margin-right: 5px;
+    border-right: 1px solid var(--color-rule-soft);
+    white-space: nowrap;
+  }
+
+  .editor-bar .status {
+    margin-left: auto;
+    padding-left: 12px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Three buttons and a live readout do not both fit at phone width; the readout is
+     the part a visitor can lose. */
+  @media (max-width: 780px) {
+    .editor-bar .doc { display: none; }
+  }
+  @media (max-width: 560px) {
+    .editor-bar .status { display: none; }
+  }
+
+  #editor {
+    max-height: 64vh;
+    min-height: 400px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    font-size: 16.5px;
+  }
+
+  .editor-fallback {
+    padding: 32px 22px;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--color-muted);
+    line-height: 1.75;
+  }
+  .editor-fallback code { color: var(--color-text); }
+
+  /* -- toolbar ------------------------------------------------------------
+
+     Buttons are rendered from a list of descriptors in `src/lib/toolbar.js`; this
+     styles whatever that list contains, including toggles (`aria-pressed`). It has
+     to survive the list growing, so it wraps rather than overflowing. */
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .tool {
+    font: 500 0.8rem/1 var(--font-sans);
+    padding: 7px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--color-rule);
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.14s ease, color 0.14s ease, background-color 0.14s ease;
+  }
+  .tool:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+    color: var(--color-accent);
+  }
+  .tool:active:not(:disabled) { background: var(--color-accent-soft); }
+  .tool:disabled { opacity: 0.38; cursor: default; }
+  .tool[aria-pressed="true"] {
+    background: var(--color-accent-soft);
+    border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+    color: var(--color-accent);
+  }
+
+  /* The document name, with a live dot. */
+  .doc-name::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    opacity: 0.65;
+  }
+
+  /* -- try-this list ----------------------------------------------------- */
+
+  .hint {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 10px 32px;
+    list-style: none;
+    padding: 0;
+    margin: 24px 0 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--color-muted);
+  }
+  .hint li { position: relative; padding-left: 22px; }
+  .hint li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+  }
+
+  /* -- source panels ------------------------------------------------------
+
+     Source is ink in both themes. It is the one material that does not change with
+     the colour scheme, because source does not change with the colour scheme — and
+     it is what gives the light theme its weight without shouting. */
+
+  .src {
+    border-radius: 13px;
+    background: var(--color-ink);
+    border: 1px solid var(--color-ink-line);
+    box-shadow: var(--shadow-ink);
+    overflow: hidden;
+  }
+
+  .src figcaption {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px 9px 16px;
+    border-bottom: 1px solid var(--color-ink-line);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: #7d879b;
+    background: rgba(255, 255, 255, 0.022);
+  }
+
+  .src .path { color: #aab4c7; letter-spacing: 0.01em; }
+
+  .src .lang {
+    margin-left: auto;
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #6b7488;
+  }
+
+  .src .copy {
+    font: 500 0.68rem/1 var(--font-mono);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #8b95a9;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 6px;
+    padding: 5px 9px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+  }
+  .src:hover .copy,
+  .src .copy:focus-visible { opacity: 1; }
+  .src .copy:hover { color: #dfe5f0; border-color: rgba(255, 255, 255, 0.26); }
+  .src .copy[data-done="1"] {
+    color: #8fd8a8;
+    border-color: rgba(143, 216, 168, 0.4);
+    opacity: 1;
+  }
+  /* Touch: there is no hover, so the control has to be there. */
+  @media (hover: none) {
+    .src .copy { opacity: 1; }
+  }
+
+  .src pre {
+    padding: 18px 20px 20px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.72;
+    tab-size: 2;
+    color: #c7d0e0;
+  }
+  .src code {
+    font-size: inherit;
+    background: none;
+    padding: 0;
+    white-space: pre;
+  }
+
+  /* Tokens, tuned for this panel rather than lifted from a theme. Strings carry the
+     same ochre the hero's markdown markers use: both are literal source. */
+  .src .c { color: #667087; font-style: italic; }
+  .src .s { color: #e0b46a; }
+  .src .k { color: #8fadf5; }
+  .src .t { color: #6fc2c0; }
+  .src .f { color: #d6dded; }
+  .src .p { color: #79839a; }
+  .src .n { color: #d8a0e8; }
+
+  /* -- tables ------------------------------------------------------------ */
+
+  .data { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+
+  .data th,
+  .data td {
+    text-align: right;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--color-rule-soft);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    vertical-align: baseline;
+  }
+  .data th:first-child, .data td:first-child { text-align: left; padding-left: 0; }
+  .data th:last-child, .data td:last-child { padding-right: 0; }
+
+  .data thead th {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    font-weight: 500;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    padding-top: 12px;
+    padding-bottom: 10px;
+  }
+
+  .data tbody td {
+    font-family: var(--font-mono);
+    font-size: 0.84rem;
+    color: var(--color-muted);
+  }
+  .data tbody td:first-child {
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    color: var(--color-text);
+  }
+  .data tbody tr:last-child td { border-bottom: 0; }
+
+  .data td.now { color: var(--color-text); font-weight: 600; }
+  .data td.before { color: var(--color-syntax); }
+  .data td.gain { color: var(--color-accent); font-weight: 600; }
+
+  /* A wrapping description column, for tables that carry prose. */
+  .data td.desc, .data th.desc {
+    text-align: left;
+    white-space: normal;
+    font-family: var(--font-sans);
+    font-size: 0.885rem;
+    color: var(--color-muted);
+    line-height: 1.5;
+  }
+  .data tbody td.role {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--color-text);
+    text-align: left;
+  }
+
+  .bar-cell { width: 30%; min-width: 84px; padding-right: 0; }
+  .bar {
+    display: block;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--color-accent);
+    min-width: 2px;
+    opacity: 0.9;
+  }
+
+  /* -- native gallery -----------------------------------------------------
+
+     Rendered by `src/components/Gallery.jsx` from `assets/manifest.json`, so these
+     class names are the contract with that component. */
+
+  /* One full-width band per platform, stacked. Side-by-side columns were tried and
+     rejected: portrait phone captures and landscape desktop ones want different
+     widths, and splitting the page between them made the phones postage stamps. Each
+     band instead sets its own track size — a filmstrip of phones, a pair of desktops. */
+  .gallery {
+    display: grid;
+    gap: 48px;
+    grid-template-columns: 1fr;
+    margin-top: 40px;
+  }
+
+  .platform > h3 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    font-weight: 500;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--color-rule);
+    margin-bottom: 22px;
+  }
+
+  /* A platform the manifest names but this file has never heard of still gets a
+     sensible track. */
+  .shots {
+    display: grid;
+    gap: 26px 24px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+  .platform-ios .shots { grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); }
+  .platform-macos .shots { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+
+  .gallery figure { min-width: 0; }
+
+  /* `fit-content` so the frame hugs the capture: a portrait screenshot centred in a
+     full-width box with two empty bars beside it reads as a layout mistake rather
+     than as a phone. */
+  .gallery .frame {
+    border: 1px solid var(--color-rule);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--color-surface);
+    position: relative;
+    line-height: 0;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 auto;
+    box-shadow: var(--shadow-lift);
+  }
+
+  .gallery img,
+  .gallery video {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 520px;
+    margin: 0 auto;
+  }
+
+  .gallery figcaption {
+    margin-top: 11px;
+    font-size: 0.79rem;
+    line-height: 1.5;
+    color: var(--color-muted);
+    max-width: 44ch;
+  }
+
+  .badge {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    z-index: 1;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--color-surface);
+    background: color-mix(in srgb, var(--color-text) 76%, transparent);
+    backdrop-filter: blur(6px);
+    border-radius: 5px;
+    padding: 3px 7px;
+    line-height: 1.4;
+  }
+
+  .placeholder {
+    margin-top: 32px;
+    border: 1px dashed var(--color-rule);
+    border-radius: 12px;
+    padding: 28px 24px;
+    background: var(--color-paper-2);
+    color: var(--color-muted);
+    font-size: 0.9rem;
+    max-width: 640px;
+  }
+
+  @media (max-width: 720px) {
+    .gallery img, .gallery video { max-height: 400px; }
+  }
+
+  /* -- diagram ----------------------------------------------------------- */
+
+  .diagram svg { display: block; width: 100%; height: auto; }
+  .dg-box { fill: var(--color-surface); stroke: var(--color-rule); stroke-width: 1; }
+  .dg-core {
+    fill: var(--color-accent-soft);
+    stroke: color-mix(in srgb, var(--color-accent) 42%, transparent);
+  }
+  .dg-title { fill: var(--color-text); font: 600 13px var(--font-sans); }
+  .dg-sub { fill: var(--color-muted); font: 11px var(--font-mono); }
+  .dg-edge { fill: var(--color-faint); font: 10.5px var(--font-mono); }
+  .dg-line { stroke: var(--color-faint); stroke-width: 1; fill: none; opacity: 0.75; }
+  .dg-arrow { fill: var(--color-faint); }
+
+  /* -- demo host widgets --------------------------------------------------
+     `web/demo/host.js` owns these class names; the editor draws them inside the
+     contenteditable, so they are styled here rather than there. */
+
+  .demo-card {
+    border-radius: 10px;
+    padding: 13px 15px;
+    margin: 5px 0;
+    border: 1px solid;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .demo-card-info {
+    background: var(--color-accent-soft);
+    border-color: color-mix(in srgb, var(--color-accent) 38%, transparent);
+  }
+  .demo-card-warning {
+    background: var(--color-syntax-soft);
+    border-color: color-mix(in srgb, var(--color-syntax) 45%, transparent);
+  }
+  .demo-chip {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 9px;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-weight: 550;
+  }
+  .demo-image { max-width: 100%; border-radius: 9px; display: block; }
+
+  /* An extension role the host chose to draw as styling rather than a widget. */
+  .mde-ext-wikilink {
+    color: #8b46d8;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, #8b46d8 45%, transparent);
+    text-underline-offset: 2px;
+  }
+  :root[data-theme="dark"] .mde-ext-wikilink { color: #c295f5; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .mde-ext-wikilink { color: #c295f5; }
+  }
+}
+
+/* ---------------------------------------------------------------- editor */
+
+/* Deliberately unlayered, and deliberately last.
+   `web/src/theme.css` is an ordinary stylesheet with no cascade layers, and every
+   layered rule — Preflight included — ranks below unlayered CSS no matter the
+   source order. So the editor's own styling survives Tailwind's reset untouched,
+   which is what we want; and re-pointing its variables at this page's tokens has to
+   happen from unlayered CSS too, or `theme.css` would win. `src/main.jsx` imports
+   `theme.css` before this file, which settles the order between the two. */
+
+.mde-editor {
+  --mde-text: var(--color-text);
+  --mde-bg: var(--color-surface);
+  --mde-muted: var(--color-faint);
+  --mde-code-bg: var(--color-inset);
+  --mde-accent: var(--color-accent);
+  font-family: var(--font-sans);
+  padding: 26px 24px 44px;
+}
+
+/* At phone width the shell's own inset plus the editor's is most of the screen. */
+@media (max-width: 560px) {
+  .mde-editor { padding: 20px 16px 36px; }
+}
+
+/* The document's own source runs — inline code, fenced blocks, the task marker — in
+   the same monospace the page uses for source everywhere else. */
+.mde-editor .mde-code-inline,
+.mde-editor .mde-code-block,
+.mde-editor .mde-task-checkbox {
+  font-family: var(--font-mono);
+}

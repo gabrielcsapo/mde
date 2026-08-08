@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Markdown editor — web</title>
+<link rel="stylesheet" href="../src/theme.css">
+<!-- After theme.css on purpose: see the note at the top of extensions.css. -->
+<link rel="stylesheet" href="../extensions/extensions.css">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: #fff;
+    color: #16181d;
+  }
+  header {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(0,0,0,.08);
+    background: rgba(255,255,255,.85);
+    backdrop-filter: blur(12px);
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0 12px 0 0; }
+  button {
+    font: inherit; padding: 5px 11px; border-radius: 7px;
+    border: 1px solid rgba(0,0,0,.14); background: #fff; cursor: pointer;
+  }
+  button:disabled { opacity: .38; cursor: default; }
+  #status { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .55; font-size: 13px; }
+
+  /* The history panel: the timeline as a list, current position marked, click to land
+     anywhere. Undo/redo are the two-button view of the same thing. */
+  #history-panel {
+    position: fixed; right: 16px; top: 56px; z-index: 3;
+    width: 240px; max-height: 60vh; overflow-y: auto;
+    border: 1px solid rgba(0,0,0,.14); border-radius: 10px;
+    background: #fff; box-shadow: 0 8px 28px -12px rgba(0,0,0,.35);
+    padding: 6px; display: none;
+  }
+  #history-panel[data-open] { display: block; }
+  #history-panel button {
+    display: block; width: 100%; text-align: left; border: 0; background: none;
+    padding: 7px 9px; border-radius: 7px; font-size: 13px; line-height: 1.35;
+  }
+  #history-panel button:hover { background: rgba(47,107,245,.08); }
+  #history-panel button[aria-current="true"] {
+    background: rgba(47,107,245,.14); font-weight: 600;
+  }
+  #history-panel .when { opacity: .5; font-size: 11px; display: block; }
+  @media (prefers-color-scheme: dark) {
+    #history-panel { background: #1b1e25; border-color: rgba(255,255,255,.14); }
+  }
+  main { max-width: 760px; margin: 0 auto; }
+
+  .demo-card {
+    border-radius: 10px; padding: 12px 14px; margin: 4px 0;
+    border: 1px solid; font-size: 15px; line-height: 1.5;
+  }
+  .demo-card-info { background: rgba(47,107,245,.10); border-color: rgba(47,107,245,.35); }
+  .demo-card-warning { background: rgba(240,150,20,.12); border-color: rgba(240,150,20,.40); }
+  .demo-chip {
+    display: inline-block; padding: 1px 7px; border-radius: 9px;
+    background: rgba(47,107,245,.15); color: #2f6bf5; font-weight: 500;
+  }
+  .demo-image { max-width: 100%; border-radius: 8px; display: block; }
+  /* An extension role rendered as plain styling rather than a widget: the core reports
+     `wikilink`, the host decides it looks like this. */
+  .mde-ext-wikilink { color: #a45cf0; text-decoration: underline; }
+
+  @media (prefers-color-scheme: dark) {
+    body { background: #16181d; color: #e8eaf0; }
+    header { background: rgba(22,24,29,.85); border-bottom-color: rgba(255,255,255,.10); }
+    button { background: #23262e; color: #e8eaf0; border-color: rgba(255,255,255,.14); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Note</h1>
+  <button id="bold">Bold</button>
+  <button id="undo">Undo</button>
+  <button id="redo">Redo</button>
+  <button id="typewriter" aria-pressed="false">Typewriter</button>
+  <button id="pos" aria-pressed="false">Parts of speech</button>
+  <button id="history" aria-pressed="false">History</button>
+  <span id="status"></span>
+</header>
+<main><div id="editor"></div></main>
+<div id="history-panel" role="listbox" aria-label="Revision history"></div>
+
+<script type="module">
+import { loadCore } from '../src/core.js';
+import { encodeManifest } from '../src/manifest.js';
+import { MarkdownEditor } from '../src/editor.js';
+import { Role } from '../src/core.js';
+import { manifestSpec, sample, widgetProvider, resourceResolver } from './host.js';
+// Extensions. Note where these come from: `../extensions/`, not `../src/`. The editor
+// has no idea they exist — they are written entirely against the public layer API.
+import { TypewriterMode } from '../extensions/typewriter.js';
+import { PartsOfSpeech } from '../extensions/parts-of-speech.js';
+
+const core = await loadCore('../mde.wasm');
+const engine = core.newEngine(encodeManifest(manifestSpec));
+
+const editor = new MarkdownEditor(document.getElementById('editor'), engine, {
+  widgetProvider,
+  resourceResolver,
+});
+
+// Remembered resource dimensions. The editor measures whatever resolves; persisting
+// that here is what stops the document shifting on the *next* load — `reservedSize` only
+// has to guess for an asset this host has genuinely never seen.
+const SIZES_KEY = 'mde.resourceSizes';
+try {
+  editor.resourceSizes = JSON.parse(localStorage.getItem(SIZES_KEY) ?? '{}');
+} catch {
+  // A corrupt entry is not worth failing to open the document over.
+}
+addEventListener('pagehide', () => {
+  try {
+    localStorage.setItem(SIZES_KEY, JSON.stringify(editor.resourceSizes));
+  } catch {
+    // Storage full or blocked: the sizes are an optimization, not state we need.
+  }
+});
+
+editor.setMarkdown(sample);
+
+const undoBtn = document.getElementById('undo');
+const redoBtn = document.getElementById('redo');
+const status = document.getElementById('status');
+
+function refresh() {
+  undoBtn.disabled = !editor.canUndo;
+  redoBtn.disabled = !editor.canRedo;
+  status.textContent =
+    `${editor.markdown.length} chars · ${editor.decorations.length} decorations`;
+}
+
+editor.addEventListener('change', refresh);
+undoBtn.addEventListener('click', () => { editor.undo(); refresh(); });
+redoBtn.addEventListener('click', () => { editor.redo(); refresh(); });
+
+// Both features are toggled the same way, because both are just a layer being pushed
+// and cleared. Neither needed a change to the editor.
+const typewriter = new TypewriterMode(editor);
+const partsOfSpeech = new PartsOfSpeech(editor);
+
+function wireToggle(id, feature) {
+  const button = document.getElementById(id);
+  button.addEventListener('click', () => {
+    button.setAttribute('aria-pressed', String(feature.toggle()));
+    editor.root.focus();
+  });
+}
+wireToggle('typewriter', typewriter);
+wireToggle('pos', partsOfSpeech);
+
+// ---- history panel ----------------------------------------------------------
+// Built entirely on the public timeline API: `revisions`, `historyPosition`, `jumpTo`.
+const historyBtn = document.getElementById('history');
+const historyPanel = document.getElementById('history-panel');
+
+function describe(rev) {
+  const what =
+    rev.kind === 0 ? `+${rev.inserted}`
+    : rev.kind === 1 ? `−${rev.removed}`
+    : `−${rev.removed} +${rev.inserted}`;
+  // The engine's clock is monotonic (`performance.now()` here) because it exists for
+  // undo coalescing, so a wall-clock rendering would show 1970. Age is what a person
+  // wants from a history panel anyway.
+  const age = Math.max(0, performance.now() - rev.atMs);
+  const when =
+    age < 5_000 ? 'just now'
+    : age < 60_000 ? `${Math.round(age / 1000)}s ago`
+    : age < 3_600_000 ? `${Math.round(age / 60_000)}m ago`
+    : `${Math.round(age / 3_600_000)}h ago`;
+  return { what, when };
+}
+
+function renderHistory() {
+  if (!historyPanel.hasAttribute('data-open')) return;
+  const position = editor.historyPosition;
+  const entries = [];
+
+  const start = document.createElement('button');
+  start.textContent = 'Opened document';
+  start.setAttribute('aria-current', String(position === 0));
+  start.addEventListener('click', () => { editor.jumpTo(0); renderHistory(); refresh(); });
+  entries.push(start);
+
+  for (const rev of editor.revisions) {
+    const b = document.createElement('button');
+    const { what, when } = describe(rev);
+    b.innerHTML = '';
+    b.append(
+      Object.assign(document.createElement('span'), { textContent: `${what} characters` }),
+      Object.assign(document.createElement('span'), { className: 'when', textContent: when }),
+    );
+    // Position p means "the document immediately after revision p-1".
+    const target = rev.index + 1;
+    b.setAttribute('aria-current', String(position === target));
+    b.addEventListener('click', () => { editor.jumpTo(target); renderHistory(); refresh(); });
+    entries.push(b);
+  }
+  historyPanel.replaceChildren(...entries);
+}
+
+historyBtn.addEventListener('click', () => {
+  const open = historyPanel.toggleAttribute('data-open');
+  historyBtn.setAttribute('aria-pressed', String(open));
+  renderHistory();
+});
+editor.addEventListener('change', renderHistory);
+
+// A formatting command: fenced by undo boundaries so it comes off in one step rather
+// than as two stray marker insertions.
+document.getElementById('bold').addEventListener('click', () => {
+  const sel = editor.selectionRange();
+  if (!sel || sel.start === sel.end) return;
+  const text = editor.markdown.slice(sel.start, sel.end);
+  editor.closeUndoGroup();
+  editor.replaceRange(sel.start, sel.end, `**${text}**`);
+  editor.closeUndoGroup();
+  refresh();
+});
+
+editor.addEventListener('hit', (e) => {
+  const { decoration } = e.detail;
+  if (decoration.role === Role.TaskCheckbox) {
+    editor.toggleTask(decoration);
+    refresh();
+  }
+});
+
+refresh();
+// Exposed so the browser-driven checks can drive the same API the UI does.
+window.__mde = { editor, engine, core };
+</script>
+</body>
+</html>

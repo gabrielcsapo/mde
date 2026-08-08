@@ -1,0 +1,22 @@
+{
+  "name": "mde-site",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The mde marketing site. npm lives here and nowhere else in this repository — web/, crates/ and apple/ stay dependency-free.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.16",
+    "@vitejs/plugin-react": "^5.1.0",
+    "tailwindcss": "^4.1.16",
+    "vite": "^7.2.2"
+  }
+}

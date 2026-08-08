@@ -1,0 +1,60 @@
+{
+  "assets": [
+    {
+      "name": "Inline rendering",
+      "file": "ios-inline-rendering.png",
+      "kind": "image",
+      "platform": "ios",
+      "caption": "A heading, bold and italic, inline code, a link and strikethrough — rendered in place, with the markdown still the document."
+    },
+    {
+      "name": "Syntax reveal",
+      "file": "ios-reveal.png",
+      "kind": "image",
+      "platform": "ios",
+      "caption": "The caret inside the bold node brings its ** delimiters back. Nothing is hidden from you; nothing was converted into a separate model."
+    },
+    {
+      "name": "Host widgets",
+      "file": "ios-widgets.png",
+      "kind": "image",
+      "platform": "ios",
+      "caption": "The @gabe mention chip and the callout block are drawn by the host app, from a declarative manifest the core never executes."
+    },
+    {
+      "name": "Resolved references",
+      "file": "ios-references.png",
+      "kind": "image",
+      "platform": "ios",
+      "caption": "The document holds a 26-character path, never the bytes. The host resolves the chart and the spec.pdf chip off disk."
+    },
+    {
+      "name": "iOS walkthrough",
+      "file": "ios-demo.mp4",
+      "kind": "video",
+      "platform": "ios",
+      "caption": "Caret in, syntax back, caret out — then down through the host widgets to the resolved references."
+    },
+    {
+      "name": "macOS editor",
+      "file": "macos-editor.png",
+      "kind": "image",
+      "platform": "macos",
+      "caption": "The same document in the AppKit host — one Swift package, two renderers, the same decoration logic underneath."
+    },
+    {
+      "name": "macOS widgets and references",
+      "file": "macos-widgets.png",
+      "kind": "image",
+      "platform": "macos",
+      "caption": "The mention chip, the callout block, the resolved chart and the spec.pdf chip, all drawn natively by the host."
+    },
+    {
+      "name": "macOS walkthrough",
+      "file": "macos-demo.mp4",
+      "kind": "video",
+      "platform": "macos",
+      "caption": "The reveal and the scroll on the desktop, driven by the same core as the phone."
+    }
+  ]
+}

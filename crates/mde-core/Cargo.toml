@@ -1,0 +1,19 @@
+[package]
+name = "mde-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["toml-manifest"]
+# TOML is the authoring format for extension manifests, but parsing it costs ~350 KB
+# of wasm for work that happens once at startup. Web builds turn this off and hand the
+# core the compact binary form instead (see `Registry::from_binary`); Apple builds keep
+# it, where binary size is far less critical.
+toml-manifest = ["dep:serde", "dep:toml"]
+
+[dependencies]
+pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
+regex-lite = "0.1"
+serde = { version = "1", features = ["derive"], optional = true }
+toml = { version = "0.8", default-features = false, features = ["parse"], optional = true }

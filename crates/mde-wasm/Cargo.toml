@@ -1,0 +1,13 @@
+[package]
+name = "mde-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# No TOML parser in the web build: the host compiles the manifest and hands the core
+# the compact binary form. Saves ~350 KB of wasm for a one-time startup parse.
+mde-core = { workspace = true }

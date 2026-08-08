@@ -1,0 +1,342 @@
+import Foundation
+import MDECore
+
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+extension Array {
+    /// Index of the first element for which `predicate` is false, assuming the array is
+    /// partitioned by it. Swift has no standard equivalent.
+    func partitionPoint(_ predicate: (Element) -> Bool) -> Int {
+        var lo = 0
+        var hi = count
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2
+            if predicate(self[mid]) { lo = mid + 1 } else { hi = mid }
+        }
+        return lo
+    }
+}
+
+/// Everything about turning decorations into text attributes, with no UIKit/AppKit
+/// host in it. Both `MarkdownTextView`s drive this identically; keeping it here is what
+/// stops the two platforms drifting apart on the semantics in DESIGN §4.
+final class DecorationApplier {
+    let engine: MarkdownEngine
+    var theme: Theme
+    /// Strong on purpose. A provider is a service the editor owns, not a delegate:
+    /// hosts assign a freshly constructed one inline (`editor.widgetProvider =
+    /// HostWidgets()`), and a weak reference would drop it before the first paint.
+    /// Providers must not retain the editor.
+    var widgetProvider: (any WidgetProvider)?
+    let resources = ResourceCache()
+
+    /// Host-drawn widget views, kept by decoration key.
+    ///
+    /// This is safe precisely because keys are stable across edits (DESIGN §3.3): a key
+    /// changes exactly when its node's own source changes, so the cache invalidates
+    /// itself for free — no staleness rule to get wrong. Without it every re-layout of a
+    /// paragraph asked the host to build its callout again.
+    private var widgetViews: [UInt64: PlatformView] = [:]
+    /// Insertion order, for eviction. A document can hold more widgets than it is worth
+    /// keeping views for.
+    private var widgetOrder: [UInt64] = []
+    private let widgetCacheLimit = 256
+
+    /// Every decoration in effect, by key. Kept so a `removed` entry can be resolved
+    /// back to the range it used to occupy.
+    private(set) var live: [UInt64: Decoration] = [:] {
+        didSet { indexStale = true }
+    }
+
+    /// `live` sorted by location, so a repaint can binary-search the decorations that
+    /// touch a paragraph instead of filtering all of them. Rebuilt lazily: a keystroke
+    /// changes `live` several times before anything is drawn.
+    private var index: [Decoration] = []
+    private var indexStale = true
+    /// Longest decoration in the index, so the backward search has a bound. A block
+    /// widget can start far above the paragraph being repainted.
+    private var maxLength = 0
+
+    /// Position-sorted view of `live`, for hosts and tests.
+    var decorations: [Decoration] {
+        rebuildIndexIfNeeded()
+        return index
+    }
+
+    private func rebuildIndexIfNeeded() {
+        guard indexStale else { return }
+        index = live.values.sorted {
+            ($0.range.location, $0.range.length) < ($1.range.location, $1.range.length)
+        }
+        maxLength = index.map(\.range.length).max() ?? 0
+        indexStale = false
+    }
+
+    /// Decorations overlapping `scope`, found by binary search rather than by scanning
+    /// every live decoration — which made a one-paragraph repaint cost O(document).
+    func decorations(intersecting scope: NSRange) -> ArraySlice<Decoration> {
+        rebuildIndexIfNeeded()
+        guard !index.isEmpty else { return [] }
+        let from = max(0, scope.location - maxLength)
+        var lo = index.partitionPoint { $0.range.location < from }
+        let hi = index.partitionPoint { $0.range.location < scope.upperBound }
+        // `partitionPoint` gives a starting point; the slice is trimmed by the caller's
+        // intersection test, which is cheap once the range is bounded.
+        lo = min(lo, hi)
+        return index[lo..<hi]
+    }
+
+    /// Guards re-entry: applying attributes re-enters the storage delegate.
+    private(set) var isRepainting = false
+
+    init(engine: MarkdownEngine, theme: Theme) {
+        self.engine = engine
+        self.theme = theme
+    }
+
+    func reset() {
+        live.removeAll()
+        resources.reset()
+        widgetViews.removeAll()
+        widgetOrder.removeAll()
+    }
+
+    /// A previously built view for this widget, if one is still cached.
+    func cachedWidgetView(for key: UInt64) -> PlatformView? {
+        guard let view = widgetViews[key] else { return nil }
+        // The caller re-parents it. A view lives in one place at a time, and the
+        // container it came from is being discarded, so moving it is the point.
+        view.removeFromSuperview()
+        return view
+    }
+
+    func cacheWidgetView(_ view: PlatformView, for key: UInt64) {
+        widgetViews[key] = view
+        widgetOrder.append(key)
+        guard widgetOrder.count > widgetCacheLimit else { return }
+        // Drop the oldest entry that is no longer a live decoration before evicting
+        // anything the document still points at.
+        let victim = widgetOrder.firstIndex { live[$0] == nil } ?? 0
+        widgetViews.removeValue(forKey: widgetOrder.remove(at: victim))
+    }
+
+    func ingest(_ patch: Patch) {
+        for key in patch.removed {
+            live.removeValue(forKey: key)
+            // A removed key can never come back: it encodes the node's own source, so
+            // its view is unreachable and would just occupy the cache.
+            if widgetViews.removeValue(forKey: key) != nil {
+                widgetOrder.removeAll { $0 == key }
+            }
+        }
+        for move in patch.moved {
+            if var d = live[move.key] {
+                d.range = move.range
+                live[move.key] = d
+            }
+        }
+        for d in patch.added { live[d.key] = d }
+    }
+
+    /// The range a patch requires repainting.
+    ///
+    /// `moved` entries are deliberately excluded. A move means identity and attributes
+    /// are unchanged and only the offset shifted — and `NSTextStorage` already carried
+    /// those attributes along with the characters. Including them would drag the dirty
+    /// range to the end of the document on every keystroke, making each character
+    /// O(document) instead of O(paragraph).
+    ///
+    /// `alsoDirty` is the range the edit itself touched, which must be repainted even
+    /// when no decoration changed: freshly inserted characters inherit the attributes
+    /// of the character before them.
+    /// Returns *disjoint ranges*, not a bounding box.
+    ///
+    /// A bounding box is a trap here. Editing a node changes how many byte-identical
+    /// siblings precede its twin elsewhere, which changes that twin's key (DESIGN §3.3),
+    /// which puts a removal half a document away from the caret. Unioning the two
+    /// covered everything in between: one keystroke measured at 1844 ms instead of
+    /// 0.33 ms. Two small ranges repaint two paragraphs.
+    func dirtyRanges(for patch: Patch, alsoDirty: NSRange?) -> [NSRange] {
+        var ranges: [NSRange] = []
+        ranges.reserveCapacity(patch.added.count + patch.removed.count + 1)
+        for key in patch.removed { if let d = live[key] { ranges.append(d.range) } }
+        for d in patch.added { ranges.append(d.range) }
+        if let alsoDirty { ranges.append(alsoDirty) }
+        return Self.merged(ranges)
+    }
+
+    /// Sort and coalesce overlapping or adjacent ranges, so a cluster of changes in one
+    /// paragraph becomes one repaint rather than a dozen.
+    static func merged(_ ranges: [NSRange]) -> [NSRange] {
+        guard !ranges.isEmpty else { return [] }
+        let sorted = ranges.sorted { $0.location < $1.location }
+        var out: [NSRange] = [sorted[0]]
+        for r in sorted.dropFirst() {
+            let last = out[out.count - 1]
+            if r.location <= last.upperBound {
+                out[out.count - 1] = NSUnionRange(last, r)
+            } else {
+                out.append(r)
+            }
+        }
+        return out
+    }
+
+    /// Ranges of every node whose reference is `reference`, so a resolved resource
+    /// repaints exactly the nodes that point at it.
+    func ranges(referencing reference: String) -> [NSRange] {
+        Self.merged(live.values.filter { engine.payload(for: $0.key) == reference }.map(\.range))
+    }
+
+    /// Reset the affected paragraphs to base attributes, then lay every live decoration
+    /// back over them. Repainting whole paragraphs is what keeps removal correct — an
+    /// attribute has no "undo" short of overwriting it.
+    func repaint(_ range: NSRange, in storage: NSTextStorage) {
+        guard !isRepainting, storage.length > 0 else { return }
+        let ns = storage.string as NSString
+        let clamped = NSIntersectionRange(range, NSRange(location: 0, length: ns.length))
+        guard clamped.length > 0 || range.location < ns.length else { return }
+        let scope = ns.paragraphRange(for: clamped)
+
+        isRepainting = true
+        storage.beginEditing()
+        storage.setAttributes(theme.baseAttributes, range: scope)
+
+        let ordered = decorations(intersecting: scope)
+            .filter { NSIntersectionRange($0.range, scope).length > 0 }
+            // Ties break on `layer`, so a host layer paints over what the parse
+            // decided — a focus-mode dim has to beat a heading's own colour, and
+            // sorting by kind alone leaves their order undefined.
+            .sorted {
+                paintOrder($0) != paintOrder($1)
+                    ? paintOrder($0) < paintOrder($1)
+                    : $0.layer < $1.layer
+            }
+
+        for d in ordered {
+            let r = NSIntersectionRange(d.range, scope)
+            guard r.length > 0 else { continue }
+            paint(d, in: r, source: ns, storage: storage)
+        }
+        storage.endEditing()
+        isRepainting = false
+    }
+
+    /// Broad decorations paint first so narrow ones win: a concealed `**` must beat the
+    /// emphasis span it sits inside.
+    private func paintOrder(_ d: Decoration) -> Int {
+        switch d.kind {
+        case .style: 0
+        case .gutter: 1
+        case .hit: 2
+        case .conceal: 3
+        case .inlineWidget, .blockWidget: 4
+        }
+    }
+
+    private func paint(
+        _ d: Decoration,
+        in range: NSRange,
+        source ns: NSString,
+        storage: NSTextStorage
+    ) {
+        switch d.kind {
+        case .style, .gutter, .hit:
+            let level = d.role == Role.heading ? headingLevel(at: d.range, in: ns) : 0
+            let attrs = theme.attributes(
+                role: d.role,
+                roleName: engine.roleName(d.role),
+                headingLevel: level
+            )
+            if !attrs.isEmpty { storage.addAttributes(attrs, range: range) }
+
+        case .conceal:
+            storage.addAttributes(Self.concealAttributes, range: range)
+
+        case .inlineWidget, .blockWidget:
+            // The attachment itself is installed by the content-storage delegate; here
+            // we only hide the source it stands in for. Everything after the first
+            // character is concealed, including newlines inside a block widget — a
+            // hairline newline contributes ~0 height, so only the attachment shows.
+            let tail = NSRange(
+                location: d.range.location + 1,
+                length: max(0, d.range.length - 1)
+            )
+            let visible = NSIntersectionRange(tail, range)
+            if visible.length > 0 {
+                storage.addAttributes(Self.concealAttributes, range: visible)
+            }
+        }
+    }
+
+    /// Collapsing a range without changing the character count: a hairline font plus a
+    /// clear colour. Line height is the max over the line, so shrinking the `#` on a
+    /// heading does not shrink the heading. The characters remain selectable, which is
+    /// why the core snaps selection endpoints out of concealed ranges.
+    static let concealAttributes: [NSAttributedString.Key: Any] = [
+        .font: PlatformFont.platformSystem(ofSize: 0.01),
+        .foregroundColor: PlatformColor.clear,
+    ]
+
+    private func headingLevel(at range: NSRange, in ns: NSString) -> Int {
+        let line = ns.lineRange(for: NSRange(location: range.location, length: 0))
+        return ns.substring(with: line).prefix(while: { $0 == "#" }).count
+    }
+
+    // MARK: - Widget substitution
+
+    /// TextKit 2 lets the *display* string for a paragraph differ from the backing
+    /// store. That is the only way to get an attachment glyph without writing a
+    /// `U+FFFC` into the document — and the document must stay exactly the markdown
+    /// source.
+    ///
+    /// The substitution is strictly length-preserving: one source character becomes one
+    /// attachment character. A length change here would desynchronise every selection
+    /// and edit offset in the view.
+    func substituteWidgets(
+        in range: NSRange,
+        backing: NSTextStorage,
+        containerWidth: CGFloat
+    ) -> NSTextParagraph? {
+        let widgets = decorations(intersecting: range).filter {
+            ($0.kind == .inlineWidget || $0.kind == .blockWidget)
+                && $0.range.length > 0
+                && NSLocationInRange($0.range.location, range)
+        }
+        guard !widgets.isEmpty else { return nil }
+
+        let ns = backing.string as NSString
+        let display = NSMutableAttributedString(
+            attributedString: backing.attributedSubstring(from: range)
+        )
+        for w in widgets.sorted(by: { $0.range.location > $1.range.location }) {
+            guard let roleName = engine.roleName(w.role) else { continue }
+            let attachment = WidgetAttachment(
+                roleName: roleName,
+                source: ns.substring(with: w.range),
+                payload: engine.payload(for: w.key),
+                provider: widgetProvider,
+                resources: resources,
+                cache: self,
+                key: w.key
+            )
+            attachment.fittingWidth = max(containerWidth, 1)
+            let local = NSRange(location: w.range.location - range.location, length: 1)
+            guard local.upperBound <= display.length else { continue }
+            display.replaceCharacters(in: local, with: NSAttributedString(attachment: attachment))
+        }
+        assert(display.length == range.length, "widget substitution changed the length")
+        return NSTextParagraph(attributedString: display)
+    }
+
+    /// The smallest `Hit` decoration containing `offset`, if any.
+    func hit(at offset: Int) -> Decoration? {
+        decorations(intersecting: NSRange(location: offset, length: 1))
+            .filter { $0.kind == .hit && NSLocationInRange(offset, $0.range) }
+            .min { $0.range.length < $1.range.length }
+    }
+}

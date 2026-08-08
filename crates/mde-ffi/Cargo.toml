@@ -1,0 +1,12 @@
+[package]
+name = "mde-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mde"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+mde-core = { workspace = true, features = ["toml-manifest"] }

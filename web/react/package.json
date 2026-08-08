@@ -1,0 +1,36 @@
+{
+  "name": "@mde/react",
+  "version": "0.1.0",
+  "description": "React adapter for the drop-in markdown editor. An optional layer over web/src — the editor itself stays framework-free.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "main": "./src/index.js",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "types",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "markdown",
+    "editor",
+    "react",
+    "contenteditable",
+    "wasm"
+  ]
+}

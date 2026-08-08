@@ -1,0 +1,7 @@
+# kind        role            range      reveal        source
+Style         marker             5..7    caret_in_node "**"
+Style         strong             7..11   never         "bold"
+Style         marker            11..13   caret_in_node "**"
+Conceal       marker            23..24   caret_in_node "*"
+Style         emphasis          24..29   never         "other"
+Conceal       marker            29..30   caret_in_node "*"

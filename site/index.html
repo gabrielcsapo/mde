@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mde — a drop-in markdown editor for iOS, macOS and the web</title>
+<meta name="description" content="Inline markdown rendering without WYSIWYG. One Rust core, three native renderers: TextKit 2 on iOS and macOS, contenteditable on the web. The document is always a plain markdown string.">
+<!-- Self-hosted, same-origin, SIL OFL. Preloaded because both faces are used above the
+     fold and neither is a network dependency — see site/fonts/LICENSE.txt. Served at
+     these exact paths, unhashed, by the `mde-static-dirs` plugin in vite.config.js. -->
+<!-- Inline, so a tab identity costs no request and nothing is fetched from anywhere: the
+     two markers the whole project is about, in the ochre the site uses for raw source. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='16' y='23' font-family='ui-monospace,monospace' font-size='22' font-weight='600' fill='%238a5a0f' text-anchor='middle'%3E**%3C/text%3E%3C/svg%3E">
+<link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/GeistMono-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<!-- Applied before first paint so a stored preference never shows as a flash of the
+     other theme. Nothing else runs here; the system setting is left to CSS. -->
+<script>
+  try {
+    var t = localStorage.getItem('mde.site.theme');
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  } catch (e) {}
+</script>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.jsx"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+# kind        role            range      reveal        source
+InlineWidget  mention            5..10   caret_in_node "@gabe"
+Style         wikilink          17..32   caret_in_node "[[the roadmap]]"
+BlockWidget   callout           35..76   caret_in_block "```callout warning\nShip it carefully.\n```"
+Style         code.block        78..110  never         "```rust\nfn unregistered() {}\n```"
+BlockWidget   chart            112..150  caret_in_block ":::chart\n**not decorated in here**\n:::"

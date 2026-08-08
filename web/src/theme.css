@@ -1,0 +1,168 @@
+/* Default theme. Roles are open strings in the core, so a host restyles by overriding
+   these classes; extension roles get `.mde-ext-<name>`. */
+
+.mde-editor {
+  /* The document contains real newlines — `pre-wrap` is what makes them line breaks
+     without the browser inventing block elements to hold them. */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  outline: none;
+
+  font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  /* Each line carries its own leading; the container carries none. A block container's
+     strut sets a floor on every line box in it, which no amount of shrinking the content
+     can get under — so a fully concealed line could never collapse. Zeroing the strut
+     here and restoring the leading on `.mde-line` moves that decision to the line. */
+  line-height: 0;
+  color: var(--mde-text, #16181d);
+  background: var(--mde-bg, #fff);
+  padding: 20px 16px 40px;
+  caret-color: var(--mde-accent, #2f6bf5);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Collapsing a range without removing the characters: a hairline glyph. Exactly the
+   trick the Apple renderers use, and for the same reason — the character count must
+   stay 1:1 with the source so every offset in the system stays honest. The characters
+   remain selectable, which is why the core snaps selection endpoints out of them. */
+/* `!important` because conceal has to win over whatever role styling the same run
+   carries — a concealed `##` is also a heading, and both are single-class selectors, so
+   without this the heading's font-size silently wins on source order. */
+.mde-line { line-height: 1.6; }
+
+/* A block widget's continuation lines: concealed source only, so no leading at all.
+   `font-size: 0` as well as `line-height: 0` — the block box's strut is sized from the
+   inherited font, so zeroing the leading alone still leaves a few pixels behind. */
+.mde-line-concealed {
+  line-height: 0;
+  font-size: 0;
+}
+
+/* The line that draws a block widget: block-level, so no empty inline fragments are
+   generated around the widget's own block box. */
+.mde-line-block { display: block; }
+
+/* A block widget's concealed source sits inside the widget box alongside the drawn
+   view. Hairline glyphs still sit in a full line box, so it has to be zeroed here too —
+   `.mde-conceal` sets `font-size` with `!important`, so this has to as well. */
+.mde-widget-block > .mde-run.mde-conceal {
+  /* `display: block` with zero height is the part that matters: as an *inline* after
+     the drawn view it would generate an anonymous line box sized by the widget box's
+     own strut, which no amount of shrinking the run itself can reach. The text stays in
+     the DOM — the source invariant is about DOM text, not painted text — and the caret
+     reaches it by clicking the widget, which reveals the block. */
+  display: block;
+  height: 0;
+  overflow: hidden;
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+
+.mde-conceal {
+  font-size: 0.01px !important;
+  color: transparent !important;
+  letter-spacing: 0 !important;
+}
+
+.mde-heading {
+  font-weight: 700;
+  color: var(--mde-text, #16181d);
+  line-height: 1.25;
+}
+.mde-h1 { font-size: 1.75em; }
+.mde-h2 { font-size: 1.45em; }
+.mde-h3 { font-size: 1.25em; }
+.mde-h4, .mde-h5, .mde-h6 { font-size: 1.1em; }
+
+.mde-marker { color: var(--mde-muted, #a3a7b3); }
+.mde-strong { font-weight: 700; }
+.mde-emphasis { font-style: italic; }
+.mde-strikethrough {
+  text-decoration: line-through;
+  color: var(--mde-muted, #a3a7b3);
+}
+
+.mde-code-inline,
+.mde-code-block {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--mde-code-bg, #f1f2f5);
+  border-radius: 3px;
+}
+
+.mde-link-text {
+  color: var(--mde-accent, #2f6bf5);
+  text-decoration: underline;
+}
+.mde-link { color: var(--mde-muted, #a3a7b3); }
+
+.mde-quote,
+.mde-list-bullet,
+.mde-task-checkbox {
+  color: var(--mde-accent, #2f6bf5);
+}
+.mde-task-checkbox {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer;
+}
+.mde-rule { color: var(--mde-muted, #a3a7b3); }
+
+/* Widgets: the view draws, the source hides behind it.
+
+   `pointer-events: none` is load-bearing, not cosmetic. A `contenteditable="false"`
+   element captures the click, so the caret can never land in the widget's source, the
+   reveal policy never fires, and the user cannot edit what the widget stands for. Taps
+   have to fall through to the text underneath. A host with real controls in a widget
+   opts back in with `data-mde-interactive`. */
+.mde-widget-view {
+  display: inline-block;
+  vertical-align: middle;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* The wrapper is the hit target: the view inside it declines pointer events so clicks
+   fall through, and the wrapper catches them so `onMouseDown` can put the caret in the
+   source rather than letting the browser guess from zero-width geometry.
+
+   `inline-block` is what makes that work. As a plain inline span the wrapper's hit box
+   is one line tall no matter how tall its content is, so a click in the middle of a
+   105px image sailed straight past it to the editor and the caret went nowhere near
+   the image. */
+.mde-widget {
+  display: inline-block;
+  vertical-align: middle;
+  cursor: text;
+}
+.mde-widget-block {
+  display: block;
+}
+.mde-widget-view[data-mde-interactive] {
+  pointer-events: auto;
+}
+.mde-widget-block .mde-widget-view {
+  display: block;
+  width: 100%;
+}
+
+.mde-resource {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--mde-code-bg, #f1f2f5);
+  color: var(--mde-muted, #6b7280);
+  font-size: 0.8em;
+}
+.mde-resource-failed { color: #d23b3b; }
+
+@media (prefers-color-scheme: dark) {
+  .mde-editor {
+    --mde-text: #e8eaf0;
+    --mde-bg: #16181d;
+    --mde-muted: #767b88;
+    --mde-code-bg: #23262e;
+    --mde-accent: #6b9bff;
+  }
+}

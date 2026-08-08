@@ -1,0 +1,64 @@
+/* Styling for the showcase extensions.
+ *
+ * Deliberately a separate stylesheet from `web/src/theme.css`: the editor's theme knows
+ * the roles the *parser* produces, and nothing else. An extension invents its own roles
+ * at runtime (`internRole`), and the renderer turns any unknown role into a
+ * `.mde-ext-<name>` class — so styling one is a matter of writing CSS, with no change to
+ * the editor or its theme.
+ *
+ * Load this AFTER theme.css. Both a role class and a built-in class are single-class
+ * selectors, so they have equal specificity and source order decides. Being second is
+ * what lets a dim actually dim a heading. Note that `.mde-conceal` uses `!important` and
+ * therefore still wins over everything here — which is correct: a concealed marker must
+ * stay collapsed no matter what a layer says about the text around it.
+ */
+
+/* ---- typewriter mode ------------------------------------------------------ */
+
+.mde-ext-typewriter-dim {
+  color: var(--mde-muted, #a3a7b3);
+  transition: color 120ms ease-out;
+}
+
+/* Everything outside the focused paragraph loses its accent colour too, otherwise a
+   link or a heading stays bright and defeats the point. */
+.mde-ext-typewriter-dim.mde-link,
+.mde-ext-typewriter-dim.mde-link-text,
+.mde-ext-typewriter-dim.mde-heading,
+.mde-ext-typewriter-dim.mde-marker,
+.mde-ext-typewriter-dim.mde-quote,
+.mde-ext-typewriter-dim.mde-list-bullet,
+.mde-ext-typewriter-dim.mde-task-checkbox,
+.mde-ext-typewriter-dim.mde-code-inline,
+.mde-ext-typewriter-dim.mde-code-block {
+  color: var(--mde-muted, #a3a7b3);
+}
+
+/* `:not(.mde-heading)` on purpose. A segment can carry both this class and a heading's,
+   and they set the same property at the same specificity — so without the exclusion the
+   focused paragraph's headings would be *shrunk* to body size, which looks like a bug. */
+.mde-ext-typewriter-focus:not(.mde-heading) {
+  font-size: 1.06em;
+}
+
+.mde-ext-typewriter-focus {
+  color: var(--mde-text, #16181d);
+}
+
+/* ---- parts of speech ------------------------------------------------------ */
+
+.mde-ext-pos-noun { color: #2f6bf5; }
+.mde-ext-pos-verb { color: #c2410c; }
+.mde-ext-pos-adjective { color: #7c3aed; }
+.mde-ext-pos-adverb { color: #0f766e; }
+
+@media (prefers-color-scheme: dark) {
+  .mde-ext-pos-noun { color: #7aa5ff; }
+  .mde-ext-pos-verb { color: #fb923c; }
+  .mde-ext-pos-adjective { color: #c4a0ff; }
+  .mde-ext-pos-adverb { color: #5eead4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mde-ext-typewriter-dim { transition: none; }
+}

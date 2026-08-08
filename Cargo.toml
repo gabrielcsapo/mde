@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["crates/mde-core", "crates/mde-ffi", "crates/mde-wasm"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+# Off by default so each consumer opts in explicitly: Apple takes the TOML parser,
+# web supplies the compact binary manifest instead.
+mde-core = { path = "crates/mde-core", default-features = false }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

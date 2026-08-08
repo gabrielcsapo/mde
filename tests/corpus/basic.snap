@@ -1,0 +1,27 @@
+# kind        role            range      reveal        source
+Style         heading            0..13   never         "# Heading one"
+Conceal       marker             0..2    caret_in_line "# "
+Conceal       marker            20..22   caret_in_node "**"
+Style         strong            22..26   never         "bold"
+Conceal       marker            26..28   caret_in_node "**"
+Conceal       marker            33..34   caret_in_node "*"
+Style         emphasis          34..40   never         "italic"
+Conceal       marker            40..41   caret_in_node "*"
+Conceal       marker            46..48   caret_in_node "~~"
+Style         strikethrough     48..54   never         "struck"
+Conceal       marker            54..56   caret_in_node "~~"
+Style         code.inline       61..67   never         "`code`"
+Conceal       marker            61..62   caret_in_node "`"
+Conceal       marker            66..67   caret_in_node "`"
+Conceal       marker            74..75   caret_in_node "["
+Style         link.text         75..83   never         "the docs"
+Conceal       link              83..105  caret_in_node "](https://example.dev)"
+Gutter        quote            117..118  never         ">" depth=1
+Gutter        quote            131..132  never         ">" depth=1
+Gutter        quote            133..134  never         ">" depth=2
+Gutter        list.bullet      149..150  never         "-"
+Gutter        list.bullet      162..163  never         "-"
+Hit           task.checkbox    164..167  never         "[ ]"
+Gutter        list.bullet      175..176  never         "-"
+Hit           task.checkbox    177..180  never         "[x]"
+Style         rule             194..198  never         "---\n"

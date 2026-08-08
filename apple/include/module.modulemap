@@ -1,0 +1,4 @@
+module CMDE {
+    header "mde.h"
+    export *
+}

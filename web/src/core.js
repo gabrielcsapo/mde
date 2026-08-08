@@ -1,0 +1,466 @@
+// Typed wrapper over the wasm core — the JS mirror of `apple/Sources/MDECore`.
+//
+// Plain ES modules with JSDoc types rather than TypeScript: the wasm boundary is a
+// hand-written flat struct layout, so a compiler would add a build step without adding
+// safety where it matters. Editors still get full type information from the JSDoc.
+
+/** @typedef {0|1|2|3|4|5} KindValue */
+
+/** The closed set of things a renderer must know how to draw (DESIGN §3). */
+export const Kind = Object.freeze({
+  Style: 0,
+  Conceal: 1,
+  InlineWidget: 2,
+  BlockWidget: 3,
+  Gutter: 4,
+  Hit: 5,
+});
+
+export const Reveal = Object.freeze({
+  Never: 0,
+  CaretInNode: 1,
+  CaretInLine: 2,
+  CaretInBlock: 3,
+});
+
+/**
+ * Built-in role ids. Extension roles are interned after these, so any id >=
+ * `FirstExtension` needs a `roleName()` lookup.
+ */
+export const Role = Object.freeze({
+  Heading: 0,
+  Marker: 1,
+  Emphasis: 2,
+  Strong: 3,
+  CodeInline: 4,
+  CodeBlock: 5,
+  Link: 6,
+  LinkText: 7,
+  Image: 8,
+  Quote: 9,
+  ListBullet: 10,
+  TaskCheckbox: 11,
+  Rule: 12,
+  Strikethrough: 13,
+  FirstExtension: 14,
+});
+
+const STATUS_OK = 0;
+const STATUS_DESYNC = 1;
+const STATUS_OUT_OF_BOUNDS = 2;
+const STATUS_BAD_ARGUMENT = 3;
+
+/** Matches `Decoration` in crates/mde-core/src/decoration.rs. Guarded by a test. */
+const DECORATION_SIZE = 24;
+/** Bytes per layer span in the input buffer: start, end, role, kind, depth, padding. */
+const LAYER_SPAN_SIZE = 16;
+/** Bytes per revision in the scratch buffer. See `mde_revisions`. */
+const REVISION_SIZE = 32;
+
+export class EngineError extends Error {
+  /** @param {number} status */
+  constructor(status) {
+    const names = {
+      [STATUS_DESYNC]: 'desync',
+      [STATUS_OUT_OF_BOUNDS]: 'out of bounds',
+      [STATUS_BAD_ARGUMENT]: 'bad argument',
+    };
+    super(`mde: ${names[status] ?? `status ${status}`}`);
+    this.status = status;
+    /** The mirror and the host buffer disagree; recover with `reset()`. */
+    this.isDesync = status === STATUS_DESYNC;
+  }
+}
+
+/**
+ * @typedef {object} Decoration
+ * @property {number} start  UTF-16 code units
+ * @property {number} end
+ * @property {bigint} key    stable identity (DESIGN §3.3)
+ * @property {number} role
+ * @property {KindValue} kind
+ * @property {number} reveal
+ * @property {number} depth
+ * @property {number} layer paint order among ties; 0 is the parse, higher is a host layer
+ */
+
+/**
+ * @typedef {object} Patch
+ * @property {bigint[]} removed
+ * @property {Decoration[]} added
+ * @property {{key: bigint, start: number, end: number}[]} moved
+ */
+
+/** @returns {Patch} */
+const emptyPatch = () => ({ removed: [], added: [], moved: [] });
+
+/**
+ * Load the wasm core.
+ * @param {string|URL|Response|ArrayBuffer} source
+ */
+export async function loadCore(source) {
+  let bytes;
+  if (source instanceof ArrayBuffer) {
+    bytes = source;
+  } else if (source instanceof Response) {
+    bytes = await source.arrayBuffer();
+  } else {
+    bytes = await (await fetch(source)).arrayBuffer();
+  }
+  const { instance } = await WebAssembly.instantiate(bytes, {});
+  return new Core(instance);
+}
+
+/** Owns the wasm instance and hands out engines. */
+export class Core {
+  /** @param {WebAssembly.Instance} instance */
+  constructor(instance) {
+    /** @type {any} */
+    this.exports = instance.exports;
+    this.decoder = new TextDecoder();
+    this.encoder = new TextEncoder();
+  }
+
+  /** Memory can be detached by growth, so never cache the buffer. */
+  get memory() {
+    return new DataView(this.exports.memory.buffer);
+  }
+
+  /** @param {Uint8Array} bytes */
+  writeInput(bytes) {
+    const ptr = this.exports.mde_input_reserve(bytes.length);
+    new Uint8Array(this.exports.memory.buffer, ptr, bytes.length).set(bytes);
+  }
+
+  /** @param {string} text */
+  writeInputText(text) {
+    this.writeInput(this.encoder.encode(text));
+  }
+
+  /**
+   * @param {import('./manifest.js').Manifest|null} manifest
+   * @returns {Engine}
+   */
+  newEngine(manifest = null) {
+    this.writeInput(manifest ? manifest : new Uint8Array(0));
+    const handle = this.exports.mde_engine_new();
+    if (!handle) throw new Error('mde: manifest is malformed');
+    return new Engine(this, handle);
+  }
+}
+
+/**
+ * Safe wrapper over one core engine. Not reentrant — drive it from one place, which is
+ * where text input lives anyway.
+ */
+export class Engine {
+  /**
+   * @param {Core} core
+   * @param {number} handle
+   */
+  constructor(core, handle) {
+    this.core = core;
+    this.handle = handle;
+    /** @type {Map<number, string|null>} */
+    this.roleNames = new Map();
+  }
+
+  free() {
+    this.core.exports.mde_engine_free(this.handle);
+    this.handle = 0;
+  }
+
+  /**
+   * Full resync. Clears undo history — see DESIGN §9.
+   * @param {string} text
+   * @returns {Patch}
+   */
+  reset(text) {
+    this.core.writeInputText(text);
+    const status = this.core.exports.mde_reset(this.handle);
+    if (status !== STATUS_OK) throw new EngineError(status);
+    return this.readPatch();
+  }
+
+  /**
+   * Report an edit the host already applied.
+   *
+   * Never call this for edits that came out of `undo()`/`redo()` — they are already in
+   * the history, and reporting them back would record them again.
+   *
+   * @param {number} start UTF-16
+   * @param {number} end
+   * @param {string} text
+   * @param {number|null} documentLength post-edit length, checked against the mirror
+   * @param {number} now milliseconds, drives undo coalescing
+   * @returns {Patch}
+   */
+  edit(start, end, text, documentLength, now = performance.now()) {
+    this.core.writeInputText(text);
+    const expected = documentLength === null ? 0xffffffff : documentLength;
+    const status = this.core.exports.mde_edit(this.handle, start, end, expected, now);
+    if (status !== STATUS_OK) throw new EngineError(status);
+    return this.readPatch();
+  }
+
+  /**
+   * Pass null on blur so the document collapses back to its rendered form.
+   * @param {{start: number, end: number}|null} range
+   * @returns {Patch}
+   */
+  setSelection(range) {
+    const status = range
+      ? this.core.exports.mde_set_selection(this.handle, range.start, range.end)
+      : this.core.exports.mde_clear_selection(this.handle);
+    if (status !== STATUS_OK) throw new EngineError(status);
+    return this.readPatch();
+  }
+
+  /** Force the next edit to begin a new undo step. Call before a formatting command. */
+  boundary() {
+    this.core.exports.mde_boundary(this.handle);
+  }
+
+  get canUndo() {
+    return this.core.exports.mde_can_undo(this.handle) === 1;
+  }
+
+  get canRedo() {
+    return this.core.exports.mde_can_redo(this.handle) === 1;
+  }
+
+  /**
+   * Step back one revision. The returned edits must be applied to the host's own
+   * buffer without being reported back through `edit()`.
+   * @returns {{edits: {start: number, end: number, text: string}[],
+   *            selection: {start: number, end: number}|null,
+   *            patch: Patch}|null}
+   */
+  undo() {
+    return this.core.exports.mde_undo(this.handle) === 1 ? this.readRewind() : null;
+  }
+
+  /** @returns {ReturnType<Engine['undo']>} */
+  redo() {
+    return this.core.exports.mde_redo(this.handle) === 1 ? this.readRewind() : null;
+  }
+
+  /**
+   * Extra text the parser already resolved for this decoration: an image or link
+   * destination, a fence argument, the inside of a delimited token.
+   *
+   * This is a **reference, never content**. A document holds `![alt](photo.jpg)`, not
+   * the bytes of the photo — inlining them would make notes enormous and stop them
+   * being portable markdown. Turning it into something displayable is the host's job.
+   *
+   * @param {bigint} key
+   * @returns {string|null}
+   */
+  payload(key) {
+    const len = this.core.exports.mde_payload(this.handle, key);
+    return len === 0 ? null : this.readScratch(len);
+  }
+
+  /** @param {number} role @returns {string|null} */
+  roleName(role) {
+    if (this.roleNames.has(role)) return this.roleNames.get(role) ?? null;
+    const len = this.core.exports.mde_role_name(this.handle, role);
+    const name = len === 0 ? null : this.readScratch(len);
+    this.roleNames.set(role, name);
+    return name;
+  }
+
+  // ---- host decoration layers (DESIGN §5.3) -------------------------------
+
+  /**
+   * Get (or create) the role id for a name, so a host can decorate with roles that no
+   * manifest declared. Roles are open strings by design — the core never interprets
+   * one, it just hands it back for the theme to look up.
+   * @param {string} name
+   * @returns {number}
+   */
+  internRole(name) {
+    const bytes = this.core.encoder.encode(name);
+    this.writeInput(bytes);
+    return this.core.exports.mde_intern_role(this.handle);
+  }
+
+  /**
+   * Replace a named layer's decorations — ranges the parser never produced, computed
+   * by the host from something the core knows nothing about (where the caret is, what
+   * a language tagger calls a word). They flow through the same identity and diffing
+   * machinery as parsed decorations, so the renderer needs no new code to draw them.
+   *
+   * Layers paint after the parse, in registration order.
+   *
+   * @param {string} name
+   * @param {{start: number, end: number, role: number, kind?: number, depth?: number}[]} spans
+   * @returns {Patch}
+   */
+  setLayer(name, spans) {
+    const nameBytes = this.core.encoder.encode(name);
+    const buf = new Uint8Array(4 + nameBytes.length + spans.length * LAYER_SPAN_SIZE);
+    const view = new DataView(buf.buffer);
+    view.setUint32(0, nameBytes.length, true);
+    buf.set(nameBytes, 4);
+    let off = 4 + nameBytes.length;
+    for (const s of spans) {
+      view.setUint32(off, s.start, true);
+      view.setUint32(off + 4, s.end, true);
+      view.setUint32(off + 8, s.role, true);
+      view.setUint8(off + 12, s.kind ?? 0);
+      view.setUint8(off + 13, s.depth ?? 0);
+      off += LAYER_SPAN_SIZE;
+    }
+    this.writeInput(buf);
+    const status = this.core.exports.mde_set_layer(this.handle);
+    if (status !== STATUS_OK) throw new EngineError(status);
+    return this.readPatch();
+  }
+
+  /**
+   * Remove a layer entirely. Not the same as pushing zero spans — an empty layer keeps
+   * its slot in the paint order.
+   * @param {string} name
+   * @returns {Patch}
+   */
+  clearLayer(name) {
+    this.writeInput(this.core.encoder.encode(name));
+    const status = this.core.exports.mde_clear_layer(this.handle);
+    if (status !== STATUS_OK) throw new EngineError(status);
+    return this.readPatch();
+  }
+
+  // ---- browsable history (DESIGN §9) --------------------------------------
+
+  /** How many revisions are applied — the caret's position in the timeline. */
+  get historyPosition() {
+    return this.core.exports.mde_history_position(this.handle);
+  }
+
+  /**
+   * The whole timeline, oldest first, *including revisions that have been undone* —
+   * a history you can browse has to show the branch you stepped back from.
+   * @returns {{index: number, at: number, atMs: number, inserted: number,
+   *            removed: number, kind: number}[]}
+   */
+  revisions() {
+    const count = this.core.exports.mde_revisions(this.handle);
+    if (count === 0) return [];
+    const ptr = this.core.exports.mde_scratch_ptr();
+    const view = new DataView(this.core.exports.memory.buffer, ptr, count * REVISION_SIZE);
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const off = i * REVISION_SIZE;
+      out.push({
+        index: view.getUint32(off, true),
+        atMs: Number(view.getBigUint64(off + 4, true)),
+        inserted: view.getUint32(off + 12, true),
+        removed: view.getUint32(off + 16, true),
+        at: view.getUint32(off + 20, true),
+        kind: view.getUint8(off + 24),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Move to any point in the timeline rather than one step at a time.
+   * @param {number} target
+   * @returns {ReturnType<Engine['undo']>}
+   */
+  jumpTo(target) {
+    if (this.core.exports.mde_jump_to(this.handle, target) === 0) return null;
+    return this.readRewind();
+  }
+
+  /** @param {Uint8Array} bytes */
+  writeInput(bytes) {
+    const ptr = this.core.exports.mde_input_reserve(bytes.length);
+    new Uint8Array(this.core.exports.memory.buffer, ptr, bytes.length).set(bytes);
+  }
+
+  /** @param {number} len */
+  readScratch(len) {
+    const ptr = this.core.exports.mde_scratch_ptr();
+    return this.core.decoder.decode(
+      new Uint8Array(this.core.exports.memory.buffer, ptr, len)
+    );
+  }
+
+  /** @returns {Patch} */
+  readPatch() {
+    const { exports } = this.core;
+    const len = exports.mde_patch_len();
+    if (len === 0) return emptyPatch();
+    const view = new DataView(exports.memory.buffer, exports.mde_patch_ptr(), len);
+
+    const removedLen = view.getUint32(0, true);
+    const addedLen = view.getUint32(4, true);
+    const movedLen = view.getUint32(8, true);
+
+    let off = 16;
+    /** @type {bigint[]} */
+    const removed = [];
+    for (let i = 0; i < removedLen; i++, off += 8) removed.push(view.getBigUint64(off, true));
+
+    /** @type {Decoration[]} */
+    const added = [];
+    for (let i = 0; i < addedLen; i++, off += DECORATION_SIZE) {
+      added.push({
+        start: view.getUint32(off, true),
+        end: view.getUint32(off + 4, true),
+        key: view.getBigUint64(off + 8, true),
+        role: view.getUint32(off + 16, true),
+        kind: /** @type {KindValue} */ (view.getUint8(off + 20)),
+        reveal: view.getUint8(off + 21),
+        depth: view.getUint8(off + 22),
+        layer: view.getUint8(off + 23),
+      });
+    }
+
+    /** @type {{key: bigint, start: number, end: number}[]} */
+    const moved = [];
+    for (let i = 0; i < movedLen; i++, off += 16) {
+      moved.push({
+        key: view.getBigUint64(off, true),
+        start: view.getUint32(off + 8, true),
+        end: view.getUint32(off + 12, true),
+      });
+    }
+    return { removed, added, moved };
+  }
+
+  readRewind() {
+    const { exports } = this.core;
+    const base = exports.mde_rewind_ptr();
+    const len = exports.mde_rewind_len();
+    const view = new DataView(exports.memory.buffer, base, len);
+    const bytes = new Uint8Array(exports.memory.buffer, base, len);
+
+    const count = view.getUint32(0, true);
+    const hasSelection = view.getUint32(4, true) === 1;
+    const anchor = view.getUint32(8, true);
+    const head = view.getUint32(12, true);
+
+    const edits = [];
+    for (let i = 0; i < count; i++) {
+      const off = 16 + i * 16;
+      const textOff = view.getUint32(off + 8, true);
+      const textLen = view.getUint32(off + 12, true);
+      edits.push({
+        start: view.getUint32(off, true),
+        end: view.getUint32(off + 4, true),
+        text: this.core.decoder.decode(bytes.subarray(textOff, textOff + textLen)),
+      });
+    }
+
+    return {
+      edits,
+      selection: hasSelection
+        ? { start: Math.min(anchor, head), end: Math.max(anchor, head) }
+        : null,
+      patch: this.readPatch(),
+    };
+  }
+}
