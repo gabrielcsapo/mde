@@ -96,7 +96,7 @@ export default function RefFfi() {
       </TableFrame>
 
       <H3 id="reading-a-patch">Reading a patch</H3>
-      <SourceFigure className="mt-5" path="web/src/core.js" lang="javascript" code={wasmReadJs} />
+      <SourceFigure className="mt-5" path="web/src/core.ts" lang="typescript" code={wasmReadJs} />
       <Aside tone="caution" title="Never cache the memory buffer">
         Growth detaches it. <code>Core.memory</code> is a getter that builds a fresh{' '}
         <code>DataView</code> every time for exactly this reason.

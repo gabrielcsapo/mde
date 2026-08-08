@@ -1,0 +1,58 @@
+{
+  "name": "@mde/web",
+  "version": "0.1.0",
+  "description": "Framework-free inline markdown editor powered by the mde Rust core.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": [
+    "./theme.css",
+    "./extensions.css"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/types/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/src/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./theme.css": "./src/theme.css",
+    "./extensions.css": "./extensions/extensions.css",
+    "./mde.wasm": "./dist/mde.wasm",
+    "./extensions/typewriter": {
+      "types": "./dist/types/extensions/typewriter.d.ts",
+      "import": "./dist/extensions/typewriter.js"
+    },
+    "./extensions/parts-of-speech": {
+      "types": "./dist/types/extensions/parts-of-speech.d.ts",
+      "import": "./dist/extensions/parts-of-speech.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src/theme.css",
+    "extensions/extensions.css",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm run typecheck && vite build && npm run build:types",
+    "build:types": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "vite build --watch"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "markdown",
+    "editor",
+    "contenteditable",
+    "typescript",
+    "wasm"
+  ],
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2"
+  }
+}

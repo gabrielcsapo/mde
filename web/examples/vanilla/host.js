@@ -72,7 +72,7 @@ Same for anything else the host can fetch — a document, a video, a remote asse
 ---
 `;
 
-/** @type {import('../src/widgets.js').WidgetProvider} */
+/** @type {import('../../dist/types/src/widgets.js').WidgetProvider} */
 export const widgetProvider = {
   makeWidget({ roleName, source, payload }) {
     switch (roleName) {
@@ -121,7 +121,7 @@ function fenceBody(source) {
  * and the bytes live wherever the host keeps them. The same shape works for a remote
  * URL, a video, a blob store, or a document previewer; only this object changes.
  *
- * @type {import('../src/resources.js').ResourceResolver}
+ * @type {import('../../dist/types/src/resources.js').ResourceResolver}
  */
 export const resourceResolver = {
   async resolve({ reference }) {

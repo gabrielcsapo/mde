@@ -42,16 +42,16 @@ export default function Try() {
 
       <H2 id="what-is-running">What is actually running</H2>
       <Lede>
-        This page imports <code>web/src/editor.js</code>, <code>web/src/core.js</code> and{' '}
-        <code>web/mde.wasm</code> across the directory boundary, rather than keeping a copy. It is
-        the same code the browser test suite drives and the same binary the reference demo loads.
+        Choose <strong>Vanilla web</strong> or <strong>React</strong> above. Both render the same Rust
+        core and framework-free editor: the first mounts <code>@mde/web</code> directly, while the
+        second lazy-loads the small <code>@mde/react</code> adapter.
       </Lede>
       <p>
-        The extension manifest comes from <code>web/demo/host.js</code> — the reference host, shared
-        with the demo — so <code>@gabe</code>, <code>[[the roadmap]]</code>, the callout block and
-        the chart directive are all declared data, not features of the editor. So is the widget
-        drawing: the core says where a node starts and stops and what it means; the host decides
-        what a mention looks like.
+        The extension manifest comes from <code>web/examples/vanilla/host.js</code> — the standalone
+        framework-free example, shared with this page — so <code>@gabe</code>,{' '}
+        <code>[[the roadmap]]</code>, the callout block and the chart directive are all declared
+        data, not features of the editor. So is the widget drawing: the core says where a node
+        starts and stops and what it means; the host decides what a mention looks like.
       </p>
       <Note>
         The two images resolve asynchronously through a <code>ResourceResolver</code>, with space
@@ -78,7 +78,7 @@ export default function Try() {
       <Aside tone="caution" title="If the editor does not appear">
         The wasm core needs a real origin, so a page opened over <code>file://</code> cannot
         instantiate it. Run <code>./scripts/serve-site.sh</code>, which builds{' '}
-        <code>web/mde.wasm</code> first — a stale wasm shows up as a stale editor.
+        <code>@mde/web</code>, its wasm asset, and the React adapter first.
       </Aside>
 
       <SeeAlso

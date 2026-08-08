@@ -10,7 +10,8 @@ import {
 
 // An extension written entirely against the layer API (DESIGN §5.3). It knows nothing
 // about React, and this adapter knows nothing about it — they meet at `getEditor()`.
-import { TypewriterMode } from '../../../extensions/typewriter.js';
+import { TypewriterMode } from '@mde/web/extensions/typewriter';
+import wasmUrl from '@mde/web/mde.wasm?url';
 
 import { manifestSpec, resourceResolver, sample, second, widgetProvider } from './host.js';
 
@@ -48,6 +49,7 @@ export default function App() {
         {showSecond ? (
           <MarkdownEditor
             id="editor-second"
+            wasm={wasmUrl}
             defaultValue={second}
             manifest={manifestSpec}
             widgetProvider={widgetProvider}
@@ -128,6 +130,7 @@ function Uncontrolled() {
 
       <MarkdownEditor
         id="editor-main"
+        wasm={wasmUrl}
         ref={ref}
         defaultValue={sample}
         manifest={manifestSpec}
@@ -150,7 +153,7 @@ function Uncontrolled() {
           typewriterRef.current = new TypewriterMode(editor.getEditor());
           setTypewriter(false);
           // Exposed so browser-driven checks can drive the same handle the UI does —
-          // the same trick `web/demo/index.html` uses.
+          // the same trick `web/examples/vanilla/index.html` uses.
           window.__mde = editor;
         }}
         onError={(error) => console.error(error)}
@@ -215,7 +218,7 @@ function Controlled() {
         <span className="spacer" />
         <span className="stats">{text.length} chars in React state</span>
       </div>
-      <MarkdownEditor id="editor-controlled" value={text} onChange={setText} />
+      <MarkdownEditor id="editor-controlled" wasm={wasmUrl} value={text} onChange={setText} />
     </section>
   );
 }

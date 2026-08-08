@@ -7,34 +7,37 @@
 //
 // Layout must match `mde_core::registry::binary`.
 
-/**
- * @typedef {{kind: 'fence', info: string}
- *         | {kind: 'directive', marker: string, name: string}} BlockSyntax
- * @typedef {{kind: 'pattern', regex: string}
- *         | {kind: 'delimited', open: string, close: string}} InlineSyntax
- * @typedef {'style'|'inline_widget'|'block_widget'|'hit'} Render
- * @typedef {'never'|'caret_in_node'|'caret_in_line'|'caret_in_block'} RevealSpec
- *
- * @typedef {object} BlockDef
- * @property {string} name
- * @property {BlockSyntax} syntax
- * @property {Render} render
- * @property {RevealSpec} [reveal]
- *
- * @typedef {object} InlineDef
- * @property {string} name
- * @property {InlineSyntax} syntax
- * @property {Render} render
- * @property {RevealSpec} [reveal]
- *
- * @typedef {Uint8Array} Manifest
- */
+export type BlockSyntax =
+  | { kind: 'fence'; info: string }
+  | { kind: 'directive'; marker: string; name: string };
+export type InlineSyntax =
+  | { kind: 'pattern'; regex: string }
+  | { kind: 'delimited'; open: string; close: string };
+export type RenderSpec = 'style' | 'inline_widget' | 'block_widget' | 'hit';
+export type RevealSpec = 'never' | 'caret_in_node' | 'caret_in_line' | 'caret_in_block';
+export interface BlockDef {
+  name: string;
+  syntax: BlockSyntax;
+  render: RenderSpec;
+  reveal?: RevealSpec;
+}
+export interface InlineDef {
+  name: string;
+  syntax: InlineSyntax;
+  render: RenderSpec;
+  reveal?: RevealSpec;
+}
+export interface ManifestSpec { blocks?: BlockDef[]; inlines?: InlineDef[] }
+export type Manifest = Uint8Array;
 
 const RENDER = { style: 0, inline_widget: 1, block_widget: 2, hit: 3 };
 const REVEAL = { never: 0, caret_in_node: 1, caret_in_line: 2, caret_in_block: 3 };
 const MAGIC = [0x4d, 0x44, 0x45, 0x4d]; // "MDEM"
 
 class Writer {
+  bytes: number[];
+  encoder: TextEncoder;
+
   constructor() {
     /** @type {number[]} */
     this.bytes = [];
@@ -67,7 +70,7 @@ class Writer {
 }
 
 /** @param {Render} render @param {RevealSpec|undefined} reveal @param {string} where */
-function codes(render, reveal, where) {
+function codes(render: RenderSpec, reveal: RevealSpec | undefined, where: string) {
   if (!(render in RENDER)) throw new Error(`${where}: unknown render "${render}"`);
   const rev = reveal ?? 'never';
   if (!(rev in REVEAL)) throw new Error(`${where}: unknown reveal "${rev}"`);
@@ -80,7 +83,7 @@ function codes(render, reveal, where) {
  * @param {{blocks?: BlockDef[], inlines?: InlineDef[]}} spec
  * @returns {Manifest}
  */
-export function encodeManifest(spec) {
+export function encodeManifest(spec: ManifestSpec): Manifest {
   const blocks = spec.blocks ?? [];
   const inlines = spec.inlines ?? [];
 

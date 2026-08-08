@@ -14,8 +14,8 @@
 // holds and re-evaluates `enabled` / `pressed` whenever the document or the selection
 // changes, so a new entry is a new button with working state and nothing else to wire.
 
-import { TypewriterMode } from '../../../web/extensions/typewriter.js';
-import { PartsOfSpeech } from '../../../web/extensions/parts-of-speech.js';
+import { TypewriterMode } from '@mde/web/extensions/typewriter';
+import { PartsOfSpeech } from '@mde/web/extensions/parts-of-speech';
 
 // Extension instances, one per editor.
 //

@@ -1,10 +1,54 @@
-// Typed wrapper over the wasm core — the JS mirror of `apple/Sources/MDECore`.
+// Typed wrapper over the wasm core — the web mirror of `apple/Sources/MDECore`.
 //
-// Plain ES modules with JSDoc types rather than TypeScript: the wasm boundary is a
-// hand-written flat struct layout, so a compiler would add a build step without adding
-// safety where it matters. Editors still get full type information from the JSDoc.
+// The wasm boundary stays a hand-written flat struct layout; TypeScript checks the host
+// side and Vite turns this module plus the compiled core into one publishable artifact.
 
-/** @typedef {0|1|2|3|4|5} KindValue */
+/** The library build copies this Wasm file beside the emitted module. */
+const DEFAULT_WASM_FILENAME = 'mde.wasm';
+
+/** The separately cached Rust module emitted beside the JavaScript library build. */
+export const DEFAULT_WASM_URL = new URL(DEFAULT_WASM_FILENAME, import.meta.url);
+
+export type KindValue = 0 | 1 | 2 | 3 | 4 | 5;
+
+export interface SelectionRange { start: number; end: number }
+export interface Decoration {
+  start: number;
+  end: number;
+  key: bigint;
+  role: number;
+  kind: KindValue;
+  reveal: number;
+  depth: number;
+  layer: number;
+}
+export interface Patch {
+  removed: bigint[];
+  added: Decoration[];
+  moved: Array<{ key: bigint; start: number; end: number }>;
+}
+export interface TextEdit { start: number; end: number; text: string }
+export interface LayerSpan {
+  start: number;
+  end: number;
+  role: number;
+  kind?: KindValue;
+  depth?: number;
+}
+export interface Rewind {
+  edits: TextEdit[];
+  selection: SelectionRange | null;
+  patch: Patch;
+}
+export interface Revision {
+  index: number;
+  at: number;
+  atMs: number;
+  inserted: number;
+  removed: number;
+  kind: number;
+}
+export type WasmSource = string | URL | Response | ArrayBuffer;
 
 /** The closed set of things a renderer must know how to draw (DESIGN §3). */
 export const Kind = Object.freeze({
@@ -58,8 +102,11 @@ const LAYER_SPAN_SIZE = 16;
 const REVISION_SIZE = 32;
 
 export class EngineError extends Error {
+  status: number;
+  isDesync: boolean;
+
   /** @param {number} status */
-  constructor(status) {
+  constructor(status: number) {
     const names = {
       [STATUS_DESYNC]: 'desync',
       [STATUS_OUT_OF_BOUNDS]: 'out of bounds',
@@ -98,7 +145,7 @@ const emptyPatch = () => ({ removed: [], added: [], moved: [] });
  * Load the wasm core.
  * @param {string|URL|Response|ArrayBuffer} source
  */
-export async function loadCore(source) {
+export async function loadCore(source: WasmSource = DEFAULT_WASM_URL): Promise<Core> {
   let bytes;
   if (source instanceof ArrayBuffer) {
     bytes = source;
@@ -113,10 +160,14 @@ export async function loadCore(source) {
 
 /** Owns the wasm instance and hands out engines. */
 export class Core {
+  exports: Record<string, any> & { memory: WebAssembly.Memory };
+  decoder: TextDecoder;
+  encoder: TextEncoder;
+
   /** @param {WebAssembly.Instance} instance */
-  constructor(instance) {
+  constructor(instance: WebAssembly.Instance) {
     /** @type {any} */
-    this.exports = instance.exports;
+    this.exports = instance.exports as Record<string, any> & { memory: WebAssembly.Memory };
     this.decoder = new TextDecoder();
     this.encoder = new TextEncoder();
   }
@@ -127,13 +178,13 @@ export class Core {
   }
 
   /** @param {Uint8Array} bytes */
-  writeInput(bytes) {
+  writeInput(bytes: Uint8Array): void {
     const ptr = this.exports.mde_input_reserve(bytes.length);
     new Uint8Array(this.exports.memory.buffer, ptr, bytes.length).set(bytes);
   }
 
   /** @param {string} text */
-  writeInputText(text) {
+  writeInputText(text: string): void {
     this.writeInput(this.encoder.encode(text));
   }
 
@@ -141,7 +192,7 @@ export class Core {
    * @param {import('./manifest.js').Manifest|null} manifest
    * @returns {Engine}
    */
-  newEngine(manifest = null) {
+  newEngine(manifest: Uint8Array | null = null): Engine {
     this.writeInput(manifest ? manifest : new Uint8Array(0));
     const handle = this.exports.mde_engine_new();
     if (!handle) throw new Error('mde: manifest is malformed');
@@ -154,18 +205,22 @@ export class Core {
  * where text input lives anyway.
  */
 export class Engine {
+  core: Core;
+  handle: number;
+  roleNames: Map<number, string | null>;
+
   /**
    * @param {Core} core
    * @param {number} handle
    */
-  constructor(core, handle) {
+  constructor(core: Core, handle: number) {
     this.core = core;
     this.handle = handle;
     /** @type {Map<number, string|null>} */
     this.roleNames = new Map();
   }
 
-  free() {
+  free(): void {
     this.core.exports.mde_engine_free(this.handle);
     this.handle = 0;
   }
@@ -175,7 +230,7 @@ export class Engine {
    * @param {string} text
    * @returns {Patch}
    */
-  reset(text) {
+  reset(text: string): Patch {
     this.core.writeInputText(text);
     const status = this.core.exports.mde_reset(this.handle);
     if (status !== STATUS_OK) throw new EngineError(status);
@@ -195,7 +250,13 @@ export class Engine {
    * @param {number} now milliseconds, drives undo coalescing
    * @returns {Patch}
    */
-  edit(start, end, text, documentLength, now = performance.now()) {
+  edit(
+    start: number,
+    end: number,
+    text: string,
+    documentLength: number | null,
+    now = performance.now(),
+  ): Patch {
     this.core.writeInputText(text);
     const expected = documentLength === null ? 0xffffffff : documentLength;
     const status = this.core.exports.mde_edit(this.handle, start, end, expected, now);
@@ -208,7 +269,7 @@ export class Engine {
    * @param {{start: number, end: number}|null} range
    * @returns {Patch}
    */
-  setSelection(range) {
+  setSelection(range: SelectionRange | null): Patch {
     const status = range
       ? this.core.exports.mde_set_selection(this.handle, range.start, range.end)
       : this.core.exports.mde_clear_selection(this.handle);
@@ -217,7 +278,7 @@ export class Engine {
   }
 
   /** Force the next edit to begin a new undo step. Call before a formatting command. */
-  boundary() {
+  boundary(): void {
     this.core.exports.mde_boundary(this.handle);
   }
 
@@ -236,12 +297,12 @@ export class Engine {
    *            selection: {start: number, end: number}|null,
    *            patch: Patch}|null}
    */
-  undo() {
+  undo(): Rewind | null {
     return this.core.exports.mde_undo(this.handle) === 1 ? this.readRewind() : null;
   }
 
   /** @returns {ReturnType<Engine['undo']>} */
-  redo() {
+  redo(): Rewind | null {
     return this.core.exports.mde_redo(this.handle) === 1 ? this.readRewind() : null;
   }
 
@@ -256,13 +317,13 @@ export class Engine {
    * @param {bigint} key
    * @returns {string|null}
    */
-  payload(key) {
+  payload(key: bigint): string | null {
     const len = this.core.exports.mde_payload(this.handle, key);
     return len === 0 ? null : this.readScratch(len);
   }
 
   /** @param {number} role @returns {string|null} */
-  roleName(role) {
+  roleName(role: number): string | null {
     if (this.roleNames.has(role)) return this.roleNames.get(role) ?? null;
     const len = this.core.exports.mde_role_name(this.handle, role);
     const name = len === 0 ? null : this.readScratch(len);
@@ -279,7 +340,7 @@ export class Engine {
    * @param {string} name
    * @returns {number}
    */
-  internRole(name) {
+  internRole(name: string): number {
     const bytes = this.core.encoder.encode(name);
     this.writeInput(bytes);
     return this.core.exports.mde_intern_role(this.handle);
@@ -297,7 +358,7 @@ export class Engine {
    * @param {{start: number, end: number, role: number, kind?: number, depth?: number}[]} spans
    * @returns {Patch}
    */
-  setLayer(name, spans) {
+  setLayer(name: string, spans: LayerSpan[]): Patch {
     const nameBytes = this.core.encoder.encode(name);
     const buf = new Uint8Array(4 + nameBytes.length + spans.length * LAYER_SPAN_SIZE);
     const view = new DataView(buf.buffer);
@@ -324,7 +385,7 @@ export class Engine {
    * @param {string} name
    * @returns {Patch}
    */
-  clearLayer(name) {
+  clearLayer(name: string): Patch {
     this.writeInput(this.core.encoder.encode(name));
     const status = this.core.exports.mde_clear_layer(this.handle);
     if (status !== STATUS_OK) throw new EngineError(status);
@@ -344,7 +405,7 @@ export class Engine {
    * @returns {{index: number, at: number, atMs: number, inserted: number,
    *            removed: number, kind: number}[]}
    */
-  revisions() {
+  revisions(): Revision[] {
     const count = this.core.exports.mde_revisions(this.handle);
     if (count === 0) return [];
     const ptr = this.core.exports.mde_scratch_ptr();
@@ -369,19 +430,19 @@ export class Engine {
    * @param {number} target
    * @returns {ReturnType<Engine['undo']>}
    */
-  jumpTo(target) {
+  jumpTo(target: number): Rewind | null {
     if (this.core.exports.mde_jump_to(this.handle, target) === 0) return null;
     return this.readRewind();
   }
 
   /** @param {Uint8Array} bytes */
-  writeInput(bytes) {
+  writeInput(bytes: Uint8Array): void {
     const ptr = this.core.exports.mde_input_reserve(bytes.length);
     new Uint8Array(this.core.exports.memory.buffer, ptr, bytes.length).set(bytes);
   }
 
   /** @param {number} len */
-  readScratch(len) {
+  readScratch(len: number): string {
     const ptr = this.core.exports.mde_scratch_ptr();
     return this.core.decoder.decode(
       new Uint8Array(this.core.exports.memory.buffer, ptr, len)
@@ -389,7 +450,7 @@ export class Engine {
   }
 
   /** @returns {Patch} */
-  readPatch() {
+  readPatch(): Patch {
     const { exports } = this.core;
     const len = exports.mde_patch_len();
     if (len === 0) return emptyPatch();
@@ -431,7 +492,7 @@ export class Engine {
     return { removed, added, moved };
   }
 
-  readRewind() {
+  readRewind(): Rewind {
     const { exports } = this.core;
     const base = exports.mde_rewind_ptr();
     const len = exports.mde_rewind_len();

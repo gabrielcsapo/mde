@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Markdown editor — web</title>
-<link rel="stylesheet" href="../src/theme.css">
+<link rel="stylesheet" href="../../src/theme.css">
 <!-- After theme.css on purpose: see the note at the top of extensions.css. -->
-<link rel="stylesheet" href="../extensions/extensions.css">
+<link rel="stylesheet" href="../../extensions/extensions.css">
 <style>
   :root { color-scheme: light dark; }
   body {
@@ -92,17 +92,14 @@
 <div id="history-panel" role="listbox" aria-label="Revision history"></div>
 
 <script type="module">
-import { loadCore } from '../src/core.js';
-import { encodeManifest } from '../src/manifest.js';
-import { MarkdownEditor } from '../src/editor.js';
-import { Role } from '../src/core.js';
+import { MarkdownEditor, Role, encodeManifest, loadCore } from '../../dist/index.js';
 import { manifestSpec, sample, widgetProvider, resourceResolver } from './host.js';
-// Extensions. Note where these come from: `../extensions/`, not `../src/`. The editor
+// Extensions are separate entry points. The editor does not know they exist.
 // has no idea they exist — they are written entirely against the public layer API.
-import { TypewriterMode } from '../extensions/typewriter.js';
-import { PartsOfSpeech } from '../extensions/parts-of-speech.js';
+import { TypewriterMode } from '../../dist/extensions/typewriter.js';
+import { PartsOfSpeech } from '../../dist/extensions/parts-of-speech.js';
 
-const core = await loadCore('../mde.wasm');
+const core = await loadCore('../../dist/mde.wasm');
 const engine = core.newEngine(encodeManifest(manifestSpec));
 
 const editor = new MarkdownEditor(document.getElementById('editor'), engine, {

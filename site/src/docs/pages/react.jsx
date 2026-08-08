@@ -27,25 +27,22 @@ export default function ReactPage() {
         React does that this editor genuinely dislikes from happening.
       </p>
       <Note>
-        This site does not use it. The <Link to="/try">demo editor</Link> mounts the framework-free
-        editor by hand, which is deliberate: the page that claims “this is the real editor, not a
-        picture of it” should have as little as possible between the claim and the module.
+        The <Link to="/try">demo editor</Link> lets you switch between the adapter and the direct
+        framework-free mount. The React variant is lazy-loaded, so choosing Vanilla does not load
+        the adapter at all.
       </Note>
 
       <H3 id="installing">Installing it</H3>
       <p>
-        The package imports <code>../src/*.js</code> and <code>../mde.wasm</code> — it is a sibling
-        of the editor, not a copy of it — so consume it in a way that preserves that relationship: a
-        monorepo workspace, or <code>npm install file:/path/to/web/react</code>, which symlinks the
-        directory so <code>../src</code> still resolves.
+        Install <code>@mde/react</code> alongside React. It declares <code>@mde/web</code> as a normal
+        dependency and React and React DOM as peers, so the adapter remains a thin package boundary
+        instead of copying the editor or bundling a second React runtime.
       </p>
       <p>
-        Publishing it to a registry as-is would not work: npm would pack only{' '}
-        <code>web/react</code> and leave the editor behind. A registry artifact would mean
-        publishing <code>web/</code> as the package, or adding a bundling step outside that
-        directory — deliberately not done, since the whole repository is build-step-free. The theme
-        is not bundled either; import <code>web/src/theme.css</code> yourself, and{' '}
-        <code>extensions.css</code> too if you use the shipped extensions.
+        Both packages are TypeScript source compiled as ESM libraries with Vite. The framework-free
+        build emits JavaScript and wasm separately, and the React build keeps React and{' '}
+        <code>@mde/web</code> external. Import <code>@mde/web/theme.css</code> yourself, and{' '}
+        <code>@mde/web/extensions.css</code> if you use the shipped extensions.
       </p>
 
       <H2 id="uncontrolled">Uncontrolled by design</H2>
@@ -155,8 +152,8 @@ export default function ReactPage() {
       </p>
       <SourceFigure className="mt-6" path="Highlighted.jsx" lang="javascript" code={reactLayersJsx} />
       <Note>
-        Extensions that already exist — <code>web/extensions/typewriter.js</code>,{' '}
-        <code>parts-of-speech.js</code> — expect the framework-free editor, and get it from{' '}
+        Extensions that already exist — <code>web/extensions/typewriter.ts</code>,{' '}
+        <code>parts-of-speech.ts</code> — expect the framework-free editor, and get it from{' '}
         <code>handle.getEditor()</code>. They know nothing about React and the adapter knows nothing
         about them; they meet at that one method.
       </Note>

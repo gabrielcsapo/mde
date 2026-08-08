@@ -6,14 +6,19 @@
 // base64 would balloon the file, break diffing, and stop other markdown tools reading
 // it. So the editor asks the host, which already knows where its assets live.
 
-/**
- * @typedef {object} ResourceRequest
- * @property {string} reference  a path or URL — never content
- * @property {string|null} roleName
- * @property {string} source     full markdown source of the node
- *
- * @typedef {{state: 'loading'} | {state: 'ready', view: HTMLElement} | {state: 'failed', message: string}} ResourceState
- */
+export interface ResourceRequest {
+  reference: string;
+  roleName: string | null;
+  source: string;
+}
+export type ResourceState =
+  | { state: 'loading' }
+  | { state: 'ready'; view: HTMLElement }
+  | { state: 'failed'; message: string };
+export interface ResourceResolver {
+  resolve(request: ResourceRequest): Promise<ResourceState>;
+  reservedSize(request: ResourceRequest): { width: number; height: number };
+}
 
 /**
  * A host implements this. Resolution is assumed asynchronous: return `{state:'loading'}`
@@ -35,11 +40,17 @@
  * same asset.
  */
 export class ResourceCache {
+  resolver: ResourceResolver | null;
+  onResolved: (reference: string) => void;
+  states: Map<string, ResourceState>;
+  reserved: Map<string, { width: number; height: number }>;
+  known: Map<string, { width: number; height: number }>;
+
   /**
    * @param {ResourceResolver|null} resolver
    * @param {(reference: string) => void} onResolved repaint hook
    */
-  constructor(resolver, onResolved) {
+  constructor(resolver: ResourceResolver | null, onResolved: (reference: string) => void) {
     this.resolver = resolver;
     this.onResolved = onResolved;
     /** @type {Map<string, ResourceState>} */
@@ -68,7 +79,7 @@ export class ResourceCache {
    * Seed sizes remembered from a previous session.
    * @param {Record<string, {width: number, height: number}>} sizes
    */
-  remember(sizes) {
+  remember(sizes: Record<string, { width: number; height: number }>) {
     for (const [reference, size] of Object.entries(sizes ?? {})) {
       if (size && size.width > 0 && size.height > 0) this.known.set(reference, size);
     }

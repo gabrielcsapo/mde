@@ -1,6 +1,6 @@
 // Parts-of-speech highlighting — an extension, not a feature of the editor.
 //
-// Like `typewriter.js`, nothing in `web/src/` knows this exists. It reads the document
+// Like `typewriter.ts`, nothing in `web/src/` knows this exists. It reads the document
 // text, decides what each word is, and pushes a decoration layer (DESIGN §5.3).
 //
 // It is the more demanding of the two showcase extensions, because its decorations
@@ -12,6 +12,8 @@
 // The Apple build uses the operating system's `NLTagger` and is much better. What is
 // being demonstrated here is the *plumbing* — that a feature this far outside markdown
 // can drive the editor's decoration pipeline without the editor knowing about it.
+
+import type { MarkdownEditor } from '../src/editor.js';
 
 const DETERMINERS = new Set([
   'a', 'an', 'the', 'this', 'that', 'these', 'those', 'my', 'your', 'his', 'her',
@@ -105,8 +107,8 @@ export function tagWord(word) {
 }
 
 /** Word ranges over the document, as `[start, end, word]`. */
-function words(text) {
-  const out = [];
+function words(text: string): Array<[number, number, string]> {
+  const out: Array<[number, number, string]> = [];
   const re = /[A-Za-z][A-Za-z'-]*/g;
   let m;
   while ((m = re.exec(text)) !== null) out.push([m.index, m.index + m[0].length, m[0]]);
@@ -116,8 +118,14 @@ function words(text) {
 export class PartsOfSpeech {
   static LAYER = 'parts-of-speech';
 
+  editor: MarkdownEditor;
+  enabled: boolean;
+  roles: Record<'noun' | 'verb' | 'adjective' | 'adverb', number>;
+  timer: number;
+  onChange: () => void;
+
   /** @param {import('../src/editor.js').MarkdownEditor} editor */
-  constructor(editor) {
+  constructor(editor: MarkdownEditor) {
     this.editor = editor;
     this.enabled = false;
     this.roles = {

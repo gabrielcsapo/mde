@@ -1,27 +1,42 @@
 {
   "name": "@mde/react",
   "version": "0.1.0",
-  "description": "React adapter for the drop-in markdown editor. An optional layer over web/src — the editor itself stays framework-free.",
+  "description": "Optional React adapter for the framework-free @mde/web markdown editor.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
-  "main": "./src/index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "types": "./types/index.d.ts",
   "exports": {
     ".": {
       "types": "./types/index.d.ts",
-      "default": "./src/index.js"
+      "import": "./dist/index.js"
     },
     "./package.json": "./package.json"
   },
   "files": [
-    "src",
+    "dist",
     "types",
     "README.md"
   ],
+  "scripts": {
+    "build": "npm run typecheck && vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "vite build --watch"
+  },
+  "dependencies": {
+    "@mde/web": "file:.."
+  },
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2"
   },
   "engines": {
     "node": ">=18"

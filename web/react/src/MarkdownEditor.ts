@@ -1,9 +1,8 @@
-// The React adapter for `web/src/editor.js`.
+// The React adapter for `@mde/web`.
 //
-// Written with `createElement` rather than JSX on purpose: the package then has no build
-// step at all, which is what lets it be consumed straight out of the repo — the same
-// property the framework-free editor has. It renders exactly one element and gains
-// nothing from JSX.
+// Written with `createElement` rather than JSX on purpose: the adapter renders exactly
+// one element and gains nothing from JSX. Vite compiles this TypeScript file while
+// keeping React and the framework-free editor external.
 //
 // Three rules this file exists to enforce:
 //
@@ -32,9 +31,7 @@ import {
   useState,
 } from 'react';
 
-import { MarkdownEditor as CoreEditor, diffText } from '../../src/editor.js';
-import { encodeManifest } from '../../src/manifest.js';
-import { Role } from '../../src/core.js';
+import { MarkdownEditor as CoreEditor, Role, diffText, encodeManifest } from '@mde/web';
 import { DEFAULT_WASM_URL, sharedCore, wasmKey } from './core.js';
 
 /**
@@ -314,7 +311,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
       }
     }
     for (const [name, spans] of Object.entries(wanted)) {
-      const resolved = (spans ?? []).map((span) => ({
+      const resolved = ((spans ?? []) as Array<{ role: number | string }>).map((span) => ({
         ...span,
         role: typeof span.role === 'string' ? internRole(editor, state, span.role) : span.role,
       }));

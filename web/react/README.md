@@ -1,12 +1,12 @@
 # @mde/react
 
-A React component for the drop-in markdown editor. It imports the real editor from
-`web/src/` — it is an adapter, not a fork. The editor itself stays framework-free and has
-no idea this package exists.
+A React component for the drop-in markdown editor. It depends on `@mde/web` — it is an
+adapter, not a fork. The editor itself stays framework-free and has no idea this package
+exists.
 
 ```jsx
 import { MarkdownEditor, useEditorHistory, useMarkdownEditorRef } from '@mde/react';
-import '../../src/theme.css';
+import '@mde/web/theme.css';
 
 function Note() {
   const ref = useMarkdownEditorRef();
@@ -75,7 +75,7 @@ of the document.
 | `onHistoryChange` | `(state) => void` | `{canUndo, canRedo, position, count}`, only when one moves. |
 | `onReady` | `(handle) => void` | The editor exists and the document is rendered. |
 | `onError` | `(error) => void` | The wasm failed to load, or the manifest was rejected. |
-| `wasm` | `string \| URL \| ArrayBuffer \| Response` | Defaults to `mde.wasm` next to `web/src`. |
+| `wasm` | `string \| URL \| ArrayBuffer \| Response` | Defaults to the `mde.wasm` emitted beside `@mde/web`. Pass an imported asset URL when bundling. |
 | `manifest` | `ManifestSpec \| Uint8Array \| null` | Extension manifest (DESIGN §5). A plain object is fine — it is compared by content, not identity. |
 | `widgetProvider` | `WidgetProvider` | Host-drawn widgets. |
 | `resourceResolver` | `ResourceResolver` | Turns a reference into something displayable (DESIGN §5.1). |
@@ -167,28 +167,23 @@ layer. For very high-frequency updates, call `handle.setLayer` directly instead.
 
 ## Install
 
-The package imports `../src/*.js` and `../mde.wasm` — it is a sibling of the editor, not a
-copy of it. Consume it in a way that preserves that relationship:
+`@mde/react` declares `@mde/web` as a dependency and React and React DOM as peers. Its
+Vite library build keeps all three external, so consumers get one framework-free editor
+and their existing React runtime rather than copied implementations.
 
-```jsx
-// a monorepo workspace, or:
-npm install file:/path/to/web/react   // npm symlinks the directory, so ../src resolves
+```sh
+npm install @mde/react @mde/web
 ```
-
-Publishing it to a registry as-is would not work: npm would pack only `web/react`, leaving
-the editor behind. If you need a registry artifact, either publish `web/` as the package
-or add a bundling step outside this directory — deliberately not done here, since the
-whole repo is build-step-free.
 
 The theme is not bundled either. Import it yourself, and `extensions.css` too if you use
 the shipped extensions:
 
 ```js
-import 'path/to/web/src/theme.css';
+import '@mde/web/theme.css';
 ```
 
-TypeScript users get `types/index.d.ts`, hand-written — there is no TypeScript build in
-this repo and this package does not add one.
+The runtime is TypeScript compiled to ESM. Adapter-specific declarations reuse the types
+exported by `@mde/web`, so the decoration and host-service contracts have one source.
 
 ## Example
 

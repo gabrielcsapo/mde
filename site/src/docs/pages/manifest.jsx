@@ -197,10 +197,10 @@ export default function Manifest() {
       <SourceFigure className="mt-6" path="crates/mde-core/src/registry.rs" lang="text" code={manifestBinary} />
       <p className="mt-6">
         Nobody writes those bytes by hand. <code>encodeManifest</code> in{' '}
-        <code>web/src/manifest.js</code> takes the same manifest as a plain object and produces
+        <code>web/src/manifest.ts</code> takes the same manifest as a plain object and produces
         them, and a round-trip test asserts the two forms build identical registries.
       </p>
-      <SourceFigure className="mt-5" path="web/demo/host.js" lang="javascript" code={manifestJs} />
+      <SourceFigure className="mt-5" path="web/examples/vanilla/host.js" lang="javascript" code={manifestJs} />
 
       <Aside tone="caution" title="A malformed manifest">
         On Apple, <code>MarkdownEngine(manifest:)</code> returns nil and{' '}

@@ -9,8 +9,10 @@
 // declarative manifest — patterns and fences — this could not exist, because what to
 // decorate depends on where the caret is, which no parse can know.
 
+import type { MarkdownEditor } from '../src/editor.js';
+
 /** The paragraph containing `offset`, as `[start, end)` over the whole document. */
-function paragraphAround(text, offset) {
+function paragraphAround(text: string, offset: number): [number, number] {
   const at = Math.max(0, Math.min(offset, text.length));
 
   // A blank line is the boundary, matching how the core segments blocks. Falling back
@@ -57,8 +59,15 @@ function paragraphAround(text, offset) {
 export class TypewriterMode {
   static LAYER = 'typewriter';
 
+  editor: MarkdownEditor;
+  enabled: boolean;
+  focusRole: number;
+  dimRole: number;
+  onChange: () => void;
+  onSelection: () => void;
+
   /** @param {import('../src/editor.js').MarkdownEditor} editor */
-  constructor(editor) {
+  constructor(editor: MarkdownEditor) {
     this.editor = editor;
     this.enabled = false;
     this.focusRole = editor.internRole('typewriter-focus');

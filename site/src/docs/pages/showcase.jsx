@@ -25,10 +25,10 @@ const COST = [
 ];
 
 const WHERE = [
-  ['Typewriter (focus)', 'web/extensions/typewriter.js', 'apple/Sources/MDEHost/TypewriterMode.swift'],
+  ['Typewriter (focus)', 'web/extensions/typewriter.ts', 'apple/Sources/MDEHost/TypewriterMode.swift'],
   [
     'Parts of speech',
-    'web/extensions/parts-of-speech.js',
+    'web/extensions/parts-of-speech.ts',
     'apple/Sources/MDEHost/PartsOfSpeech.swift',
   ],
 ];
@@ -84,7 +84,7 @@ export default function Showcase() {
         Watch the caret, find the paragraph around it, push two roles: one for that paragraph, one
         for everything else. The theme decides what focus and dim look like.
       </Lede>
-      <SourceFigure className="mt-6" path="web/extensions/typewriter.js" lang="javascript" code={typewriterJs} />
+      <SourceFigure className="mt-6" path="web/extensions/typewriter.ts" lang="typescript" code={typewriterJs} />
       <p className="mt-6">
         Two details in there are the interesting ones. A blank line is the paragraph boundary,
         matching how the core segments blocks — falling back to the single line would make the mode
@@ -124,7 +124,7 @@ export default function Showcase() {
         <strong>It is meaningfully worse than the Apple one</strong>, and it will be wrong on
         genuinely ambiguous words: it tags <em>book</em> in “book a flight” as a noun.
       </p>
-      <SourceFigure className="mt-5" path="web/extensions/parts-of-speech.js" lang="javascript" code={posWebJs} />
+      <SourceFigure className="mt-5" path="web/extensions/parts-of-speech.ts" lang="typescript" code={posWebJs} />
       <Footnote>
         The point being demonstrated is the plumbing, not the linguistics — that a feature this far
         outside markdown can drive the editor’s decoration pipeline without the editor knowing it

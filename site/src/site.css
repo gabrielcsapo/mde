@@ -1193,6 +1193,84 @@
      object with one set of decisions, and reading them in one place is worth more
      than spreading them across three class attributes. */
 
+  .editor-demo { max-width: 100%; }
+
+  .editor-variants {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 0 10px 2px;
+    padding: 4px;
+    border: 1px solid var(--color-rule-soft);
+    border-radius: 12px;
+    background: var(--color-paper-2);
+  }
+
+  .editor-variants-label {
+    align-self: center;
+    padding: 0 8px;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+
+  .editor-variant {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: baseline;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--color-muted);
+    font: 540 0.78rem var(--font-sans);
+    cursor: pointer;
+  }
+
+  .editor-variant code {
+    padding: 0;
+    background: none;
+    color: var(--color-faint);
+    font-size: 0.64rem;
+  }
+
+  .editor-variant[aria-selected="true"] {
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: 0 1px 5px color-mix(in srgb, var(--color-text) 9%, transparent);
+  }
+
+  .editor-variant[aria-selected="true"] code { color: var(--color-accent); }
+
+  .editor-variant:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  .editor-loading {
+    min-height: 360px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--color-rule);
+    border-radius: 16px;
+    background: var(--color-surface);
+    color: var(--color-faint);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  @media (max-width: 560px) {
+    .editor-variants { width: 100%; }
+    .editor-variants-label { display: none; }
+    .editor-variant { flex: 1; justify-content: center; }
+    .editor-variant code { display: none; }
+  }
+
   .editor-shell {
     border: 1px solid var(--color-rule);
     border-radius: 16px;
@@ -1681,7 +1759,7 @@
   .dg-arrow { fill: var(--color-faint); }
 
   /* -- demo host widgets --------------------------------------------------
-     `web/demo/host.js` owns these class names; the editor draws them inside the
+     `web/examples/vanilla/host.js` owns these class names; the editor draws them inside the
      contenteditable, so they are styled here rather than there. */
 
   .demo-card {

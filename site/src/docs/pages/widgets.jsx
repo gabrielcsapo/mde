@@ -85,7 +85,7 @@ export default function Widgets() {
         draws. One provider per platform: DOM on the web, <code>UIView</code> / <code>NSView</code>{' '}
         on Apple.
       </Lede>
-      <SourceFigure path="web/demo/host.js" lang="javascript" code={hostJs} />
+      <SourceFigure path="web/examples/vanilla/host.js" lang="javascript" code={hostJs} />
       <Footnote>
         Returning <code>null</code> falls through to the resource resolver, and failing that leaves
         the range as ordinary styled text — so a host that draws nothing still renders a complete,
@@ -121,7 +121,7 @@ export default function Widgets() {
       </p>
 
       <H3 id="resolution">Resolution is asynchronous by assumption</H3>
-      <SourceFigure className="mt-5" path="web/demo/host.js" lang="javascript" code={resolverJs} />
+      <SourceFigure className="mt-5" path="web/examples/vanilla/host.js" lang="javascript" code={resolverJs} />
       <p className="mt-5">
         The resolver returns <em>loading</em>, the editor reserves <code>reservedSize</code> so the
         document does not jump, and delivery later repaints{' '}

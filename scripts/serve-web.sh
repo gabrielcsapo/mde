@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 ./scripts/build-web.sh
 cd web
 PORT="${1:-8731}"
-echo "==> http://localhost:$PORT/demo/index.html"
+echo "==> http://localhost:$PORT/examples/vanilla/index.html"
 echo "==> http://localhost:$PORT/test/index.html"
 exec python3 - "$PORT" <<'PY'
 import sys

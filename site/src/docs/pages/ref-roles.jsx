@@ -2,7 +2,7 @@ import { Aside, H2, Lede, Note, SeeAlso, TableFrame } from '../../components/Doc
 import { Link } from '../../lib/router.jsx';
 
 // Ids and names from crates/mde-core/src/registry.rs; classes from the applier's map in
-// web/src/applier.js. The three lists are the same fourteen entries in the same order,
+// web/src/applier.ts. The three lists are the same fourteen entries in the same order,
 // which is the property that makes an id a constant a theme can rely on.
 const ROLES = [
   [0, 'heading', '.mde-heading', 'plus .mde-h1 … .mde-h6 for the level'],

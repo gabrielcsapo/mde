@@ -14,16 +14,16 @@ export default function Install() {
     <>
       <H2 id="get-the-code">Get the code</H2>
       <Lede>
-        The editor is not on a package registry — you vendor the repository, as a git
-        submodule or a copy. That is a deliberate consequence of how it ships: the web
-        renderer is dependency-free ES modules meant to be served as they are, and the Apple
-        side is a local Swift package. One checkout serves both.
+        The packages are currently consumed from the repository rather than a registry. The web
+        renderer builds as <code>@mde/web</code>, React stays in the optional{' '}
+        <code>@mde/react</code> adapter, and the Apple side remains a local Swift package. One
+        checkout serves all three.
       </Lede>
       <Defs
         items={[
           [
             'For the web',
-            'web/src/ (the editor, ~60 KB of modules), web/mde.wasm (~360 KB), and optionally web/extensions/ — nothing else, no npm install',
+            '@mde/web: about 46 KB of ESM, a separate ~360 KB wasm asset, CSS, declarations, and optional extension entry points',
           ],
           [
             'For iOS and macOS',
@@ -34,8 +34,8 @@ export default function Install() {
             'a Rust toolchain with the wasm32-unknown-unknown target (web) and the three Apple targets; rustup target add handles both',
           ],
           [
-            'If you never touch the core',
-            'the committed web/mde.wasm and a prebuilt XCFramework are all you need — Rust is only required to rebuild them',
+            'For React',
+            '@mde/react: a separate adapter build with React, React DOM, and @mde/web left external',
           ],
         ]}
       />
@@ -56,16 +56,16 @@ export default function Install() {
 
       <H2 id="web">Embed it on the web</H2>
       <Lede>
-        <code>web/</code> is plain ES modules with no build step and no dependencies. You serve the
-        directory; the browser imports it. There is nothing to bundle, though a bundler is welcome
-        to — this site is a Vite app and imports the same files directly.
+        <code>web/</code> is TypeScript built as a framework-free ESM library. Vite keeps the Rust
+        module as a separate asset, so JavaScript can be parsed and cached independently; React is
+        not present unless you install the adapter.
       </Lede>
 
       <Steps>
-        <Step title="Serve web/src, web/extensions and web/mde.wasm from the same origin">
-          ES modules and wasm both need a real origin, so a <code>file://</code> page cannot start
-          the editor. <code>./scripts/serve-web.sh</code> does this for the demo and the test suite,
-          with caching disabled outright.
+        <Step title="Build @mde/web and install it in your app">
+          <code>./scripts/build-web.sh</code> compiles Rust, the framework-free TypeScript package,
+          and the React adapter. In this repository the docs use a local <code>file:</code>{' '}
+          dependency; a workspace works equally well.
         </Step>
         <Step title="Give the editor an element and the theme stylesheet">
           The editor takes over the element completely: it sets <code>contenteditable</code>, owns
@@ -89,10 +89,10 @@ export default function Install() {
 
       <H3 id="web-shipping">What you ship</H3>
       <p>
-        Three things reach production: <code>web/src/theme.css</code>, the modules under{' '}
-        <code>web/src/</code>, and <code>web/mde.wasm</code> — same origin, any static host.
-        A bundler may inline the modules; the wasm stays a fetched asset. The editor makes no
-        network requests of its own, ever: resolving an image reference is your{' '}
+        Three things reach production: the tree-shaken ESM, <code>theme.css</code>, and{' '}
+        <code>mde.wasm</code>. Import the wasm as an asset URL and pass it to{' '}
+        <code>loadCore</code>; Vite emits it with a content hash. The editor makes no network
+        requests of its own beyond loading that core: resolving an image reference is your{' '}
         <code>resourceResolver</code>’s decision, not the library’s.
       </p>
 
@@ -163,7 +163,7 @@ export default function Install() {
           {
             to: '/reference/web',
             title: 'Web API',
-            note: 'every entry point in core.js and editor.js',
+            note: 'every entry point in core.ts and editor.ts',
           },
           {
             to: '/reference/swift',

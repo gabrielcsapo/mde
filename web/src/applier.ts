@@ -5,6 +5,9 @@
 // this writes spans.
 
 import { Kind, Role } from './core.js';
+import type { Decoration, Engine } from './core.js';
+import type { ResourceCache } from './resources.js';
+import type { WidgetProvider } from './widgets.js';
 
 /** Marks subtrees that are presentation only and contribute no document text. */
 export const IGNORE_ATTR = 'data-mde-ignore';
@@ -89,10 +92,22 @@ function lowerBound(index, offset) {
 }
 
 export class DomApplier {
+  engine: Engine;
+  text: string;
+  live: Map<bigint, Decoration>;
+  resources: ResourceCache | null;
+  widgetProvider: WidgetProvider | null;
+  sorted: Decoration[];
+  indexStale: boolean;
+  maxLength: number;
+  widgetViews: Map<bigint, HTMLElement>;
+  widgetOrder: bigint[];
+  widgetCacheLimit: number;
+
   /**
    * @param {import('./core.js').Engine} engine
    */
-  constructor(engine) {
+  constructor(engine: Engine) {
     this.engine = engine;
     /** Full document text. Segments and widget sources are sliced from it. */
     this.text = '';

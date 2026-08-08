@@ -9,7 +9,10 @@
 
 import { DomApplier, IGNORE_ATTR } from './applier.js';
 import { Kind } from './core.js';
+import type { Decoration, Engine, LayerSpan, Patch, Rewind, Revision, SelectionRange } from './core.js';
 import { ResourceCache } from './resources.js';
+import type { ResourceResolver } from './resources.js';
+import type { WidgetProvider } from './widgets.js';
 
 /**
  * Walk the document text, skipping presentation-only subtrees.
@@ -21,7 +24,7 @@ import { ResourceCache } from './resources.js';
  * @param {HTMLElement} root
  * @returns {Text[]}
  */
-function textNodes(root) {
+function textNodes(root: HTMLElement): Text[] {
   /** @type {Text[]} */
   const out = [];
   const walker = document.createTreeWalker(
@@ -30,7 +33,7 @@ function textNodes(root) {
     {
       acceptNode(node) {
         if (node.nodeType === Node.ELEMENT_NODE) {
-          return /** @type {Element} */ (node).hasAttribute(IGNORE_ATTR)
+          return (node as Element).hasAttribute(IGNORE_ATTR)
             ? NodeFilter.FILTER_REJECT // skips the whole subtree
             : NodeFilter.FILTER_SKIP;
         }
@@ -39,7 +42,7 @@ function textNodes(root) {
     }
   );
   let node;
-  while ((node = walker.nextNode())) out.push(/** @type {Text} */ (node));
+  while ((node = walker.nextNode())) out.push(node as Text);
   return out;
 }
 
@@ -63,7 +66,7 @@ const isLowSurrogate = (/** @type {number} */ c) => c >= 0xdc00 && c <= 0xdfff;
  * @param {string} oldText
  * @param {string} newText
  */
-export function diffText(oldText, newText) {
+export function diffText(oldText: string, newText: string): { start: number; end: number; text: string } {
   let start = 0;
   const maxStart = Math.min(oldText.length, newText.length);
   while (start < maxStart && oldText.charCodeAt(start) === newText.charCodeAt(start)) {
@@ -90,13 +93,31 @@ export function diffText(oldText, newText) {
 }
 
 export class MarkdownEditor extends EventTarget {
+  engine: Engine;
+  applier: DomApplier;
+  root: HTMLElement;
+  rootHadEditorClass: boolean;
+  previousContentEditable: string | null;
+  defaultAttributes: string[];
+  text: string;
+  lines: string[];
+  lineEls: HTMLElement[];
+  suppressSelection: boolean;
+  events: AbortController;
+  onDocumentSelectionChange: () => void;
+  destroyed: boolean;
+
   /**
    * @param {HTMLElement} host
    * @param {import('./core.js').Engine} engine
    * @param {{widgetProvider?: import('./widgets.js').WidgetProvider,
    *          resourceResolver?: import('./resources.js').ResourceResolver}} [options]
    */
-  constructor(host, engine, options = {}) {
+  constructor(
+    host: HTMLElement,
+    engine: Engine,
+    options: { widgetProvider?: WidgetProvider; resourceResolver?: ResourceResolver } = {},
+  ) {
     super();
     this.engine = engine;
     this.applier = new DomApplier(engine);
@@ -194,7 +215,7 @@ export class MarkdownEditor extends EventTarget {
   // MARK: - Document
 
   /** @param {string} text */
-  setMarkdown(text) {
+  setMarkdown(text: string): void {
     this.text = text;
     this.applier.reset();
     this.applier.ingest(this.engine.reset(text));
@@ -217,7 +238,7 @@ export class MarkdownEditor extends EventTarget {
     return this.applier.resources?.sizes() ?? {};
   }
 
-  set resourceSizes(sizes) {
+  set resourceSizes(sizes: Record<string, { width: number; height: number }>) {
     this.applier.resources?.remember(sizes);
   }
 
@@ -234,12 +255,12 @@ export class MarkdownEditor extends EventTarget {
    * @param {string} name
    * @param {{start: number, end: number, role: number, kind?: number, depth?: number}[]} spans
    */
-  setLayer(name, spans) {
+  setLayer(name: string, spans: LayerSpan[]): void {
     this.applyPatch(this.engine.setLayer(name, spans));
   }
 
   /** @param {string} name */
-  clearLayer(name) {
+  clearLayer(name: string): void {
     this.applyPatch(this.engine.clearLayer(name));
   }
 
@@ -248,12 +269,12 @@ export class MarkdownEditor extends EventTarget {
    * manifest declared. The theme styles them by name.
    * @param {string} name
    */
-  internRole(name) {
+  internRole(name: string): number {
     return this.engine.internRole(name);
   }
 
   /** Every decoration currently in effect, reveal already applied. */
-  get decorations() {
+  get decorations(): Decoration[] {
     return [...this.applier.live.values()].sort((a, b) => a.start - b.start);
   }
 
@@ -282,7 +303,7 @@ export class MarkdownEditor extends EventTarget {
    * Each entry carries a timestamp and what it did, which is enough for a panel to
    * label it without the core guessing at intent.
    */
-  get revisions() {
+  get revisions(): Revision[] {
     return this.engine.revisions();
   }
 
@@ -295,7 +316,7 @@ export class MarkdownEditor extends EventTarget {
    * Move to any point in the timeline. Undo and redo are the two-button view of this.
    * @param {number} target
    */
-  jumpTo(target) {
+  jumpTo(target: number): boolean {
     return this.rewind(this.engine.jumpTo(target));
   }
 
@@ -305,7 +326,7 @@ export class MarkdownEditor extends EventTarget {
   }
 
   /** @param {ReturnType<import('./core.js').Engine['undo']>} rewind */
-  rewind(rewind) {
+  rewind(rewind: Rewind | null): boolean {
     if (!rewind) return false;
     // Apply back-to-front so earlier offsets stay valid, matching the core.
     let text = this.text;
@@ -489,7 +510,7 @@ export class MarkdownEditor extends EventTarget {
    * in the undo history as its own step.
    * @param {import('./core.js').Decoration} decoration
    */
-  toggleTask(decoration) {
+  toggleTask(decoration: Decoration): void {
     const current = this.text.slice(decoration.start, decoration.end);
     const replacement = current.includes('x') ? '[ ]' : '[x]';
     this.engine.boundary();
@@ -502,7 +523,7 @@ export class MarkdownEditor extends EventTarget {
    * in the history and repainted identically.
    * @param {number} start @param {number} end @param {string} text
    */
-  replaceRange(start, end, text) {
+  replaceRange(start: number, end: number, text: string): void {
     const next = this.text.slice(0, start) + text + this.text.slice(end);
     this.text = next;
     const patch = this.engine.edit(start, end, text, next.length);
@@ -520,7 +541,7 @@ export class MarkdownEditor extends EventTarget {
    * @param {{start: number, end: number}|null} [alsoDirty]
    * @param {{start: number, end: number}|null} [caret]
    */
-  applyPatch(patch, alsoDirty = null, caret = null) {
+  applyPatch(patch: Patch, alsoDirty: SelectionRange | null = null, caret: SelectionRange | null = null): void {
     // Disjoint ranges, not a bounding box: see `dirtyRanges`.
     const dirty = this.applier.dirtyRanges(patch, alsoDirty);
     this.applier.ingest(patch);
@@ -637,7 +658,7 @@ export class MarkdownEditor extends EventTarget {
   // MARK: - Selection
 
   /** @returns {{start: number, end: number}|null} */
-  selectionRange() {
+  selectionRange(): SelectionRange | null {
     const sel = document.getSelection();
     if (!sel || sel.rangeCount === 0) return null;
     const range = sel.getRangeAt(0);
@@ -695,7 +716,7 @@ export class MarkdownEditor extends EventTarget {
   }
 
   /** @param {{start: number, end: number}} range */
-  setSelectionRange(range) {
+  setSelectionRange(range: SelectionRange): void {
     const nodes = textNodes(this.root);
     /** @param {number} target */
     const locate = (target) => {

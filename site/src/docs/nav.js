@@ -176,7 +176,7 @@ export const GROUPS = [
         file: 'ref-web',
         title: 'Web API',
         summary:
-          'Every public entry point in web/src/core.js and web/src/editor.js, with signatures taken from the source.',
+          'Every public entry point in web/src/core.ts and web/src/editor.ts, with signatures taken from the source.',
         keywords: 'loadCore Engine MarkdownEditor javascript api events setMarkdown decorations',
       },
       {

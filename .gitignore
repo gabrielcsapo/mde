@@ -27,6 +27,10 @@ DerivedData/
 # JavaScript / Vite
 **/node_modules/
 /site/dist/
+/web/dist/
+/web/react/dist/
+/web/react/example/dist/
+/web/examples/*/dist/
 *.tsbuildinfo
 
 # Project build outputs

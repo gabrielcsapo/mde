@@ -11,14 +11,13 @@
 // tick share the single in-flight fetch rather than racing to start their own. A
 // rejection is evicted, so a transient network failure does not poison the page.
 
-import { loadCore } from '../../src/core.js';
+import { DEFAULT_WASM_URL, loadCore } from '@mde/web';
 
-/** Resolves next to the editor's own sources, which is where `mde.wasm` lives. */
-export const DEFAULT_WASM_URL = new URL('../../mde.wasm', import.meta.url);
+export { DEFAULT_WASM_URL };
 
-/** @type {Map<string, Promise<import('../../src/core.js').Core>>} */
+/** @type {Map<string, Promise<import('@mde/web').Core>>} */
 const byUrl = new Map();
-/** @type {WeakMap<object, Promise<import('../../src/core.js').Core>>} */
+/** @type {WeakMap<object, Promise<import('@mde/web').Core>>} */
 const byObject = new WeakMap();
 
 /**
@@ -52,7 +51,7 @@ function objectId(value) {
  * The shared `Core` for a wasm source, loading it if this is the first ask.
  *
  * @param {string|URL|ArrayBuffer|Response} [source]
- * @returns {Promise<import('../../src/core.js').Core>}
+ * @returns {Promise<import('@mde/web').Core>}
  */
 export function sharedCore(source = DEFAULT_WASM_URL) {
   if (typeof source === 'string' || source instanceof URL) {

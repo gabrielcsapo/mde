@@ -2,8 +2,8 @@
 //
 // Every signature here was read out of the source, not remembered:
 //
-//   web/src/core.js · web/src/editor.js · web/src/manifest.js
-//   web/src/widgets.js · web/src/resources.js
+//   web/src/core.ts · web/src/editor.ts · web/src/manifest.ts
+//   web/src/widgets.ts · web/src/resources.ts
 //   apple/Sources/MDECore/MDECore.swift · apple/Sources/MDEditorUI/*.swift
 //
 // Written as data rather than as prose for three reasons: the reference pages then have
@@ -39,7 +39,7 @@ export const WEB_API = [
   {
     id: 'loading',
     title: 'Loading the core',
-    file: 'web/src/core.js',
+    file: 'web/src/core.ts',
     intro:
       'The wasm module is fetched and instantiated once. A `Core` owns the instance; an `Engine` is one document’s worth of state, and a page may hold several.',
     symbols: [
@@ -72,14 +72,14 @@ export const WEB_API = [
         signature: 'encodeManifest(spec: {blocks?: BlockDef[], inlines?: InlineDef[]}): Uint8Array',
         summary:
           'Encode a manifest into the compact binary form the web build reads. Same fields as the TOML manifest, as a plain object.',
-        note: 'Exported from `web/src/manifest.js`. The web build drops the TOML parser entirely — it cost ~350 KB of wasm for a parse that happens once.',
+        note: 'Exported from `web/src/manifest.ts`. The web build drops the TOML parser entirely — it cost ~350 KB of wasm for a parse that happens once.',
       },
     ],
   },
   {
     id: 'engine',
     title: 'Engine',
-    file: 'web/src/core.js',
+    file: 'web/src/core.ts',
     intro:
       'The typed wrapper over the wasm boundary, and the JS mirror of `MarkdownEngine` on Apple. Not reentrant: drive it from one place, which is where text input lives anyway. Every offset is a UTF-16 code unit.',
     symbols: [
@@ -217,7 +217,7 @@ export const WEB_API = [
   {
     id: 'editor',
     title: 'MarkdownEditor',
-    file: 'web/src/editor.js',
+    file: 'web/src/editor.ts',
     intro:
       'The `contenteditable` host, and the web counterpart of `MarkdownTextView`. It extends `EventTarget`. The DOM is the buffer; the editor keeps a mirror and recovers each edit by diffing.',
     symbols: [
@@ -358,7 +358,7 @@ export const WEB_API = [
   {
     id: 'host-contracts',
     title: 'What the host supplies',
-    file: 'web/src/widgets.js · web/src/resources.js',
+    file: 'web/src/widgets.ts · web/src/resources.ts',
     intro:
       'Two small objects, both optional. `WidgetProvider` draws content the markdown fully describes; `ResourceResolver` fetches what the markdown only points at.',
     symbols: [
@@ -613,7 +613,7 @@ export const REACT_API = [
   {
     id: 'hooks',
     title: 'Hooks, helpers and re-exports',
-    file: 'web/react/src/hooks.js · src/core.js · src/index.js',
+    file: 'web/react/src/hooks.ts · src/core.ts · src/index.ts',
     intro: 'Small, and all optional.',
     symbols: [
       {

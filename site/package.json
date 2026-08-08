@@ -3,13 +3,18 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The mde marketing site. npm lives here and nowhere else in this repository — web/, crates/ and apple/ stay dependency-free.",
+  "description": "The mde documentation site and live integration gallery.",
   "scripts": {
+    "packages": "../scripts/build-web.sh",
+    "predev": "npm run packages",
     "dev": "vite",
+    "prebuild": "npm run packages",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mde/react": "file:../web/react",
+    "@mde/web": "file:../web",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

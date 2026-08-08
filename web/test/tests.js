@@ -5,14 +5,19 @@
 // concealed runs — only exists in a real engine. Open web/test/index.html, or drive it
 // headlessly and read `window.__results`.
 
-import { loadCore, Kind, Role } from '../src/core.js';
-import { encodeManifest } from '../src/manifest.js';
-import { MarkdownEditor, diffText } from '../src/editor.js';
-import { IGNORE_ATTR } from '../src/applier.js';
+import {
+  IGNORE_ATTR,
+  Kind,
+  MarkdownEditor,
+  Role,
+  diffText,
+  encodeManifest,
+  loadCore,
+} from '../dist/index.js';
 // Deliberately imported from `../extensions/`, not `../src/`: these are not part of the
 // editor, and testing them here is the check that they never needed to be.
-import { TypewriterMode } from '../extensions/typewriter.js';
-import { PartsOfSpeech, tagWord } from '../extensions/parts-of-speech.js';
+import { TypewriterMode } from '../dist/extensions/typewriter.js';
+import { PartsOfSpeech, tagWord } from '../dist/extensions/parts-of-speech.js';
 
 /** @type {{name: string, ok: boolean, detail?: string}[]} */
 const results = [];
@@ -88,7 +93,7 @@ function domText(root) {
 }
 
 export async function run() {
-  const core = await loadCore('../mde.wasm');
+  const core = await loadCore('../dist/mde.wasm');
 
   /** @param {object} [options] */
   function makeEditor(options = {}) {
@@ -451,6 +456,38 @@ export async function run() {
       '![a](same.png) and ![b](same.png)',
       'the resolved view leaked into the document text'
     );
+  });
+
+  await asyncTest('destroy cancels a late resource repaint before the engine is freed', async () => {
+    let release;
+    const engine = core.newEngine(encodeManifest(manifestSpec));
+    const host = document.createElement('div');
+    document.getElementById('sandbox').replaceChildren(host);
+    const e = new MarkdownEditor(host, engine, {
+      resourceResolver: {
+        resolve: () => new Promise((resolve) => { release = resolve; }),
+        reservedSize: () => ({ width: 100, height: 60 }),
+      },
+    });
+    e.setMarkdown('![a](late.png)');
+
+    const failures = [];
+    const onUnhandled = (event) => {
+      failures.push(event.reason);
+      event.preventDefault();
+    };
+    addEventListener('unhandledrejection', onUnhandled);
+    e.destroy();
+    engine.free();
+
+    const view = document.createElement('span');
+    view.textContent = 'too late';
+    release({ state: 'ready', view });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    removeEventListener('unhandledrejection', onUnhandled);
+
+    assertEqual(failures.length, 0, 'late resolution touched a freed engine');
+    assertEqual(host.childNodes.length, 0, 'late resolution repainted a destroyed host');
   });
 
   test('a missing resolver degrades instead of throwing', () => {

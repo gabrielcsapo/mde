@@ -4,8 +4,8 @@ import { createRoot } from 'react-dom/client';
 // The editor's own theme, and the styling the two shipped extensions bring with them.
 // They live in `web/src` and `web/extensions`; this package deliberately does not copy
 // them. Import order matters — see the note at the top of extensions.css.
-import '../../../src/theme.css';
-import '../../../extensions/extensions.css';
+import '@mde/web/theme.css';
+import '@mde/web/extensions.css';
 import './app.css';
 
 import App from './App.jsx';

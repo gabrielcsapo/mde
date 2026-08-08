@@ -61,7 +61,7 @@ export default function Layers() {
         DOM, never asks how a line is laid out, and never reaches into the applier — the entire
         surface it uses is the three calls above plus the editor’s events.
       </Lede>
-      <SourceFigure className="mt-6" path="web/extensions/typewriter.js" lang="javascript" code={typewriterJs} />
+      <SourceFigure className="mt-6" path="web/extensions/typewriter.ts" lang="typescript" code={typewriterJs} />
       <Note>
         <code>internRole</code> is called once, in the constructor. Role ids are stable for the life
         of an engine, so an extension holds onto its own rather than looking them up per keystroke.

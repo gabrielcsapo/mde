@@ -178,7 +178,7 @@ clear_layer(name)`
 
 export const typewriterJs = tag(
   'javascript',
-  `// web/extensions/typewriter.js — the whole of what it does to the editor.
+  `// web/extensions/typewriter.ts — the whole of what it does to the editor.
 recompute() {
   const text = this.editor.markdown;
   const sel = this.editor.selectionRange();
@@ -220,7 +220,7 @@ editor.setLayer(Self.layer, spans)`
 
 export const posWebJs = tag(
   'javascript',
-  `// web/extensions/parts-of-speech.js — a heuristic, and labelled as one.
+  `// web/extensions/parts-of-speech.ts — a heuristic, and labelled as one.
 export function tagWord(word) {
   const w = word.toLowerCase();
 
@@ -281,8 +281,9 @@ export const extensionCss = tag(
 
 export const buildBash = tag(
   'bash',
-  `./scripts/build-web.sh    # cargo build -p mde-wasm --target wasm32-unknown-unknown
-                          # → web/mde.wasm (~360 KB)
+  `./scripts/build-web.sh    # Rust → wasm, then Vite library builds
+                          # → web/dist/index.js + mde.wasm
+                          # → web/react/dist/index.js
 
 ./scripts/build-rust.sh   # aarch64-apple-darwin, -ios, -ios-sim
                           # → apple/MDECore.xcframework`
@@ -290,11 +291,11 @@ export const buildBash = tag(
 
 export const mountJs = tag(
   'javascript',
-  `import { loadCore, Role } from './src/core.js';
-import { encodeManifest } from './src/manifest.js';
-import { MarkdownEditor } from './src/editor.js';
+  `import { MarkdownEditor, Role, encodeManifest, loadCore } from '@mde/web';
+import wasmUrl from '@mde/web/mde.wasm?url';
+import '@mde/web/theme.css';
 
-const core = await loadCore('./mde.wasm');
+const core = await loadCore(wasmUrl);
 const engine = core.newEngine(encodeManifest(manifestSpec));
 
 const editor = new MarkdownEditor(document.getElementById('editor'), engine, {
@@ -312,9 +313,7 @@ editor.addEventListener('hit', (e) => {
 
 export const mountHtml = tag(
   'text',
-  `<link rel="stylesheet" href="web/src/theme.css">
-
-<div id="editor"></div>
+  `<div id="editor"></div>
 <script type="module" src="./boot.js"></script>`
 );
 
@@ -452,7 +451,7 @@ typedef struct {
 
 export const wasmReadJs = tag(
   'javascript',
-  `// web/src/core.js — the same bytes Swift reads as an UnsafeBufferPointer.
+  `// web/src/core.ts — the same bytes Swift reads as an UnsafeBufferPointer.
 readPatch() {
   const view = new DataView(exports.memory.buffer, exports.mde_patch_ptr(), len);
   ...
