@@ -41,9 +41,19 @@ if [ "$WHICH" = all ] || [ "$WHICH" = core ]; then
 fi
 
 if [ "$WHICH" = all ] || [ "$WHICH" = apple ]; then
+    section "apple ffi"
+    ./scripts/build-rust.sh
+    record $? "apple ffi build"
+
     section "swift"
-    (cd apple && swift test)
+    # SwiftPM does not notice when a binary-target archive changes in place. Cleaning
+    # is required or the tests can silently keep exercising yesterday's Rust core.
+    (cd apple && swift package clean && swift test)
     record $? "swift tests"
+
+    section "uikit renderer (simulator)"
+    ./scripts/test-ios-renderer.sh
+    record $? "uikit renderer tests"
 fi
 
 if [ "$WHICH" = all ] || [ "$WHICH" = web ]; then

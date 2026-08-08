@@ -48,7 +48,7 @@ Ordinary things work: \`inline code\`, [a link](https://example.dev), and ~~stru
 
 | Surface | Integration |
 | :--- | :--- |
-| Web | Vanilla JavaScript |
+| Web | JS |
 | Apple | Swift + TextKit 2 |
 
 ## Extensions
@@ -136,7 +136,7 @@ export const resourceResolver = {
     if (reference.endsWith('.png')) {
       const img = document.createElement('img');
       img.className = 'demo-image';
-      img.src = chartDataURL();
+      img.src = reference.endsWith('photo.png') ? photoDataURL() : chartDataURL();
       img.alt = reference;
       return { state: 'ready', view: img };
     }
@@ -170,5 +170,32 @@ function chartDataURL() {
     const h = (360 - 80) * v;
     ctx.fillRect(40 + slot * i + slot * 0.18, 360 - 40 - h, slot * 0.64, h);
   });
+  return canvas.toDataURL('image/png');
+}
+
+/** A second real asset, matching SampleAssets.photo.png in the Swift host. */
+function photoDataURL() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 360;
+  const ctx = canvas.getContext('2d');
+  const sky = ctx.createLinearGradient(0, 0, 0, 360);
+  sky.addColorStop(0, '#b3dbf5');
+  sky.addColorStop(1, '#2e6bb8');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 640, 360);
+  ctx.fillStyle = '#ffc74d';
+  ctx.beginPath();
+  ctx.arc(502, 82, 32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#265247';
+  ctx.beginPath();
+  ctx.moveTo(0, 360);
+  ctx.lineTo(225, 135);
+  ctx.lineTo(390, 315);
+  ctx.lineTo(640, 145);
+  ctx.lineTo(640, 360);
+  ctx.closePath();
+  ctx.fill();
   return canvas.toDataURL('image/png');
 }

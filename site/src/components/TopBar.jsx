@@ -39,7 +39,7 @@ export default function TopBar({ page, onOpenSearch, onOpenNav, navOpen }) {
         >
           mde
           <em className="font-sans text-[0.78rem] font-normal tracking-normal not-italic text-faint max-[560px]:hidden">
-            markdown editor
+            web + swift
           </em>
         </Link>
 

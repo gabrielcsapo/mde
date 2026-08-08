@@ -29,6 +29,11 @@ const ROLES = [
 const STRUCTURE = [
   ['.mde-editor', 'the host element; the editor adds this and owns everything inside it'],
   ['.mde-line', 'one source line, including its trailing newline'],
+  ['.mde-line-table', 'one editable source row inside a table'],
+  ['.mde-line-table-start / -end', 'the outside edge and corner modifiers'],
+  ['.mde-line-table-header / -delimiter', 'the two structural header-row modifiers'],
+  ['.mde-table-widget / .mde-table-view', 'the wrapper and ignored presentation subtree'],
+  ['.mde-rendered-table', 'the semantic HTML table shown while its source is not being edited'],
   ['.mde-line-concealed', 'a line that contributes only concealed source — zero height'],
   ['.mde-line-block', 'the line that draws a block widget, made block-level'],
   ['.mde-run', 'a run of characters carrying one set of roles'],

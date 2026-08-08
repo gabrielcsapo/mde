@@ -1,58 +1,85 @@
-import { lazy, Suspense } from 'react';
-
 import Hero from './Hero.jsx';
 import { Link } from '../lib/router.jsx';
 
-const LiveEditor = lazy(() => import('./LiveEditor.jsx'));
-
-// The front door has one job: make the promise clear and let visitors verify it. The
-// documentation explains the architecture; this page earns the next click.
-
-const CTA =
-  'inline-flex items-center rounded-[9px] border px-5 py-2.5 text-[0.95rem] font-[550] no-underline';
+const PRINCIPLES = [
+  {
+    label: 'Shared meaning',
+    title: 'One parser, not three approximations.',
+    body: 'Rust owns parsing, reveal behavior, extensions, and undo. Web and Swift consume the same decisions.',
+  },
+  {
+    label: 'Native input',
+    title: 'The platform still owns the caret.',
+    body: 'Contenteditable and TextKit 2 keep IME, selection, spellcheck, and accessibility where they belong.',
+  },
+  {
+    label: 'Portable source',
+    title: 'Your document stays Markdown.',
+    body: 'The rendered experience is a decoration layer. Underneath it is an ordinary string you can take anywhere.',
+  },
+];
 
 export default function Landing() {
   return (
-    <>
-      <main className="mx-auto max-w-[1080px] px-6 pb-10" id="main">
-        <div className="landing-intro pt-[clamp(48px,9vh,102px)]">
-          <Hero />
-          <div className="mt-[28px] flex flex-wrap gap-3">
-            <a
-              className={`${CTA} border-accent bg-accent text-surface hover:border-accent-hi hover:bg-accent-hi`}
-              href="#live-editor"
-            >
-              Try the editor ↓
-            </a>
-            <Link className={`${CTA} border-rule text-text hover:border-accent hover:text-accent`} to="/overview">
-              Read the docs →
-            </Link>
-          </div>
-          <p className="landing-platforms">
-            Vanilla JS <span aria-hidden="true">·</span> React{' '}
-            <span aria-hidden="true">·</span> iOS <span aria-hidden="true">·</span> macOS{' '}
-            <span aria-hidden="true">·</span> one Rust core
+    <main className="landing" id="main">
+      <section className="landing-hero">
+        <Hero />
+      </section>
+
+      <section className="landing-principles" aria-labelledby="principles-title">
+        <div className="landing-principles-head">
+          <p className="eyebrow">Cross-platform by construction</p>
+          <h2 id="principles-title">The renderer changes. The editing contract doesn’t.</h2>
+        </div>
+        <div className="landing-principle-grid">
+          {PRINCIPLES.map((principle) => (
+            <article className="landing-principle" key={principle.label}>
+              <p>{principle.label}</p>
+              <h3>{principle.title}</h3>
+              <span>{principle.body}</span>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing-capture-proof" aria-labelledby="capture-proof-title">
+        <div className="landing-capture-head">
+          <p className="eyebrow">CommonMark + custom syntax</p>
+          <h2 id="capture-proof-title">The screenshots are the product.</h2>
+          <p>
+            These are generated from the production docs build with a fixed Markdown document. The
+            same capture includes headings, emphasis, links, quotes, tasks, tables, mentions,
+            wikilinks, and a host-rendered callout.
           </p>
         </div>
+        <div className="landing-web-captures">
+          <figure>
+            <img src="/assets/web-js.png" alt="The JS editor rendering CommonMark and custom syntax." />
+            <figcaption><strong>JS</strong> · <code>@mde/web</code></figcaption>
+          </figure>
+          <figure>
+            <img src="/assets/web-react.png" alt="The React editor rendering the same CommonMark and custom syntax." />
+            <figcaption><strong>React</strong> · <code>@mde/react</code></figcaption>
+          </figure>
+        </div>
+        <p className="landing-capture-command">
+          Regenerate both with <code>pnpm capture:web</code>.
+        </p>
+      </section>
 
-        <section className="landing-proof" id="live-editor" aria-labelledby="live-editor-title">
-          <div className="landing-proof-copy">
-            <p className="eyebrow">The real editor, running below</p>
-            <h2 id="live-editor-title">Click a styled word. The syntax comes back.</h2>
-            <p className="lede" id="landing-editor-prompt">
-              Move the caret away and it disappears again. Try a checkbox, edit the text,
-              or switch between the framework-free and React integrations.
-            </p>
-          </div>
-          <Suspense fallback={<div className="editor-loading">Loading the editor…</div>}>
-            <LiveEditor historyInitiallyOpen={false} descriptionId="landing-editor-prompt" />
-          </Suspense>
-          <p className="landing-proof-more">
-            <Link to="/try">Explore revisions, extensions, and widgets →</Link>
-          </p>
-        </section>
-
-      </main>
-    </>
+      <section className="landing-next" aria-labelledby="landing-next-title">
+        <p className="eyebrow">Start here</p>
+        <h2 id="landing-next-title">Build the same Markdown experience into every app.</h2>
+        <p>
+          Follow the architecture from Rust decorations to the web and Swift renderers, or open the
+          full editor inside the documentation when you want to test the interaction yourself.
+        </p>
+        <div className="landing-next-actions">
+          <Link to="/overview">Read the overview →</Link>
+          <Link to="/install">Install and embed</Link>
+          <Link to="/try">Open the live editor</Link>
+        </div>
+      </section>
+    </main>
   );
 }

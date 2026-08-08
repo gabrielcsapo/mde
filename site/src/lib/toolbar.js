@@ -86,7 +86,12 @@ export const TOOLBAR = [
       'Focus mode: dim everything but the paragraph under the caret. An extension — '
       + 'the editor has no idea it exists.',
     pressed: (editor) => extensionFor(editor, 'typewriter', TypewriterMode).enabled,
-    run: (editor) => extensionFor(editor, 'typewriter', TypewriterMode).toggle(),
+    run: (editor) => {
+      extensionFor(editor, 'typewriter', TypewriterMode).toggle();
+      // Toolbar clicks move focus away from the document. Restore it so the retained
+      // caret drives the focus layer immediately instead of making the mode look inert.
+      editor.root.focus();
+    },
   },
   {
     id: 'parts-of-speech',

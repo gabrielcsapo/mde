@@ -96,6 +96,41 @@ function lowerBound(index, offset) {
   return lo;
 }
 
+/** Split a source table row on unescaped pipes, dropping optional outside pipes. */
+function sourceTableCells(line: string): string[] {
+  const cells = [];
+  let cell = '';
+  let escaped = false;
+  for (const char of line.trim()) {
+    if (escaped) {
+      cell += char;
+      escaped = false;
+    } else if (char === '\\') {
+      cell += char;
+      escaped = true;
+    } else if (char === '|') {
+      cells.push(cell);
+      cell = '';
+    } else {
+      cell += char;
+    }
+  }
+  cells.push(cell);
+  if (cells[0]?.trim() === '') cells.shift();
+  if (cells.at(-1)?.trim() === '') cells.pop();
+  return cells;
+}
+
+/** Column alignment encoded by the GFM delimiter row. */
+function tableAlignments(line: string): Array<'left' | 'center' | 'right'> {
+  return sourceTableCells(line).map((cell) => {
+    const marker = cell.trim();
+    if (marker.startsWith(':') && marker.endsWith(':')) return 'center';
+    if (marker.endsWith(':')) return 'right';
+    return 'left';
+  });
+}
+
 export class DomApplier {
   engine: Engine;
   text: string;
@@ -258,7 +293,15 @@ export class DomApplier {
   rangesReferencing(reference) {
     const out = [];
     for (const d of this.live.values()) {
-      if (this.engine.payload(d.key) === reference) out.push({ start: d.start, end: d.end });
+      if (this.engine.payload(d.key) !== reference) continue;
+      const table = [...this.live.values()].find(
+        (candidate) =>
+          candidate.kind === Kind.BlockWidget &&
+          candidate.role === Role.Table &&
+          candidate.start <= d.start &&
+          candidate.end >= d.end
+      );
+      out.push(table ? { start: table.start, end: table.end } : { start: d.start, end: d.end });
     }
     return mergeRanges(out);
   }
@@ -297,6 +340,39 @@ export class DomApplier {
       .slice()
       .sort((a, b) => paintOrder(a) - paintOrder(b) || a.layer - b.layer);
 
+    // A table is a semantic HTML view until the caret enters its source. The view is
+    // ignored by the editor's text walk; every Markdown character remains underneath.
+    const table = covering.find((d) => d.role === Role.Table);
+    const tableIsEditing = table?.kind === Kind.Style;
+    if (table && !tableIsEditing) {
+      if (table.start === lineStart) {
+        el.appendChild(this.buildRenderedTable(table, lineStart, lineEnd));
+        el.classList.add('mde-line-block');
+      } else {
+        const source = document.createElement('span');
+        source.className = 'mde-run mde-conceal';
+        source.setAttribute('aria-hidden', 'true');
+        source.appendChild(document.createTextNode(this.text.slice(lineStart, lineEnd)));
+        el.appendChild(source);
+        el.classList.add('mde-line-concealed');
+      }
+      return el;
+    }
+
+    // While editing, the ordinary line DOM returns so the pipes, delimiter and every
+    // source character are available to the native contenteditable selection.
+    if (tableIsEditing) {
+      el.classList.add('mde-line-table');
+      if (table.start === lineStart) el.classList.add('mde-line-table-start');
+      if (table.end === lineEnd) el.classList.add('mde-line-table-end');
+      if (covering.some((d) => d.role === Role.TableHeader)) {
+        el.classList.add('mde-line-table-header');
+      }
+      if (covering.some((d) => d.role === Role.TableDelimiter)) {
+        el.classList.add('mde-line-table-delimiter');
+      }
+    }
+
     // Widgets own their whole range, so they carve the line up first; everything else
     // is segmented inside the gaps between them.
     const widgets = covering
@@ -331,6 +407,124 @@ export class DomApplier {
       el.classList.add('mde-line-block');
     }
     return el;
+  }
+
+  /**
+   * Build the presentation-only HTML table plus the concealed source slice belonging
+   * to its first line. Continuation lines retain the rest of the source separately.
+   * @param {import('./core.js').Decoration} tableDecoration
+   * @param {number} from @param {number} to
+   */
+  buildRenderedTable(tableDecoration: Decoration, from: number, to: number): HTMLElement {
+    const wrap = document.createElement('span');
+    wrap.className = 'mde-widget mde-widget-block mde-table-widget';
+    wrap.dataset.mdeKey = String(tableDecoration.key);
+
+    const view = document.createElement('span');
+    view.className = 'mde-widget-view mde-table-view';
+    view.setAttribute(IGNORE_ATTR, '');
+    view.setAttribute('contenteditable', 'false');
+
+    const htmlTable = document.createElement('table');
+    htmlTable.className = 'mde-rendered-table';
+    const head = document.createElement('thead');
+    const body = document.createElement('tbody');
+
+    const source = this.text.slice(tableDecoration.start, tableDecoration.end);
+    const sourceLines = source.split('\n');
+    const alignments = tableAlignments(sourceLines[1] ?? '');
+    const allDecorations = this.covering(tableDecoration.start, tableDecoration.end)
+      .slice()
+      .sort((a, b) => paintOrder(a) - paintOrder(b) || a.layer - b.layer);
+    const cellDecorations = allDecorations
+      .filter((d) => d.kind === Kind.Style && d.role === Role.TableCell)
+      .sort((a, b) => a.start - b.start);
+
+    let lineStart = tableDecoration.start;
+    for (let lineIndex = 0; lineIndex < sourceLines.length; lineIndex++) {
+      const line = sourceLines[lineIndex];
+      const lineEnd = lineStart + line.length;
+      if (lineIndex !== 1) {
+        const cells = cellDecorations.filter(
+          (cell) => cell.start >= lineStart && cell.end <= lineEnd
+        );
+        if (cells.length > 0) {
+          const row = document.createElement('tr');
+          cells.forEach((cell, column) => {
+            const element = document.createElement(lineIndex === 0 ? 'th' : 'td');
+            let cellStart = cell.start;
+            let cellEnd = cell.end;
+            while (cellStart < cellEnd && /\s/.test(this.text[cellStart])) cellStart++;
+            while (cellEnd > cellStart && /\s/.test(this.text[cellEnd - 1])) cellEnd--;
+            if (cellEnd > cellStart) {
+              this.appendTableCellContent(element, cellStart, cellEnd, allDecorations);
+            }
+            element.dataset.align = alignments[column] ?? 'left';
+            row.appendChild(element);
+          });
+          (lineIndex === 0 ? head : body).appendChild(row);
+        }
+      }
+      lineStart = lineEnd + 1;
+    }
+
+    htmlTable.append(head, body);
+    view.appendChild(htmlTable);
+    wrap.appendChild(view);
+
+    const sourceRun = document.createElement('span');
+    sourceRun.className = 'mde-run mde-conceal';
+    sourceRun.setAttribute('aria-hidden', 'true');
+    sourceRun.appendChild(document.createTextNode(this.text.slice(from, to)));
+    wrap.appendChild(sourceRun);
+    return wrap;
+  }
+
+  /**
+   * Render inline Markdown inside a presentation table cell. A resource is resolved
+   * once by reference, then copied into this second projection because one DOM node
+   * cannot be parented in two places.
+   */
+  appendTableCellContent(parent, from, to, covering) {
+    const images = covering
+      .filter(
+        (d) =>
+          d.kind === Kind.InlineWidget &&
+          d.role === Role.Image &&
+          d.start >= from &&
+          d.end <= to
+      )
+      .sort((a, b) => a.start - b.start);
+    let cursor = from;
+    for (const image of images) {
+      if (image.start > cursor) this.appendStyledRun(parent, cursor, image.start, covering);
+      const source = this.text.slice(image.start, image.end);
+      const alt = source.match(/^!\[([^\]]*)\]/)?.[1] || 'image';
+      const reference = this.engine.payload(image.key);
+      const frame = document.createElement('span');
+      frame.className = 'mde-table-resource';
+      frame.setAttribute('role', 'img');
+      frame.setAttribute('aria-label', alt);
+      frame.title = reference || alt;
+      const view = this.resources?.viewCopy({
+        reference,
+        roleName: this.engine.roleName(image.role),
+        source,
+      });
+      if (view) {
+        view.classList.add('mde-table-resource-content');
+        if (view instanceof HTMLImageElement) {
+          view.alt = alt;
+          view.classList.add('mde-table-resource-image');
+        }
+        frame.appendChild(view);
+      } else {
+        frame.textContent = alt;
+      }
+      parent.appendChild(frame);
+      cursor = image.end;
+    }
+    if (cursor < to) this.appendStyledRun(parent, cursor, to, covering);
   }
 
   /**

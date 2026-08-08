@@ -120,6 +120,17 @@ export class ResourceCache {
     return placeholder(basename(req.reference), false, this.reserved.get(req.reference));
   }
 
+  /**
+   * A presentation-only copy for a second projection of the same resource, such as an
+   * image inside a rendered table. Resolution remains cached once by reference; only
+   * the DOM node is copied because one node cannot have two parents.
+   */
+  viewCopy(req) {
+    const view = this.view(req);
+    const copy = view?.cloneNode(true);
+    return copy instanceof HTMLElement ? copy : null;
+  }
+
   /** @param {ResourceRequest} request */
   async start(request) {
     let result;

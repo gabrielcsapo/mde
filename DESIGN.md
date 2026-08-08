@@ -527,6 +527,13 @@ subtrees, is exactly the markdown source.** Widget views are marked ignored so a
 reading "@gabe" cannot smuggle its label into the document, and everything else —
 recovering the edit, mapping selection to offsets — falls out of a single tree walk.
 
+A GFM table uses that same invariant as a built-in projection. With the caret outside
+the block, the renderer draws a semantic HTML `<table>` in a `data-mde-ignore` subtree
+and conceals the pipe source beside it. Clicking the table puts the caret at the start
+of that source and rebuilds the same lines as ordinary editable text; leaving the block
+restores the table. There is still one document and one set of offsets — the table is a
+view, never a second model.
+
 | primitive | how it is drawn |
 |---|---|
 | `Style` | a class per role on a run |

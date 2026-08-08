@@ -5,7 +5,7 @@ import VanillaEditor from './VanillaEditor.jsx';
 const ReactEditor = lazy(() => import('./ReactEditor.jsx'));
 
 const VARIANTS = [
-  { id: 'vanilla', label: 'Vanilla web', detail: '@mde/web' },
+  { id: 'vanilla', label: 'JS', detail: '@mde/web' },
   { id: 'react', label: 'React', detail: '@mde/react' },
 ];
 

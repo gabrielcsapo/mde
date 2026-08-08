@@ -28,7 +28,7 @@ export default function ReactPage() {
       </p>
       <Note>
         The <Link to="/try">demo editor</Link> lets you switch between the adapter and the direct
-        framework-free mount. The React variant is lazy-loaded, so choosing Vanilla does not load
+        framework-free mount. The React variant is lazy-loaded, so choosing JS does not load
         the adapter at all.
       </Note>
 

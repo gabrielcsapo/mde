@@ -46,8 +46,8 @@ Inline <kbd>HTML</kbd> stays source.
 
 ---
 
-| Name | Score |
-| :--- | ----: |
-| Ada  |    10 |
+| Name | Profile | Asset | Score |
+| :--- | :-----: | :---- | ----: |
+| **Ada** | [profile](https://example.dev/ada) | ![chart](chart.png) | `10` |
 
 ~~strikethrough~~

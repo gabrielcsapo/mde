@@ -97,13 +97,102 @@ final class MacRendererTests: XCTestCase {
         XCTAssertLessThan(fontSize(at: 8), 1, "the setext underline should be concealed")
     }
 
-    func testATableUsesMonospacedCellsAndABoldHeader() {
-        editor.setMarkdown("| Name | Score |\n| :--- | ----: |\n| Ada | 10 |\n")
-        let header: NSFont? = attribute(.font, at: 3)
-        let cell: NSFont? = attribute(.font, at: 39)
-        XCTAssertTrue(header?.fontDescriptor.symbolicTraits.contains(.bold) ?? false)
-        XCTAssertTrue(header?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false)
-        XCTAssertTrue(cell?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false)
+    func testAComplexTableUsesANativeGridAndKeepsItsMarkdownSource() throws {
+        let source = """
+        | Name | Detail | Asset |
+        | :--- | :----: | ----: |
+        | **Ada** | [profile](https://example.dev) + `10` | ![chart](chart.png) |
+        """
+        editor.setMarkdown(source)
+
+        let table = try XCTUnwrap(editor.decorations.first { $0.role == Role.table })
+        XCTAssertEqual(table.kind, .blockWidget)
+        let paragraph = try XCTUnwrap(editor.textContentStorage(
+            editor.contentStorage,
+            textParagraphWith: NSRange(location: 0, length: storage.length)
+        ))
+        let attachment = try XCTUnwrap(
+            paragraph.attributedString.attribute(.attachment, at: 0, effectiveRange: nil)
+                as? WidgetAttachment
+        )
+        let view = try XCTUnwrap(attachment.makeView() as? TableWidgetView)
+
+        XCTAssertEqual(view.model.rows.count, 2)
+        XCTAssertEqual(view.model.rows[1], [
+            "**Ada**", "[profile](https://example.dev) + `10`", "![chart](chart.png)",
+        ])
+        XCTAssertEqual(view.model.alignments, [.left, .center, .right])
+        XCTAssertGreaterThan(view.frame.height, 70)
+        XCTAssertEqual(editor.markdown, source, "the native projection changed the source")
+    }
+
+    func testNativeTableCellsRenderBoldLinksAndCode() {
+        let bold = TableCellRenderer.render("**Ada**", header: false)
+        let boldFont = bold.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        XCTAssertTrue(boldFont?.fontDescriptor.symbolicTraits.contains(.bold) ?? false)
+
+        let link = TableCellRenderer.render("[profile](https://example.dev)", header: false)
+        XCTAssertNotNil(link.attribute(.link, at: 0, effectiveRange: nil))
+
+        let code = TableCellRenderer.render("`10`", header: false)
+        let codeFont = code.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        XCTAssertTrue(codeFont?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false)
+
+    }
+
+    func testNativeTableImagesComeFromTheResourceResolverWithoutADuplicateAttachment() throws {
+        let source = "| Asset |\n| :---: |\n| ![chart](chart.png) |\n"
+        let resources = ResourceCache()
+        let resolver = ImageResolver()
+        resources.resolver = resolver
+        let view = try XCTUnwrap(TableWidgetView(
+            source: source,
+            fittingWidth: 320,
+            resources: resources
+        ))
+
+        func descendants(_ root: NSView) -> [NSView] {
+            root.subviews.flatMap { [$0] + descendants($0) }
+        }
+        let renderedImages = descendants(view).compactMap { ($0 as? NSImageView)?.image }
+        XCTAssertEqual(resolver.requested, ["chart.png"])
+        XCTAssertEqual(renderedImages.count, 1, "the table did not draw the resolved image")
+        XCTAssertEqual(
+            view.frame.height,
+            view.intrinsicContentSize.height,
+            accuracy: 0.5,
+            "the attachment reserved less height than its image row draws"
+        )
+
+        editor.resourceResolver = resolver
+        editor.setMarkdown(source)
+        let imageRange = (source as NSString).range(of: "![chart](chart.png)")
+        let paragraphRange = (source as NSString).paragraphRange(for: imageRange)
+        XCTAssertNil(
+            editor.textContentStorage(editor.contentStorage, textParagraphWith: paragraphRange),
+            "the nested image also became a full-size attachment behind the table"
+        )
+        XCTAssertEqual(editor.markdown, source)
+    }
+
+    func testMovingTheCaretIntoATableRevealsPipesThenRestoresTheNativeGrid() throws {
+        let source = "| Name | Score |\n| :--- | ----: |\n| Ada | 10 |\n\nafter"
+        editor.setMarkdown(source)
+        focus()
+
+        editor.setSelectedRange(NSRange(location: source.range(of: "Ada")!.lowerBound.utf16Offset(
+            in: source
+        ), length: 0))
+        XCTAssertEqual(
+            try XCTUnwrap(editor.decorations.first { $0.role == Role.table }).kind,
+            .style
+        )
+
+        editor.setSelectedRange(NSRange(location: (source as NSString).range(of: "after").location, length: 0))
+        XCTAssertEqual(
+            try XCTUnwrap(editor.decorations.first { $0.role == Role.table }).kind,
+            .blockWidget
+        )
     }
 
     func testMarkersAreConcealedWhileUnfocused() {
@@ -635,6 +724,27 @@ private final class ResolvingResolver: ResourceResolver {
     func reservedSize(_ request: ResourceRequest) -> CGSize {
         guesses += 1
         return CGSize(width: 100, height: 60)
+    }
+}
+
+private final class ImageResolver: ResourceResolver {
+    private(set) var requested = [String]()
+
+    func resolve(
+        _ request: ResourceRequest,
+        deliver: @escaping (ResourceState) -> Void
+    ) -> ResourceState {
+        requested.append(request.reference)
+        let image = NSImage(size: CGSize(width: 160, height: 90), flipped: false) { rect in
+            NSColor.systemBlue.setFill()
+            rect.fill()
+            return true
+        }
+        return .ready(NSImageView(image: image))
+    }
+
+    func reservedSize(_ request: ResourceRequest) -> CGSize {
+        CGSize(width: 96, height: 54)
     }
 }
 

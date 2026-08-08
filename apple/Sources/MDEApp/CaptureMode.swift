@@ -36,6 +36,7 @@ enum CaptureMode {
 
         after(1.2) {
             switch shot {
+            case "cross-platform": showCrossPlatformFixture(editor)
             case "inline": break // the top of the document, exactly as launched
             case "reveal": revealBold(editor)
             case "widgets": scroll(editor, to: top(of: editor) + 285)
@@ -47,6 +48,14 @@ enum CaptureMode {
     }
 
     // MARK: - Shots
+
+    private static func showCrossPlatformFixture(_ editor: MarkdownTextView) {
+        guard let url = Bundle.main.url(forResource: "cross-platform", withExtension: "md"),
+              let source = try? String(contentsOf: url, encoding: .utf8)
+        else { return }
+        editor.setMarkdown(source)
+        scroll(editor, to: top(of: editor))
+    }
 
     /// Two spaced revisions, then the history sheet — the state a hand would reach by
     /// typing, pausing, typing again and tapping the clock.

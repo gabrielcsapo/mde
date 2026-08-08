@@ -222,7 +222,7 @@ impl<'a> Builder<'a> {
             }
         }
         // Deterministic order regardless of rule declaration order.
-        found.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        found.sort_by_key(|a| (a.0, a.1));
         self.block_stack.push(block);
         for (s, e, role, kind, reveal, payload) in found {
             self.push_with(s, e, (s, e), kind, role, reveal, payload);
@@ -485,7 +485,16 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
 
             Event::Start(Tag::Table(_)) => {
                 b.block_stack.push((r.start, r.end));
-                b.push(r.start, r.end, (r.start, r.end), Kind::Style, role::TABLE, Reveal::Never);
+                // A table is a native/semantic block view until the caret enters it,
+                // then the exact pipe source returns for editing on every renderer.
+                b.push(
+                    r.start,
+                    r.end,
+                    (r.start, r.end),
+                    Kind::BlockWidget,
+                    role::TABLE,
+                    Reveal::CaretInBlock,
+                );
                 let mut lines = src[r.start..r.end].split_inclusive('\n');
                 let first_len = lines.next().map_or(0, str::len);
                 if let Some(delimiter) = lines.next() {
@@ -711,9 +720,10 @@ mod tests {
     fn gfm_tables_have_table_header_delimiter_and_cell_roles() {
         let src = "| Name | Score |\n| :--- | ---: |\n| Ada | 10 |\n";
         let (t, d) = built(src, None);
-        let table = find(&d, Kind::Style, role::TABLE);
+        let table = find(&d, Kind::BlockWidget, role::TABLE);
         assert_eq!(table.len(), 1);
         assert_eq!(&t.as_str()[table[0].start..table[0].end], src);
+        assert_eq!(table[0].reveal, Reveal::CaretInBlock);
         assert_eq!(find(&d, Kind::Style, role::TABLE_HEADER).len(), 1);
         let delimiter = find(&d, Kind::Style, role::TABLE_DELIMITER);
         assert_eq!(&t.as_str()[delimiter[0].start..delimiter[0].end], "| :--- | ---: |");

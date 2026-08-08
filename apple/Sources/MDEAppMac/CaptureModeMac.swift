@@ -27,10 +27,26 @@ enum CaptureMode {
         return CGFloat(value)
     }
 
+    /// Optional destination for a permission-free capture of the actual AppKit view
+    /// hierarchy. System window capture can be denied even when the app itself is
+    /// allowed to draw; asking the window to cache its own display is deterministic.
+    static var output: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let flag = args.firstIndex(of: "--mde-output"), flag + 1 < args.count else {
+            return nil
+        }
+        return args[flag + 1]
+    }
+
     static func apply(to editor: MarkdownTextView) {
         guard let shot else { return }
         after(0.3) {
             guard let window = editor.window else { return }
+            if shot == "cross-platform" {
+                // Match the fixed light appearance used by the browser captures and
+                // the default iOS simulator, independent of the developer's desktop.
+                window.appearance = NSAppearance(named: .aqua)
+            }
             // Nothing may cover the window: `screencapture -v` records a screen
             // *rect*, so an overlapping window would land in the recording.
             window.level = .floating
@@ -47,8 +63,13 @@ enum CaptureMode {
         // References resolve asynchronously; wait for the document to settle so a cold
         // run and a warm run compose the same frame.
         after(1.2) {
+            if shot == "cross-platform" {
+                showCrossPlatformFixture(editor)
+            }
             dump(editor)
             switch shot {
+            case "cross-platform":
+                after(0.5) { writeWindow(editor) }
             case "editor": break // the top of the document, exactly as launched
             // The window is tall enough that the bottom of the document holds every
             // widget and both references at once — and anchoring to the bottom stays
@@ -57,6 +78,40 @@ enum CaptureMode {
             default: break
             }
         }
+    }
+
+    private static func writeWindow(_ editor: MarkdownTextView) {
+        guard let output else { return }
+        // Capture the editor surface rather than the app chrome. NSButton uses private
+        // compositing that does not participate in cacheDisplay, while the scroll view
+        // contains exactly the renderer pixels this artifact is meant to compare.
+        let surface: NSView = editor.enclosingScrollView ?? editor
+        surface.layoutSubtreeIfNeeded()
+        let bounds = surface.bounds
+        guard let bitmap = surface.bitmapImageRepForCachingDisplay(in: bounds) else { return }
+        surface.cacheDisplay(in: bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { return }
+        do {
+            try png.write(to: URL(fileURLWithPath: output), options: .atomic)
+            print("MDE_CAPTURE_WRITTEN \(output)")
+            fflush(stdout)
+        } catch {
+            fputs("MDE_CAPTURE_ERROR \(error)\n", stderr)
+        }
+    }
+
+    private static func showCrossPlatformFixture(_ editor: MarkdownTextView) {
+        // A directly launched hand-assembled bundle does not always populate
+        // Bundle.main's resource index, so keep the conventional Resources path as a
+        // deterministic fallback for the capture runner.
+        let indexed = Bundle.main.url(forResource: "cross-platform", withExtension: "md")
+        let bundled = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/cross-platform.md")
+        guard let source = [indexed, bundled].compactMap({ $0 }).lazy.compactMap({
+            try? String(contentsOf: $0, encoding: .utf8)
+        }).first else { return }
+        editor.setMarkdown(source)
+        scroll(editor, to: 0)
     }
 
     /// Moves the window into the top-left corner for the screencast.
@@ -131,6 +186,7 @@ enum CaptureMode {
             let top = screen.frame.maxY - frame.maxY
             print("MDE_WINDOW_RECT \(Int(frame.minX)),\(Int(top)),"
                 + "\(Int(frame.width)),\(Int(frame.height))")
+            print("MDE_SCREEN_SCALE \(screen.backingScaleFactor)")
         }
         fflush(stdout)
     }

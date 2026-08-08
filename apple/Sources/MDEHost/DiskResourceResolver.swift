@@ -135,6 +135,12 @@ public enum SampleAssets {
             try? data.write(to: chart)
         }
 
+        let photo = dir.appendingPathComponent("photo.png")
+        if !FileManager.default.fileExists(atPath: photo.path),
+           let data = makePhotoPNG() {
+            try? data.write(to: photo)
+        }
+
         let spec = dir.appendingPathComponent("spec.pdf")
         if !FileManager.default.fileExists(atPath: spec.path) {
             try? Data(repeating: 0x25, count: 48_000).write(to: spec)
@@ -178,6 +184,51 @@ public enum SampleAssets {
         #if os(macOS)
         let rep = NSBitmapImageRep(cgImage: image)
         return rep.representation(using: .png, properties: [:])
+        #else
+        return UIImage(cgImage: image).pngData()
+        #endif
+    }
+
+    /// A distinct second image makes cross-platform captures prove that references are
+    /// resolved individually rather than painting one hard-coded thumbnail everywhere.
+    private static func makePhotoPNG() -> Data? {
+        let size = CGSize(width: 640, height: 360)
+        guard let context = CGContext(
+            data: nil,
+            width: Int(size.width),
+            height: Int(size.height),
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+
+        let colors = [
+            CGColor(red: 0.18, green: 0.42, blue: 0.72, alpha: 1),
+            CGColor(red: 0.70, green: 0.86, blue: 0.96, alpha: 1),
+        ] as CFArray
+        if let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]
+        ) {
+            context.drawLinearGradient(
+                gradient, start: CGPoint(x: 0, y: size.height), end: .zero, options: []
+            )
+        }
+        context.setFillColor(red: 1, green: 0.78, blue: 0.30, alpha: 1)
+        context.fillEllipse(in: CGRect(x: 470, y: 245, width: 64, height: 64))
+        context.setFillColor(red: 0.15, green: 0.32, blue: 0.28, alpha: 1)
+        context.beginPath()
+        context.move(to: CGPoint(x: 0, y: 0))
+        context.addLine(to: CGPoint(x: 225, y: 225))
+        context.addLine(to: CGPoint(x: 390, y: 45))
+        context.addLine(to: CGPoint(x: 640, y: 215))
+        context.addLine(to: CGPoint(x: 640, y: 0))
+        context.closePath()
+        context.fillPath()
+
+        guard let image = context.makeImage() else { return nil }
+        #if os(macOS)
+        return NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
         #else
         return UIImage(cgImage: image).pngData()
         #endif

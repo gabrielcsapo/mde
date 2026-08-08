@@ -104,6 +104,14 @@ final class WidgetAttachment: NSTextAttachment {
             cache?.cacheWidgetView(view, for: key)
             return view
         }
+        if roleName == "table", let view = TableWidgetView(
+            source: source,
+            fittingWidth: fittingWidth,
+            resources: resources
+        ) {
+            cache?.cacheWidgetView(view, for: key)
+            return view
+        }
         guard let request, let resources else { return PlatformView() }
         switch resources.state(for: request) {
         case .ready(let view): return view
@@ -145,6 +153,9 @@ final class WidgetAttachment: NSTextAttachment {
             fittingWidth: width
         ) {
             return CGRect(origin: .zero, size: size)
+        }
+        if roleName == "table" {
+            return CGRect(origin: .zero, size: TableWidgetView.size(for: source, fittingWidth: width))
         }
         if let request, let resources {
             return CGRect(origin: .zero, size: resources.size(for: request))

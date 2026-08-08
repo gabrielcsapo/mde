@@ -189,7 +189,25 @@ final class DecorationApplier {
     /// Ranges of every node whose reference is `reference`, so a resolved resource
     /// repaints exactly the nodes that point at it.
     func ranges(referencing reference: String) -> [NSRange] {
-        Self.merged(live.values.filter { engine.payload(for: $0.key) == reference }.map(\.range))
+        let referenced = live.values.filter { engine.payload(for: $0.key) == reference }
+        var ranges = [NSRange]()
+        for decoration in referenced {
+            if let table = live.values.first(where: {
+                $0.kind == .blockWidget
+                    && $0.role == Role.table
+                    && $0.range.location <= decoration.range.location
+                    && $0.range.upperBound >= decoration.range.upperBound
+            }) {
+                // The cached table contains the loading projection. Rebuild it now
+                // that the nested resource is ready, without refetching the bytes.
+                widgetViews.removeValue(forKey: table.key)?.removeFromSuperview()
+                widgetOrder.removeAll { $0 == table.key }
+                ranges.append(table.range)
+            } else {
+                ranges.append(decoration.range)
+            }
+        }
+        return Self.merged(ranges)
     }
 
     /// Reset the affected paragraphs to base attributes, then lay every live decoration
@@ -311,10 +329,17 @@ final class DecorationApplier {
         backing: NSTextStorage,
         containerWidth: CGFloat
     ) -> NSTextParagraph? {
-        let widgets = decorations(intersecting: range).filter {
-            ($0.kind == .inlineWidget || $0.kind == .blockWidget)
-                && $0.range.length > 0
-                && NSLocationInRange($0.range.location, range)
+        let overlapping = decorations(intersecting: range)
+        let widgets = overlapping.filter { candidate in
+            (candidate.kind == .inlineWidget || candidate.kind == .blockWidget)
+                && candidate.range.length > 0
+                && NSLocationInRange(candidate.range.location, range)
+                && !overlapping.contains(where: { outer in
+                    outer.key != candidate.key
+                        && outer.kind == .blockWidget
+                        && outer.range.location <= candidate.range.location
+                        && outer.range.upperBound >= candidate.range.upperBound
+                })
         }
         guard !widgets.isEmpty else { return nil }
 

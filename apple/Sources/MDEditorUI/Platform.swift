@@ -9,6 +9,7 @@ import AppKit
 public typealias PlatformFont = NSFont
 public typealias PlatformColor = NSColor
 public typealias PlatformView = NSView
+public typealias PlatformImage = NSImage
 public typealias PlatformEdgeInsets = NSEdgeInsets
 public typealias PlatformLabel = NSTextField
 
@@ -43,6 +44,7 @@ import UIKit
 public typealias PlatformFont = UIFont
 public typealias PlatformColor = UIColor
 public typealias PlatformView = UIView
+public typealias PlatformImage = UIImage
 public typealias PlatformEdgeInsets = UIEdgeInsets
 public typealias PlatformLabel = UILabel
 

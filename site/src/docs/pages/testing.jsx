@@ -5,6 +5,10 @@ import { tag } from '../../lib/highlight.js';
 
 const golden = tag('bash', `UPDATE_GOLDEN=1 cargo test -p mde-core --test golden`);
 const all = tag('bash', `./scripts/test.sh   # Rust, both Swift suites, and the browser suite`);
+const captures = tag(
+  'bash',
+  `pnpm capture:cross-platform   # JS, React, UIKit, and AppKit from one fixture`
+);
 
 const SUITES = [
   [
@@ -20,7 +24,12 @@ const SUITES = [
   [
     'MDEditorUITests',
     'apple/, swift test',
-    'Drives the real AppKit NSTextView in an offscreen window and asserts on what it renders. Since the applier is shared, these pin iOS too.',
+    'Drives the real AppKit NSTextView in an offscreen window and asserts on its native table grid, nested inline content and reveal behaviour.',
+  ],
+  [
+    'UIKit renderer',
+    'scripts/test-ios-renderer.sh',
+    'Launches the real reference app in an iPhone simulator and checks the native grid, source preservation, bold, links, code, images, and reveal/restore.',
   ],
   [
     'Web suite',
@@ -50,7 +59,7 @@ export default function Testing() {
         drawing.
       </Aside>
 
-      <H2 id="suites">Four suites</H2>
+      <H2 id="suites">Five suites</H2>
       <TableFrame className="mt-6">
         <thead>
           <tr>
@@ -90,6 +99,19 @@ export default function Testing() {
         The browser suite has no npm dependencies either — the same rule as the editor itself. Only
         this site has a <code>package.json</code>.
       </Note>
+
+      <H2 id="visual-captures">Reproduce all four platform screenshots</H2>
+      <p>
+        The JS, React, iOS, and macOS images are captures of the real renderers, not HTML mockups.
+        One command loads <code>fixtures/cross-platform.md</code> in all four hosts and writes the
+        resulting images to <code>site/assets/</code>.
+      </p>
+      <SourceFigure className="mt-6" path="from the repository root" lang="bash" code={captures} />
+      <Aside tone="note" title="Capture review is part of the renderer contract">
+        When the shared fixture gains a new content case, its renderer assertions and all four
+        captures must be updated in the same change. The change is complete only after the suites
+        pass, the capture command succeeds, and all four images have been visually reviewed.
+      </Aside>
 
       <SeeAlso
         links={[

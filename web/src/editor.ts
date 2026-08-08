@@ -545,7 +545,6 @@ export class MarkdownEditor extends EventTarget {
     // Disjoint ranges, not a bounding box: see `dirtyRanges`.
     const dirty = this.applier.dirtyRanges(patch, alsoDirty);
     this.applier.ingest(patch);
-    if (dirty.length === 0) return;
     // Restore a selection only while this editor actually holds focus. Blur produces a
     // patch too — the reveal collapses — and re-rendering those lines used to put back
     // the selection read *before* focus left. `Selection.addRange` inside a
@@ -553,6 +552,7 @@ export class MarkdownEditor extends EventTarget {
     // input (or a second editor) bounced focus straight back.
     const at =
       caret ?? (document.activeElement === this.root ? this.selectionRange() : null);
+    if (dirty.length === 0) return;
     // Back to front, so an earlier range's line indices stay valid while the later ones
     // are still pending.
     for (let i = dirty.length - 1; i >= 0; i--) this.renderRange(dirty[i], at);

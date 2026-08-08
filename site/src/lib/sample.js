@@ -19,7 +19,7 @@ Ordinary things work: \`inline code\`, [a link](https://example.dev), and ~~stru
 
 | Surface | Integration |
 | :--- | :--- |
-| Web | Vanilla or React |
+| Web | JS or React |
 | Apple | Swift + TextKit 2 |
 
 ## Extensions

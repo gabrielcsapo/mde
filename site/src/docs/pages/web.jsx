@@ -56,6 +56,12 @@ export default function Web() {
           ))}
         </tbody>
       </TableFrame>
+      <Note>
+        A GFM table is the deliberate built-in projection: while its caret is elsewhere, the web
+        renderer draws a semantic <code>&lt;table&gt;</code> inside a{' '}
+        <code>data-mde-ignore</code> view and conceals the pipe source beside it. Clicking the table
+        restores those exact source lines for editing; leaving the block brings the table back.
+      </Note>
 
       <H2 id="lessons">Four things worth naming</H2>
 

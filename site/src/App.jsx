@@ -38,7 +38,7 @@ function Shell() {
   const isLanding = route.path === '/';
   useEffect(() => {
     document.title = isLanding
-      ? 'mde — markdown that renders itself'
+      ? 'mde — cross-platform Markdown for web and Swift'
       : page
         ? `${page.title} · mde`
         : 'Not found · mde';

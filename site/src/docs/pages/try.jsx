@@ -12,6 +12,10 @@ const THINGS_TO_TRY = [
     <code>- [x]</code>, as one undo step.
   </>,
   <>
+    Click the table. Its semantic HTML view yields to the editable pipe syntax, then returns when
+    the caret leaves the block.
+  </>,
+  <>
     Click the callout. The caret lands in its source and the fence reappears, because a widget is
     still editable text underneath.
   </>,
@@ -42,7 +46,7 @@ export default function Try() {
 
       <H2 id="what-is-running">What is actually running</H2>
       <Lede>
-        Choose <strong>Vanilla web</strong> or <strong>React</strong> above. Both render the same Rust
+        Choose <strong>JS</strong> or <strong>React</strong> above. Both render the same Rust
         core and framework-free editor: the first mounts <code>@mde/web</code> directly, while the
         second lazy-loads the small <code>@mde/react</code> adapter.
       </Lede>

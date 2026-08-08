@@ -22,6 +22,7 @@ cargo build --release -p mde-ffi --target "$RUST_TARGET" 2>&1 | tail -1
 echo "==> swift"
 rm -rf "$APP" "$BUILD/modules" "$BUILD/obj"
 mkdir -p "$APP" "$BUILD/modules" "$BUILD/obj"
+cp "$ROOT/fixtures/cross-platform.md" "$APP/cross-platform.md"
 MODULES="$BUILD/modules"
 OBJ="$BUILD/obj"
 INCLUDE="$ROOT/apple/include"

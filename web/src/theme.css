@@ -107,16 +107,118 @@
 }
 .mde-rule { color: var(--mde-muted, #a3a7b3); }
 
-/* Tables stay source text—the pipes remain editable—but a monospaced measure keeps
-   columns legible and the semantic sub-roles let a host theme each part independently. */
+/* Tables render as semantic HTML until the caret enters the block. The Markdown source
+   never leaves the DOM; these source-row styles are the editing state. */
 .mde-table {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.9em;
   font-variant-numeric: tabular-nums;
 }
-.mde-table-header { font-weight: 700; }
+.mde-line-table {
+  display: inline-block;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: min(100%, 27rem);
+  max-width: 100%;
+  padding: 0.28em 0.75em;
+  border-inline: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 28%, transparent);
+  background: color-mix(in srgb, var(--mde-code-bg, #f1f2f5) 42%, transparent);
+  line-height: 1.5;
+}
+.mde-line-table-start {
+  padding-top: 0.48em;
+  border-top: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 34%, transparent);
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--mde-code-bg, #f1f2f5) 82%, transparent);
+  box-shadow: inset 3px 0 0 var(--mde-accent, #2f6bf5);
+}
+.mde-line-table-delimiter {
+  padding-block: 0.12em;
+  border-block: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 28%, transparent);
+  background: color-mix(in srgb, var(--mde-code-bg, #f1f2f5) 62%, transparent);
+}
+.mde-line-table-end {
+  padding-bottom: 0.48em;
+  border-bottom: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 34%, transparent);
+  border-radius: 0 0 8px 8px;
+}
+.mde-table-header { font-weight: 750; }
 .mde-table-delimiter { color: var(--mde-muted, #a3a7b3); }
 .mde-table-cell { color: var(--mde-text, #16181d); }
+
+/* Presentation state: a real table element, not a picture or a row-shaped source box. */
+.mde-table-widget {
+  margin: 0.35em 0 0.7em;
+}
+.mde-table-view {
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 34%, transparent);
+  border-radius: 10px;
+  background: var(--mde-bg, #fff);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--mde-text, #16181d) 7%, transparent);
+}
+.mde-rendered-table {
+  width: 100%;
+  min-width: 28rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  white-space: normal;
+  font: inherit;
+  font-size: 0.9em;
+  line-height: 1.4;
+  color: var(--mde-text, #16181d);
+}
+.mde-rendered-table th,
+.mde-rendered-table td {
+  padding: 0.68em 0.9em;
+  border-right: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 24%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 24%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+.mde-rendered-table th {
+  background: color-mix(in srgb, var(--mde-code-bg, #f1f2f5) 82%, transparent);
+  font-weight: 700;
+}
+.mde-rendered-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--mde-code-bg, #f1f2f5) 34%, transparent);
+}
+.mde-rendered-table tr > :last-child { border-right: 0; }
+.mde-rendered-table tbody tr:last-child td { border-bottom: 0; }
+.mde-rendered-table [data-align='center'] { text-align: center; }
+.mde-rendered-table [data-align='right'] { text-align: right; }
+.mde-rendered-table .mde-table,
+.mde-rendered-table .mde-table-cell {
+  font-family: inherit;
+  font-size: inherit;
+}
+.mde-table-resource {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: min(5.25rem, 100%);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 30%, transparent);
+  border-radius: 0.42em;
+  background: var(--mde-code-bg, #f1f2f5);
+  color: var(--mde-muted, #6b7280);
+  font-size: 0.72em;
+  line-height: 1;
+  vertical-align: middle;
+}
+.mde-table-resource-content {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+.mde-table-resource-image {
+  display: block;
+  object-fit: cover;
+}
 .mde-html {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.9em;

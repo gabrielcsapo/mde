@@ -18,39 +18,25 @@ function paragraphAround(text: string, offset: number): [number, number] {
   // A blank line is the boundary, matching how the core segments blocks. Falling back
   // to the single line would make the mode flicker paragraph-by-paragraph as the caret
   // crosses a soft wrap, which reads as noise rather than focus.
-  let start = at;
+  let start = at === 0 ? 0 : text.lastIndexOf('\n', at - 1) + 1;
   while (start > 0) {
-    const lineStart = text.lastIndexOf('\n', start - 1) + 1;
-    if (lineStart === 0) {
-      start = 0;
-      break;
-    }
-    const prevStart = text.lastIndexOf('\n', lineStart - 2) + 1;
-    if (text.slice(prevStart, lineStart - 1).trim() === '') {
-      start = lineStart;
-      break;
-    }
-    start = lineStart;
+    const previousEnd = start - 1;
+    const previousStart = text.lastIndexOf('\n', previousEnd - 1) + 1;
+    if (text.slice(previousStart, previousEnd).trim() === '') break;
+    // Move to the previous line, not back to the current line's start. The old scan
+    // reassigned `start` to itself here and looped forever whenever the caret sat on
+    // the second or later line of a non-blank paragraph.
+    start = previousStart;
   }
 
-  let end = at;
+  let end = text.indexOf('\n', at);
+  if (end === -1) end = text.length;
   while (end < text.length) {
-    let lineEnd = text.indexOf('\n', end);
-    if (lineEnd === -1) {
-      end = text.length;
-      break;
-    }
-    const nextEnd = text.indexOf('\n', lineEnd + 1);
-    const next = text.slice(lineEnd + 1, nextEnd === -1 ? text.length : nextEnd);
-    if (next.trim() === '') {
-      end = lineEnd;
-      break;
-    }
-    end = lineEnd + 1;
-    if (nextEnd === -1) {
-      end = text.length;
-      break;
-    }
+    const nextStart = end + 1;
+    let nextEnd = text.indexOf('\n', nextStart);
+    if (nextEnd === -1) nextEnd = text.length;
+    if (text.slice(nextStart, nextEnd).trim() === '') break;
+    end = nextEnd;
   }
 
   return [start, Math.max(start, end)];

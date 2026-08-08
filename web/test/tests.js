@@ -248,16 +248,72 @@ export async function run() {
     assert(e.root.querySelector('.mde-code-block'), 'it should render as code');
   });
 
-  test('a GFM table keeps its source and exposes every table role', () => {
+  await asyncTest('a GFM table resolves nested images as semantic HTML without changing source', async () => {
+    let resolutions = 0;
+    const e = makeEditor({
+      resourceResolver: {
+        async resolve({ reference }) {
+          resolutions++;
+          const image = document.createElement('img');
+          image.src = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="blue"/></svg>`;
+          image.width = 160;
+          image.height = 90;
+          image.dataset.reference = reference;
+          return { state: 'ready', view: image };
+        },
+        reservedSize: () => ({ width: 160, height: 90 }),
+      },
+    });
+    const source =
+      '| Name | Detail | Asset |\n' +
+      '| :--- | :----: | ----: |\n' +
+      '| **Ada** | [profile](https://example.dev) + `10` | ![chart](chart.png) |\n';
+    e.setMarkdown(source);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const table = e.root.querySelector('table.mde-rendered-table');
+    assert(table, 'the table did not become a real table element');
+    assertEqual(table.querySelectorAll('thead th').length, 3);
+    assertEqual(table.querySelectorAll('tbody td').length, 3);
+    assertEqual(table.querySelector('thead th')?.textContent, 'Name');
+    assertEqual(table.querySelector('thead th:last-child')?.dataset.align, 'right');
+    assertEqual(table.querySelector('tbody td:nth-child(2)')?.dataset.align, 'center');
+    assert(table.querySelector('strong, .mde-strong'), 'bold content was flattened');
+    assert(table.querySelector('.mde-link-text'), 'link content was flattened');
+    assert(table.querySelector('.mde-code-inline'), 'inline code was flattened');
+    const image = table.querySelector('img.mde-table-resource-image');
+    assert(image, 'the resource resolver did not produce a real table image');
+    assertEqual(image.getAttribute('aria-label') ?? image.alt, 'chart');
+    assertEqual(image.dataset.reference, 'chart.png');
+    assertEqual(resolutions, 1, 'the table fetched the same resource more than once');
+    assertEqual(
+      e.root.querySelectorAll('img').length,
+      1,
+      'the nested image was also rendered as a duplicate full-size widget'
+    );
+    assertEqual(e.decorations.filter((d) => d.role === Role.TableCell).length, 6);
+    assertEqual(domText(e.root), source, 'the semantic view changed the Markdown source');
+  });
+
+  test('clicking a rendered table reveals its editable pipe source', () => {
     const e = makeEditor();
-    const source = '| Name | Score |\n| :--- | ----: |\n| Ada | 10 |\n';
+    const source = '| Name | Score |\n| :--- | ----: |\n| Ada | 10 |\n\nafter\n';
     e.setMarkdown(source);
 
-    assert(e.root.querySelector('.mde-table'), 'the table role was not rendered');
-    assert(e.root.querySelector('.mde-table-header'), 'the header role was not rendered');
-    assert(e.root.querySelector('.mde-table-delimiter'), 'the delimiter role was not rendered');
-    assertEqual(e.root.querySelectorAll('.mde-table-cell').length, 4);
-    assertEqual(domText(e.root), source, 'table styling changed the markdown source');
+    const cell = e.root.querySelector('tbody td');
+    assert(cell, 'the rendered table has no body cell to click');
+    cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+
+    assert(!e.root.querySelector('table.mde-rendered-table'), 'the table view stayed over its source');
+    assertEqual(e.root.querySelectorAll('.mde-line-table').length, 3);
+    assertEqual(e.selectionRange(), { start: 0, end: 0 });
+    assertEqual(domText(e.root), source, 'revealing the table changed its source');
+
+    const after = source.indexOf('after');
+    e.setSelectionRange({ start: after, end: after });
+    e.onSelectionChange();
+    assert(e.root.querySelector('table.mde-rendered-table'), 'the table did not render again');
   });
 
   test('CommonMark autolinks render as links without changing their source', () => {
@@ -926,6 +982,25 @@ export async function run() {
     );
     assert(dim.length > 0, 'everything else should be dimmed');
     assertEqual(domText(e.root), e.markdown, 'the extension changed the document text');
+  });
+
+  test('typewriter mode cannot loop on a multi-line paragraph', () => {
+    const e = makeEditor();
+    e.setMarkdown('first line\nsecond line\n\nnext paragraph\n');
+    e.root.focus();
+    const at = e.markdown.indexOf('second') + 3;
+    e.setSelectionRange({ start: at, end: at });
+
+    const mode = new TypewriterMode(e);
+    mode.enable();
+
+    const focus = e.decorations.filter((d) => d.role === mode.focusRole);
+    assertEqual(focus.length, 1, 'the multi-line paragraph should be one focus band');
+    assertEqual(
+      e.markdown.slice(focus[0].start, focus[0].end),
+      'first line\nsecond line',
+      'the scan should reach the start of the paragraph and terminate'
+    );
   });
 
   test('a layer outranks the parse so a dim can beat a heading', () => {
