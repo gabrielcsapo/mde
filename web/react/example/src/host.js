@@ -40,6 +40,11 @@ Ordinary things work: \`inline code\`, [a link](https://example.dev), ~~struck t
 - [ ] click this checkbox
 - [x] this one is done
 
+| Surface | Integration |
+| :--- | :--- |
+| Web | React |
+| Apple | Swift + TextKit 2 |
+
 Ping @gabe about [[the roadmap]] — both come from the host's manifest.
 
 \`\`\`callout warning

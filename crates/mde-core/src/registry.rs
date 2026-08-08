@@ -273,6 +273,11 @@ pub mod role {
     pub const TASK_CHECKBOX: RoleId = 11;
     pub const RULE: RoleId = 12;
     pub const STRIKETHROUGH: RoleId = 13;
+    pub const TABLE: RoleId = 14;
+    pub const TABLE_HEADER: RoleId = 15;
+    pub const TABLE_DELIMITER: RoleId = 16;
+    pub const TABLE_CELL: RoleId = 17;
+    pub const HTML: RoleId = 18;
     pub const BUILTIN: &[&str] = &[
         "heading",
         "marker",
@@ -288,6 +293,11 @@ pub mod role {
         "task.checkbox",
         "rule",
         "strikethrough",
+        "table",
+        "table.header",
+        "table.delimiter",
+        "table.cell",
+        "html",
     ];
 }
 
@@ -487,6 +497,12 @@ mod tests {
         let r = Registry::from_toml(MANIFEST).unwrap();
         assert_eq!(r.role_name(role::HEADING), Some("heading"));
         assert_eq!(r.role_name(role::TASK_CHECKBOX), Some("task.checkbox"));
+        assert_eq!(r.role_name(role::TABLE), Some("table"));
+        assert_eq!(r.role_name(role::TABLE_HEADER), Some("table.header"));
+        assert_eq!(r.role_name(role::TABLE_DELIMITER), Some("table.delimiter"));
+        assert_eq!(r.role_name(role::TABLE_CELL), Some("table.cell"));
+        assert_eq!(r.role_name(role::HTML), Some("html"));
+        assert_eq!(r.role_count(), role::BUILTIN.len() + 2);
         // Extension roles are interned after the built-ins, never before.
         assert!(r.blocks[0].role >= role::BUILTIN.len() as RoleId);
     }

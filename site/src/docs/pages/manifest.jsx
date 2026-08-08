@@ -180,7 +180,7 @@ export default function Manifest() {
 
       <H2 id="roles-and-ids">Names become roles</H2>
       <p>
-        Every <code>name</code> in the manifest is interned as a role, after the fourteen built-ins
+        Every <code>name</code> in the manifest is interned as a role, after the nineteen built-ins
         and in manifest order. Renderers and themes can therefore rely on the built-in ids being
         stable constants, and look extension roles up by name — <code>roleName(id)</code> on both
         platforms. On the web an unknown role becomes the class{' '}

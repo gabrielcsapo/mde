@@ -2,7 +2,7 @@ import { Aside, H2, Lede, Note, SeeAlso, TableFrame } from '../../components/Doc
 import { Link } from '../../lib/router.jsx';
 
 // Ids and names from crates/mde-core/src/registry.rs; classes from the applier's map in
-// web/src/applier.ts. The three lists are the same fourteen entries in the same order,
+// web/src/applier.ts. The three lists are the same nineteen entries in the same order,
 // which is the property that makes an id a constant a theme can rely on.
 const ROLES = [
   [0, 'heading', '.mde-heading', 'plus .mde-h1 … .mde-h6 for the level'],
@@ -19,6 +19,11 @@ const ROLES = [
   [11, 'task.checkbox', '.mde-task-checkbox', 'the Hit target for a - [ ] toggle'],
   [12, 'rule', '.mde-rule', ''],
   [13, 'strikethrough', '.mde-strikethrough', ''],
+  [14, 'table', '.mde-table', 'the complete GFM table source'],
+  [15, 'table.header', '.mde-table-header', 'the header row'],
+  [16, 'table.delimiter', '.mde-table-delimiter', 'the alignment delimiter row'],
+  [17, 'table.cell', '.mde-table-cell', 'each header or body cell'],
+  [18, 'html', '.mde-html', 'inline HTML and HTML blocks'],
 ];
 
 const STRUCTURE = [
@@ -35,12 +40,12 @@ const STRUCTURE = [
 export default function RefRoles() {
   return (
     <>
-      <H2 id="builtin">The fourteen built-in roles</H2>
+      <H2 id="builtin">The nineteen built-in roles</H2>
       <Lede>
         Built-in roles are interned first, so their ids are stable constants that renderers and
         themes rely on without a lookup. Extension roles — from a manifest, or from{' '}
         <code>internRole</code> at runtime — are interned after them, which is why anything at or
-        above <code>14</code> needs <code>roleName(id)</code>.
+        above <code>19</code> needs <code>roleName(id)</code>.
       </Lede>
       <TableFrame className="mt-6">
         <thead>
@@ -65,6 +70,12 @@ export default function RefRoles() {
       <Note>
         The same ids are <code>Role.Heading …</code> in JavaScript, <code>Role.heading …</code> in
         Swift, and <code>MDE_ROLE_HEADING …</code> in C.
+      </Note>
+      <Note>
+        Core parsing follows CommonMark. Tables, task-list checkboxes, and strikethrough are the
+        deliberately enabled GitHub-flavored extensions. Source-only constructs such as escapes,
+        entities, reference definitions, and hard or soft breaks need no role: the editor preserves
+        their exact characters and lets the platform text engine draw them normally.
       </Note>
 
       <H2 id="extension-roles">An extension role becomes a class</H2>

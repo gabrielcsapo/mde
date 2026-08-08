@@ -49,7 +49,9 @@ pub struct Decoration {
     pub role: RoleId,
     pub kind: Kind,
     pub reveal: Reveal,
-    /// Nesting level for quotes and lists.
+    /// Role-specific small integer: nesting level for quotes/lists, heading level for
+    /// headings. Keeping parser-known metadata here prevents every renderer from
+    /// re-parsing the same source.
     pub depth: u8,
     /// Paint order among decorations that would otherwise tie.
     ///

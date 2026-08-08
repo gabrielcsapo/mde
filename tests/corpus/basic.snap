@@ -1,5 +1,5 @@
 # kind        role            range      reveal        source
-Style         heading            0..13   never         "# Heading one"
+Style         heading            0..13   never         "# Heading one" depth=1
 Conceal       marker             0..2    caret_in_line "# "
 Conceal       marker            20..22   caret_in_node "**"
 Style         strong            22..26   never         "bold"

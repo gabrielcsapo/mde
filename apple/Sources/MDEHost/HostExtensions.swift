@@ -49,6 +49,11 @@ public enum HostExtensions {
     - [ ] tap this checkbox
     - [x] this one is done
 
+    | Surface | Integration |
+    | :--- | :--- |
+    | Web | Vanilla or React |
+    | Apple | Swift + TextKit 2 |
+
     ## Extensions
 
     Ping @gabe about [[the roadmap]] — both of those come from the host app's manifest, not from this editor.

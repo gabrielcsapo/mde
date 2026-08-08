@@ -9,7 +9,7 @@ const VARIANTS = [
   { id: 'react', label: 'React', detail: '@mde/react' },
 ];
 
-export default function LiveEditor() {
+export default function LiveEditor({ historyInitiallyOpen, descriptionId = 'things-to-try' }) {
   const [variant, setVariant] = useState('vanilla');
 
   const moveTab = (event, current) => {
@@ -54,10 +54,16 @@ export default function LiveEditor() {
         aria-labelledby={`editor-variant-${variant}`}
       >
         {variant === 'vanilla' ? (
-          <VanillaEditor />
+          <VanillaEditor
+            historyInitiallyOpen={historyInitiallyOpen}
+            descriptionId={descriptionId}
+          />
         ) : (
           <Suspense fallback={<div className="editor-loading">Loading the React adapter…</div>}>
-            <ReactEditor />
+            <ReactEditor
+              historyInitiallyOpen={historyInitiallyOpen}
+              descriptionId={descriptionId}
+            />
           </Suspense>
         )}
       </div>

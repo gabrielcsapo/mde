@@ -505,7 +505,10 @@
     padding-left: 11px;
     margin-left: 2px;
     border-left: 1px solid var(--color-rule-soft);
+    text-decoration: none;
+    transition: color 0.14s ease;
   }
+  .docs-label:hover { color: var(--color-accent); }
   .page-count {
     display: inline-flex;
     align-items: baseline;
@@ -715,8 +718,8 @@
 
   .hero { padding: 18px 0 6px; }
   .hero-title {
-    margin-bottom: 26px;
-    max-width: 15.4em;
+    margin-bottom: 24px;
+    max-width: 12.5em;
     /* The display cut. The landing is the only page with a hero now, so the size lives
        here rather than as a per-page override. */
     font-size: clamp(2.3rem, 5.2vw, 4.2rem);
@@ -725,77 +728,87 @@
     letter-spacing: -0.042em;
   }
 
-  .readouts {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px 0;
-    margin-top: 34px;
-    border-top: 1px solid var(--color-rule);
+  .hero-summary {
+    max-width: 59ch;
+    font-size: clamp(1.04rem, 1.5vw, 1.16rem);
   }
-  @media (min-width: 640px) {
-    .readouts { display: flex; flex-wrap: wrap; gap: 0; }
-    .readouts > div { margin-right: 24px; border-right: 1px solid var(--color-rule-soft); }
-    .readouts > div:last-child { margin-right: 0; border-right: 0; padding-right: 0; }
-  }
-  .readouts > div { padding: 14px 24px 0 0; }
-  .readouts dt {
-    margin-bottom: 4px;
+
+  .landing-intro { min-height: min(650px, calc(100vh - 54px)); }
+
+  .landing-platforms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 10px;
+    margin-top: 18px;
     font-family: var(--font-mono);
-    font-size: 0.66rem;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
+    font-size: 0.72rem;
     color: var(--color-faint);
-    white-space: nowrap;
   }
-  .readouts dd {
-    font-size: 0.94rem;
-    font-weight: 550;
-    color: var(--color-text);
-    white-space: nowrap;
+  .landing-platforms span { color: var(--color-rule); }
+
+  .landing-proof {
+    scroll-margin-top: 74px;
+    border-top: 1px solid var(--color-rule-soft);
+    padding: clamp(52px, 8vw, 86px) 0 12px;
   }
 
-  /* -- cards, for the one page that offers a choice of routes -------------- */
+  .landing-proof-copy { max-width: 720px; }
+  .landing-proof h2 {
+    max-width: 18ch;
+    margin: 0 0 14px;
+    font-size: clamp(1.75rem, 3.5vw, 2.65rem);
+    line-height: 1.08;
+    letter-spacing: -0.04em;
+  }
+  .landing-proof .editor-demo { margin-top: 32px; }
+  .landing-proof-more {
+    margin-top: 16px;
+    font-size: 0.88rem;
+  }
 
-  .cards {
+  /* The overview's three ways into the documentation are navigation, not prose.
+     Dedicated names keep their presentation independent from the landing page. */
+  .doc-routes {
     display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
     gap: 14px;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
     margin-top: 26px;
   }
 
-  .card {
+  .doc-route {
     position: relative;
     display: block;
-    padding: 18px 18px 20px;
+    min-width: 0;
+    padding: 18px 38px 20px 18px;
     border: 1px solid var(--color-rule);
     border-radius: 13px;
     background: var(--color-surface);
     text-decoration: none;
     transition: border-color 0.14s ease, transform 0.14s ease;
   }
-  .card:hover { border-color: var(--color-accent); transform: translateY(-1px); }
-  .card-title {
+  .doc-route:hover { border-color: var(--color-accent); transform: translateY(-1px); }
+  .doc-route-title {
     display: block;
+    margin-bottom: 6px;
     font-weight: 600;
     color: var(--color-text);
-    margin-bottom: 6px;
   }
-  .card-body {
+  .doc-route-body {
     display: block;
     font-size: 0.875rem;
     line-height: 1.55;
     color: var(--color-muted);
   }
-  .card-go {
+  .doc-route-go {
     position: absolute;
     top: 16px;
     right: 16px;
     color: var(--color-accent);
     font-family: var(--font-mono);
-    opacity: 0;
-    transition: opacity 0.14s ease;
+    opacity: 0.45;
+    transition: opacity 0.14s ease, transform 0.14s ease;
   }
-  .card:hover .card-go { opacity: 1; }
+  .doc-route:hover .doc-route-go { opacity: 1; transform: translateX(2px); }
 
   /* -- asides -------------------------------------------------------------- */
 

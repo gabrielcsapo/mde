@@ -23,7 +23,7 @@ import HistoryPanel from './HistoryPanel.jsx';
 // happens at most once per asset, ever.
 const SIZES_KEY = 'mde.site.resourceSizes';
 
-export default function VanillaEditor() {
+export default function VanillaEditor({ historyInitiallyOpen, descriptionId }) {
   const host = useRef(null);
 
   // The editor lives in a ref, not in state, and is never passed as a prop. It is a
@@ -38,7 +38,9 @@ export default function VanillaEditor() {
   const [status, setStatus] = useState('loading core…');
   // Open by default where it has a real column; closed on phones, where stacking the
   // timeline under the document doubles the distance through the demo before typing.
-  const [historyOpen, setHistoryOpen] = useState(() => matchMedia('(min-width: 721px)').matches);
+  const [historyOpen, setHistoryOpen] = useState(
+    () => historyInitiallyOpen ?? matchMedia('(min-width: 721px)').matches,
+  );
 
   // The toolbar's enabled/pressed state is a function of the document *and* the
   // selection, and neither is React state. So rather than mirroring the editor, a
@@ -183,7 +185,7 @@ export default function VanillaEditor() {
           id="editor"
           ref={host}
           aria-label="Live markdown editor"
-          aria-describedby="things-to-try"
+          aria-describedby={descriptionId}
           hidden={!!error}
         />
         {historyOpen && ready && !error ? (

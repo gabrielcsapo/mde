@@ -1,5 +1,5 @@
 # kind        role            range      reveal        source
-Style         heading            0..22   never         "# 😀 Emoji **heading**"
+Style         heading            0..22   never         "# 😀 Emoji **heading**" depth=1
 Conceal       marker             0..2    caret_in_line "# "
 Conceal       marker            11..13   caret_in_node "**"
 Style         strong            13..20   never         "heading"

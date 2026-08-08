@@ -51,6 +51,11 @@ final class MDECoreTests: XCTestCase {
         XCTAssertEqual(e.roleName(Role.marker), "marker")
         XCTAssertEqual(e.roleName(Role.taskCheckbox), "task.checkbox")
         XCTAssertEqual(e.roleName(Role.strikethrough), "strikethrough")
+        XCTAssertEqual(e.roleName(Role.table), "table")
+        XCTAssertEqual(e.roleName(Role.tableHeader), "table.header")
+        XCTAssertEqual(e.roleName(Role.tableDelimiter), "table.delimiter")
+        XCTAssertEqual(e.roleName(Role.tableCell), "table.cell")
+        XCTAssertEqual(e.roleName(Role.html), "html")
         XCTAssertNil(e.roleName(9999))
     }
 
@@ -117,6 +122,24 @@ final class MDECoreTests: XCTestCase {
         }
         let strong = try XCTUnwrap(patch.added.first { $0.role == Role.strong })
         XCTAssertEqual(ns.substring(with: strong.range), "b")
+    }
+
+    func testTablesAutolinksAndHTMLReachSwiftAsBuiltInRoles() throws {
+        let e = try XCTUnwrap(MarkdownEngine())
+        let source = """
+        | Name | Score |
+        | :--- | ----: |
+        | Ada | 10 |
+
+        <https://example.dev> and <kbd>HTML</kbd>
+        """
+        let patch = e.reset(source)
+
+        for role in [Role.table, Role.tableHeader, Role.tableDelimiter, Role.tableCell, Role.html] {
+            XCTAssertTrue(patch.added.contains { $0.role == role }, "missing role \(role)")
+        }
+        let link = try XCTUnwrap(patch.added.first { $0.role == Role.linkText })
+        XCTAssertEqual(e.payload(for: link.key), "https://example.dev")
     }
 
     // MARK: - References

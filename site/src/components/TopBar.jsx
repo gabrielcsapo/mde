@@ -43,12 +43,13 @@ export default function TopBar({ page, onOpenSearch, onOpenNav, navOpen }) {
           </em>
         </Link>
 
-        <span
+        <Link
           className="docs-label"
-          aria-label={page ? `Documentation: ${page.title}` : 'Documentation'}
+          aria-label="Documentation overview"
+          to="/overview"
         >
-          {page ? page.title : 'Docs'}
-        </span>
+          Docs
+        </Link>
 
         {page ? (
           <span className="page-count" aria-label={`Page ${pageIndex + 1} of ${PAGES.length}`}>

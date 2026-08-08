@@ -86,7 +86,12 @@ export const Role = Object.freeze({
   TaskCheckbox: 11,
   Rule: 12,
   Strikethrough: 13,
-  FirstExtension: 14,
+  Table: 14,
+  TableHeader: 15,
+  TableDelimiter: 16,
+  TableCell: 17,
+  Html: 18,
+  FirstExtension: 19,
 });
 
 const STATUS_OK = 0;

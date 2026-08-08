@@ -212,9 +212,16 @@ final class DecorationApplier {
             // decided — a focus-mode dim has to beat a heading's own colour, and
             // sorting by kind alone leaves their order undefined.
             .sorted {
-                paintOrder($0) != paintOrder($1)
-                    ? paintOrder($0) < paintOrder($1)
-                    : $0.layer < $1.layer
+                if paintOrder($0) != paintOrder($1) {
+                    return paintOrder($0) < paintOrder($1)
+                }
+                if $0.layer != $1.layer {
+                    return $0.layer < $1.layer
+                }
+                // Within one style layer, broad structural roles paint first and
+                // narrower semantic roles win: table -> header -> cell, heading ->
+                // emphasis. Dictionary iteration order must never choose the font.
+                return $0.range.length > $1.range.length
             }
 
         for d in ordered {
@@ -246,7 +253,9 @@ final class DecorationApplier {
     ) {
         switch d.kind {
         case .style, .gutter, .hit:
-            let level = d.role == Role.heading ? headingLevel(at: d.range, in: ns) : 0
+            let level = d.role == Role.heading
+                ? (d.depth > 0 ? Int(d.depth) : headingLevel(at: d.range, in: ns))
+                : 0
             let attrs = theme.attributes(
                 role: d.role,
                 roleName: engine.roleName(d.role),

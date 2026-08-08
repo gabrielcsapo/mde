@@ -107,6 +107,22 @@
 }
 .mde-rule { color: var(--mde-muted, #a3a7b3); }
 
+/* Tables stay source text—the pipes remain editable—but a monospaced measure keeps
+   columns legible and the semantic sub-roles let a host theme each part independently. */
+.mde-table {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+.mde-table-header { font-weight: 700; }
+.mde-table-delimiter { color: var(--mde-muted, #a3a7b3); }
+.mde-table-cell { color: var(--mde-text, #16181d); }
+.mde-html {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  color: var(--mde-muted, #a3a7b3);
+}
+
 /* Widgets: the view draws, the source hides behind it.
 
    `pointer-events: none` is load-bearing, not cosmetic. A `contenteditable="false"`

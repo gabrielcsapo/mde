@@ -7,7 +7,7 @@
 use crate::decoration::{node_key, Kind, Reveal, RoleId};
 use crate::registry::{role, BlockSyntax, Matcher, Registry};
 use crate::text::Text;
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
 
 /// A decoration before selection is applied. All offsets are UTF-8 bytes; conversion
@@ -231,13 +231,17 @@ impl<'a> Builder<'a> {
     }
 }
 
-/// Byte offsets of the link text inside `[text](dest)`, bracket-depth aware.
+/// Byte offsets of the visible text inside `[text](dest)` or `<autolink>`,
+/// bracket-depth aware.
 ///
 /// A backslash escapes the next byte, so `[a \] b](x)` keeps its literal `]` instead
 /// of ending the link text early. Backslashes are ASCII and can never appear inside a
 /// UTF-8 continuation byte, so byte-wise scanning is safe here.
 fn link_text_range(src: &str) -> Option<(usize, usize)> {
     let bytes = src.as_bytes();
+    if bytes.first() == Some(&b'<') && bytes.last() == Some(&b'>') && bytes.len() >= 2 {
+        return Some((1, bytes.len() - 1));
+    }
     if bytes.first() != Some(&b'[') {
         return None;
     }
@@ -278,6 +282,8 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
     b.scan_directives();
 
     let mut pending_inline_scans: Vec<(std::ops::Range<usize>, (usize, usize))> = Vec::new();
+    let mut suppress_inline_scans = 0usize;
+    let mut link_suppression = Vec::new();
 
     for (ev, r) in Parser::new_ext(src, options()).into_offset_iter() {
         match ev {
@@ -285,7 +291,9 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                 b.block_stack.push((r.start, r.end));
                 let line_end = text.line_range(r.start).1;
                 b.push(r.start, line_end, (r.start, line_end), Kind::Style, role::HEADING, Reveal::Never);
-                // ATX only: a setext heading has no leading marker to conceal.
+                if let Some(heading) = b.out.last_mut() {
+                    heading.depth = level as u8;
+                }
                 let hashes = run_len(&src[r.start..], '#');
                 if hashes > 0 && hashes == level as usize {
                     let mut m = r.start + hashes;
@@ -300,6 +308,39 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                         role::MARKER,
                         Reveal::CaretInLine,
                     );
+                    let line = &src[r.start..line_end];
+                    let trimmed = line.trim_end_matches([' ', '\t']);
+                    let closing = trimmed.bytes().rev().take_while(|&c| c == b'#').count();
+                    if closing > 0 {
+                        let hash_start = trimmed.len() - closing;
+                        if hash_start > hashes
+                            && line.as_bytes().get(hash_start - 1).is_some_and(u8::is_ascii_whitespace)
+                        {
+                            let marker_start = line[..hash_start].trim_end_matches([' ', '\t']).len();
+                            b.push(
+                                r.start + marker_start,
+                                line_end,
+                                (r.start, line_end),
+                                Kind::Conceal,
+                                role::MARKER,
+                                Reveal::CaretInLine,
+                            );
+                        }
+                    }
+                } else {
+                    let tail = &src[line_end..r.end];
+                    if let Some(rel) = tail.bytes().position(|c| matches!(c, b'=' | b'-')) {
+                        let marker_start = line_end + rel;
+                        let marker_end = text.line_range(marker_start).1.min(r.end);
+                        b.push(
+                            marker_start,
+                            marker_end,
+                            (r.start, r.end),
+                            Kind::Conceal,
+                            role::MARKER,
+                            Reveal::CaretInLine,
+                        );
+                    }
                 }
             }
             Event::End(TagEnd::Heading(_)) => {
@@ -370,7 +411,12 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                 b.push(r.end - ticks, r.end, (r.start, r.end), Kind::Conceal, role::MARKER, Reveal::CaretInNode);
             }
 
-            Event::Start(Tag::Link { ref dest_url, .. }) => {
+            Event::Start(Tag::Link { link_type, ref dest_url, .. }) => {
+                let suppress = matches!(link_type, LinkType::Autolink | LinkType::Email);
+                link_suppression.push(suppress);
+                if suppress {
+                    suppress_inline_scans += 1;
+                }
                 b.block_stack.push((r.start, r.end));
                 if let Some((ts, te)) = link_text_range(&src[r.start..r.end]) {
                     let node = (r.start, r.end);
@@ -388,10 +434,14 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                 }
             }
             Event::End(TagEnd::Link) => {
+                if link_suppression.pop().unwrap_or(false) {
+                    suppress_inline_scans = suppress_inline_scans.saturating_sub(1);
+                }
                 b.block_stack.pop();
             }
 
             Event::Start(Tag::Image { dest_url, .. }) => {
+                suppress_inline_scans += 1;
                 // The destination is a *reference*, never inlined content. Resolving it
                 // to bytes is the host's business (DESIGN §5.2).
                 b.push_with(
@@ -404,8 +454,12 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                     Some(dest_url.to_string()),
                 );
             }
+            Event::End(TagEnd::Image) => {
+                suppress_inline_scans = suppress_inline_scans.saturating_sub(1);
+            }
 
             Event::Start(Tag::CodeBlock(kind)) => {
+                suppress_inline_scans += 1;
                 b.block_stack.push((r.start, r.end));
                 let info = match &kind {
                     CodeBlockKind::Fenced(s) => s.to_string(),
@@ -425,14 +479,42 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                 }
             }
             Event::End(TagEnd::CodeBlock) => {
+                suppress_inline_scans = suppress_inline_scans.saturating_sub(1);
                 b.block_stack.pop();
+            }
+
+            Event::Start(Tag::Table(_)) => {
+                b.block_stack.push((r.start, r.end));
+                b.push(r.start, r.end, (r.start, r.end), Kind::Style, role::TABLE, Reveal::Never);
+                let mut lines = src[r.start..r.end].split_inclusive('\n');
+                let first_len = lines.next().map_or(0, str::len);
+                if let Some(delimiter) = lines.next() {
+                    let start = r.start + first_len;
+                    let end = start + delimiter.trim_end_matches(['\n', '\r']).len();
+                    b.push(start, end, (r.start, r.end), Kind::Style, role::TABLE_DELIMITER, Reveal::Never);
+                }
+            }
+            Event::End(TagEnd::Table) => {
+                b.block_stack.pop();
+            }
+            Event::Start(Tag::TableHead) => {
+                b.push(r.start, r.end, (r.start, r.end), Kind::Style, role::TABLE_HEADER, Reveal::Never);
+            }
+            Event::Start(Tag::TableCell) => {
+                b.push(r.start, r.end, (r.start, r.end), Kind::Style, role::TABLE_CELL, Reveal::Never);
+            }
+
+            Event::Html(_) | Event::InlineHtml(_) => {
+                b.push(r.start, r.end, (r.start, r.end), Kind::Style, role::HTML, Reveal::Never);
             }
 
             Event::Rule => {
                 b.push(r.start, r.end, (r.start, r.end), Kind::Style, role::RULE, Reveal::Never);
             }
 
-            Event::Text(_) => pending_inline_scans.push((r.clone(), b.block((r.start, r.end)))),
+            Event::Text(_) if suppress_inline_scans == 0 => {
+                pending_inline_scans.push((r.clone(), b.block((r.start, r.end))))
+            }
 
             _ => {}
         }
@@ -558,16 +640,32 @@ mod tests {
         let (t, d) = built("## Title\n\nbody", None);
         let h = find(&d, Kind::Style, role::HEADING);
         assert_eq!(&t.as_str()[h[0].start..h[0].end], "## Title");
+        assert_eq!(h[0].depth, 2);
         let m = find(&d, Kind::Conceal, role::MARKER);
         assert_eq!(&t.as_str()[m[0].start..m[0].end], "## ");
         assert_eq!(m[0].reveal, Reveal::CaretInLine);
     }
 
     #[test]
-    fn setext_heading_has_no_marker_to_conceal() {
-        let (_, d) = built("Title\n=====\n", None);
-        assert_eq!(find(&d, Kind::Style, role::HEADING).len(), 1);
-        assert_eq!(find(&d, Kind::Conceal, role::MARKER).len(), 0);
+    fn setext_heading_conceals_the_underline() {
+        let (t, d) = built("Title\n-----\n", None);
+        let heading = find(&d, Kind::Style, role::HEADING);
+        assert_eq!(heading.len(), 1);
+        assert_eq!(heading[0].depth, 2);
+        let marker = find(&d, Kind::Conceal, role::MARKER);
+        assert_eq!(marker.len(), 1);
+        assert_eq!(&t.as_str()[marker[0].start..marker[0].end], "-----");
+        assert_eq!(marker[0].node, (0, t.as_str().len()));
+    }
+
+    #[test]
+    fn atx_heading_conceals_an_optional_closing_sequence() {
+        let (t, d) = built("### Title ###  \n", None);
+        let heading = find(&d, Kind::Style, role::HEADING);
+        assert_eq!(heading[0].depth, 3);
+        let markers = find(&d, Kind::Conceal, role::MARKER);
+        let sources: Vec<_> = markers.iter().map(|m| &t.as_str()[m.start..m.end]).collect();
+        assert_eq!(sources, vec!["### ", " ###  "]);
     }
 
     #[test]
@@ -594,6 +692,97 @@ mod tests {
         let (t, d) = built("[an ![img](i.png) inside](https://e.dev)", None);
         let txt = find(&d, Kind::Style, role::LINK_TEXT);
         assert_eq!(&t.as_str()[txt[0].start..txt[0].end], "an ![img](i.png) inside");
+    }
+
+    #[test]
+    fn commonmark_autolinks_style_the_label_and_conceal_angle_brackets() {
+        let (t, d) = built("<https://example.dev> <hello@example.dev>", None);
+        let links = find(&d, Kind::Style, role::LINK_TEXT);
+        assert_eq!(links.len(), 2);
+        assert_eq!(&t.as_str()[links[0].start..links[0].end], "https://example.dev");
+        assert_eq!(links[0].payload.as_deref(), Some("https://example.dev"));
+        assert_eq!(&t.as_str()[links[1].start..links[1].end], "hello@example.dev");
+        assert_eq!(links[1].payload.as_deref(), Some("hello@example.dev"));
+        assert_eq!(find(&d, Kind::Conceal, role::MARKER).len(), 2);
+        assert_eq!(find(&d, Kind::Conceal, role::LINK).len(), 2);
+    }
+
+    #[test]
+    fn gfm_tables_have_table_header_delimiter_and_cell_roles() {
+        let src = "| Name | Score |\n| :--- | ---: |\n| Ada | 10 |\n";
+        let (t, d) = built(src, None);
+        let table = find(&d, Kind::Style, role::TABLE);
+        assert_eq!(table.len(), 1);
+        assert_eq!(&t.as_str()[table[0].start..table[0].end], src);
+        assert_eq!(find(&d, Kind::Style, role::TABLE_HEADER).len(), 1);
+        let delimiter = find(&d, Kind::Style, role::TABLE_DELIMITER);
+        assert_eq!(&t.as_str()[delimiter[0].start..delimiter[0].end], "| :--- | ---: |");
+        let cells = find(&d, Kind::Style, role::TABLE_CELL);
+        let sources: Vec<_> = cells.iter().map(|cell| &t.as_str()[cell.start..cell.end]).collect();
+        assert_eq!(sources, vec![" Name ", " Score ", " Ada ", " 10 "]);
+    }
+
+    #[test]
+    fn raw_html_is_styled_but_remains_source_text() {
+        let src = "<div>block</div>\n\ntext <kbd>x</kbd>\n";
+        let (t, d) = built(src, None);
+        let html = find(&d, Kind::Style, role::HTML);
+        assert_eq!(html.len(), 3);
+        assert_eq!(&t.as_str()[html[0].start..html[0].end], "<div>block</div>\n");
+        assert!(html.iter().all(|item| item.kind == Kind::Style));
+    }
+
+    #[test]
+    fn parser_options_are_commonmark_plus_the_documented_gfm_subset() {
+        let opts = options();
+        assert!(opts.contains(Options::ENABLE_TABLES));
+        assert!(opts.contains(Options::ENABLE_STRIKETHROUGH));
+        assert!(opts.contains(Options::ENABLE_TASKLISTS));
+        assert!(!opts.contains(Options::ENABLE_FOOTNOTES));
+        assert!(!opts.contains(Options::ENABLE_SMART_PUNCTUATION));
+    }
+
+    #[test]
+    fn commonmark_constructs_are_decorated_or_intentionally_preserved() {
+        let cases = [
+            ("ATX heading", "# heading\n", Some(role::HEADING)),
+            ("setext heading", "heading\n=======\n", Some(role::HEADING)),
+            ("thematic break", "***\n", Some(role::RULE)),
+            ("indented code", "    let x = 1\n", Some(role::CODE_BLOCK)),
+            ("fenced code", "```rust\nlet x = 1\n```\n", Some(role::CODE_BLOCK)),
+            ("HTML block", "<div>block</div>\n", Some(role::HTML)),
+            ("block quote", "> quoted\n", Some(role::QUOTE)),
+            ("bullet list", "- item\n", Some(role::LIST_BULLET)),
+            ("ordered list", "1. item\n", Some(role::LIST_BULLET)),
+            ("code span", "`code`", Some(role::CODE_INLINE)),
+            ("emphasis", "*emphasis*", Some(role::EMPHASIS)),
+            ("strong", "**strong**", Some(role::STRONG)),
+            ("inline link", "[label](https://example.dev)", Some(role::LINK_TEXT)),
+            ("reference link", "[label][id]\n\n[id]: /path\n", Some(role::LINK_TEXT)),
+            ("image", "![alt](image.png)", Some(role::IMAGE)),
+            ("autolink", "<https://example.dev>", Some(role::LINK_TEXT)),
+            ("inline HTML", "text <kbd>x</kbd>", Some(role::HTML)),
+            ("plain paragraph", "plain text", None),
+            ("backslash escape", r"\*literal asterisks\*", None),
+            ("character reference", "&copy;", None),
+            ("soft break", "one\ntwo", None),
+            ("hard break", "one  \ntwo", None),
+            ("link reference definition", "[id]: /path \"title\"\n", None),
+            ("blank line", "\n", None),
+        ];
+        for (name, src, expected_role) in cases {
+            let (_, decorations) = built(src, None);
+            match expected_role {
+                Some(expected) => assert!(
+                    decorations.iter().any(|item| item.role == expected),
+                    "{name} should produce role {expected}"
+                ),
+                None => assert!(
+                    decorations.is_empty(),
+                    "{name} should remain ordinary source text: {decorations:?}"
+                ),
+            }
+        }
     }
 
     #[test]
@@ -698,6 +887,17 @@ mod tests {
     fn custom_inline_tokens_do_not_match_inside_code_spans() {
         let (_, d) = built("`@gabe`", Some(MANIFEST));
         assert!(d.iter().all(|x| x.kind != Kind::InlineWidget));
+    }
+
+    #[test]
+    fn custom_inline_tokens_do_not_match_inside_literal_or_atomic_nodes() {
+        let (_, d) = built(
+            "```text\n@code\n```\n\n![alt @image](image.png)\n\n<hello@example.dev>",
+            Some(MANIFEST),
+        );
+        let widgets: Vec<_> = d.iter().filter(|x| x.kind == Kind::InlineWidget).collect();
+        assert_eq!(widgets.len(), 1);
+        assert_eq!(widgets[0].role, role::IMAGE);
     }
 
     fn payload_of(d: &[Built], role: RoleId) -> Option<String> {

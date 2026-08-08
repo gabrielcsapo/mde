@@ -35,7 +35,12 @@ public enum Role {
     public static let taskCheckbox: UInt32 = 11
     public static let rule: UInt32 = 12
     public static let strikethrough: UInt32 = 13
-    public static let firstExtensionRole: UInt32 = 14
+    public static let table: UInt32 = 14
+    public static let tableHeader: UInt32 = 15
+    public static let tableDelimiter: UInt32 = 16
+    public static let tableCell: UInt32 = 17
+    public static let html: UInt32 = 18
+    public static let firstExtensionRole: UInt32 = 19
 }
 
 /// Ranges are in UTF-16 code units, so they drop straight into `NSRange`.

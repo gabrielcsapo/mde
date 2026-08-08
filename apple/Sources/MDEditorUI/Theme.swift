@@ -94,6 +94,17 @@ public struct Theme {
             return [.font: monoFont, .foregroundColor: accentColor]
         case Role.rule:
             return [.foregroundColor: mutedColor]
+        case Role.table:
+            return [.font: monoFont, .foregroundColor: textColor]
+        case Role.tableCell:
+            return [.foregroundColor: textColor]
+        case Role.tableHeader:
+            return [
+                .font: monoFont.withTraits(PlatformFont.platformBoldTrait),
+                .foregroundColor: textColor,
+            ]
+        case Role.tableDelimiter, Role.html:
+            return [.font: monoFont, .foregroundColor: mutedColor]
         default:
             guard let name = roleName(), let attrs = extensionRoles[name] else { return [:] }
             return attrs

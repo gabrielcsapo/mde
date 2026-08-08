@@ -70,6 +70,12 @@ rows: 3
 Setext heading
 ==============
 
+| Name | Score |
+| :--- | ----: |
+| Ada  |    10 |
+
+An <kbd>inline HTML</kbd> tag and <https://example.dev>.
+
     an indented code block
     ``` not a fence
 

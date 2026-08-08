@@ -12,13 +12,15 @@ import { sample } from '../lib/sample.js';
 import HistoryPanel from './HistoryPanel.jsx';
 import Toolbar from './Toolbar.jsx';
 
-export default function ReactEditor() {
+export default function ReactEditor({ historyInitiallyOpen, descriptionId }) {
   const editorRef = useMarkdownEditorRef();
   const [history, onHistoryChange] = useEditorHistory();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('loading core…');
-  const [historyOpen, setHistoryOpen] = useState(() => matchMedia('(min-width: 721px)').matches);
+  const [historyOpen, setHistoryOpen] = useState(
+    () => historyInitiallyOpen ?? matchMedia('(min-width: 721px)').matches,
+  );
   const [, refresh] = useReducer((n) => n + 1, 0);
 
   const getEditor = useCallback(() => editorRef.current?.getEditor() ?? null, [editorRef]);
@@ -75,7 +77,7 @@ export default function ReactEditor() {
           id="editor"
           ref={editorRef}
           aria-label="Live markdown editor using the React adapter"
-          aria-describedby="things-to-try"
+          aria-describedby={descriptionId}
           hidden={!!error}
           defaultValue={sample}
           manifest={manifestSpec}

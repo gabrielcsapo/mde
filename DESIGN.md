@@ -161,7 +161,7 @@ struct Decoration {
     kind:  Kind,     // the table above
     role:  RoleId,   // interned
     reveal: Reveal,
-    depth: u8,       // nesting level for quotes/lists
+    depth: u8,       // role-specific: quote/list nesting, or heading level
     key:   u64,      // stable identity, see §3.3
 }
 ```

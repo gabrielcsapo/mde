@@ -46,6 +46,11 @@ Ordinary things work: \`inline code\`, [a link](https://example.dev), and ~~stru
 - [ ] click this checkbox
 - [x] this one is done
 
+| Surface | Integration |
+| :--- | :--- |
+| Web | Vanilla JavaScript |
+| Apple | Swift + TextKit 2 |
+
 ## Extensions
 
 Ping @gabe about [[the roadmap]] — both of those come from the host app's manifest, not from this editor.

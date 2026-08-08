@@ -89,6 +89,23 @@ final class MacRendererTests: XCTestCase {
         XCTAssertGreaterThan(headingSize, bodySize)
     }
 
+    func testASetextHeadingUsesLevelTwoAndConcealsItsUnderline() {
+        editor.setMarkdown("Heading\n-------\n\nbody")
+        let headingSize = fontSize(at: 1)
+        let bodySize = fontSize(at: 19)
+        XCTAssertGreaterThan(headingSize, bodySize)
+        XCTAssertLessThan(fontSize(at: 8), 1, "the setext underline should be concealed")
+    }
+
+    func testATableUsesMonospacedCellsAndABoldHeader() {
+        editor.setMarkdown("| Name | Score |\n| :--- | ----: |\n| Ada | 10 |\n")
+        let header: NSFont? = attribute(.font, at: 3)
+        let cell: NSFont? = attribute(.font, at: 39)
+        XCTAssertTrue(header?.fontDescriptor.symbolicTraits.contains(.bold) ?? false)
+        XCTAssertTrue(header?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false)
+        XCTAssertTrue(cell?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false)
+    }
+
     func testMarkersAreConcealedWhileUnfocused() {
         editor.setMarkdown("hello **world** end")
         // "**" occupies 6..8

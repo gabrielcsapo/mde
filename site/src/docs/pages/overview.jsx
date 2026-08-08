@@ -59,15 +59,15 @@ export default function Overview() {
       </p>
 
       <H2 id="start">Where to start</H2>
-      <div className="cards">
+      <nav className="doc-routes" aria-label="Choose a starting point">
         {PATHS.map((path) => (
-          <Link className="card" key={path.to} to={path.to}>
-            <span className="card-title">{path.label}</span>
-            <span className="card-body">{path.body}</span>
-            <span className="card-go">→</span>
+          <Link className="doc-route" key={path.to} to={path.to}>
+            <span className="doc-route-title">{path.label}</span>
+            <span className="doc-route-body">{path.body}</span>
+            <span className="doc-route-go" aria-hidden="true">→</span>
           </Link>
         ))}
-      </div>
+      </nav>
       <Note>
         Or read it front to back: every page ends with the next one, and the whole site is one
         sequence from here to <Link to="/internals/status">the open questions</Link>.

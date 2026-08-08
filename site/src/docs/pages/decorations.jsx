@@ -68,7 +68,7 @@ export default function Decorations() {
         decoration. What the name <em>means</em> is entirely the theme’s business, which is what
         lets a manifest — or a{' '}
         <Link to="/extend/layers">host layer invented at runtime</Link> — introduce roles the core
-        was never compiled with. The fourteen built-in ids are listed on{' '}
+        was never compiled with. The nineteen built-in ids are listed on{' '}
         <Link to="/reference/roles">Roles and CSS classes</Link>.
       </p>
 

@@ -248,6 +248,47 @@ export async function run() {
     assert(e.root.querySelector('.mde-code-block'), 'it should render as code');
   });
 
+  test('a GFM table keeps its source and exposes every table role', () => {
+    const e = makeEditor();
+    const source = '| Name | Score |\n| :--- | ----: |\n| Ada | 10 |\n';
+    e.setMarkdown(source);
+
+    assert(e.root.querySelector('.mde-table'), 'the table role was not rendered');
+    assert(e.root.querySelector('.mde-table-header'), 'the header role was not rendered');
+    assert(e.root.querySelector('.mde-table-delimiter'), 'the delimiter role was not rendered');
+    assertEqual(e.root.querySelectorAll('.mde-table-cell').length, 4);
+    assertEqual(domText(e.root), source, 'table styling changed the markdown source');
+  });
+
+  test('CommonMark autolinks render as links without changing their source', () => {
+    const e = makeEditor();
+    const source = '<https://example.dev> and <hello@example.dev>';
+    e.setMarkdown(source);
+
+    assertEqual(e.root.querySelectorAll('.mde-link-text').length, 2);
+    assertEqual(e.root.querySelectorAll('.mde-conceal').length, 4);
+    assertEqual(domText(e.root), source);
+  });
+
+  test('setext headings use their parsed level and conceal the underline', () => {
+    const e = makeEditor();
+    e.setMarkdown('Heading\n-------\n');
+
+    assert(e.root.querySelector('.mde-heading.mde-h2'), 'setext heading did not render as h2');
+    const underline = [...e.root.querySelectorAll('.mde-conceal')].find(
+      (el) => el.textContent === '-------'
+    );
+    assert(underline, 'setext underline was not concealed');
+  });
+
+  test('raw HTML is visibly source, not ordinary prose', () => {
+    const e = makeEditor();
+    const source = 'Press <kbd>Enter</kbd>.';
+    e.setMarkdown(source);
+    assertEqual(e.root.querySelectorAll('.mde-html').length, 2);
+    assertEqual(domText(e.root), source);
+  });
+
   // ---- widgets ------------------------------------------------------------
 
   test('an inline widget renders a view and conceals its source', () => {

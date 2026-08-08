@@ -47,6 +47,11 @@ const BUILTIN_CLASS = {
   [Role.TaskCheckbox]: 'task-checkbox',
   [Role.Rule]: 'rule',
   [Role.Strikethrough]: 'strikethrough',
+  [Role.Table]: 'table',
+  [Role.TableHeader]: 'table-header',
+  [Role.TableDelimiter]: 'table-delimiter',
+  [Role.TableCell]: 'table-cell',
+  [Role.Html]: 'html',
 };
 
 /** Sort and coalesce overlapping or touching ranges. */
@@ -358,7 +363,9 @@ export class DomApplier {
         if (d.kind === Kind.Conceal) concealed = true;
         const name = this.className(d);
         if (name) classes.push(name);
-        if (d.role === Role.Heading) classes.push(`mde-h${this.headingLevel(d.start)}`);
+        if (d.role === Role.Heading) {
+          classes.push(`mde-h${d.depth || this.headingLevel(d.start)}`);
+        }
         if (d.kind === Kind.Gutter && d.depth > 0) classes.push(`mde-depth-${d.depth}`);
       }
       if (concealed) classes.push('mde-conceal');

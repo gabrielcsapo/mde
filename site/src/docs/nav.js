@@ -200,8 +200,8 @@ export const GROUPS = [
         file: 'ref-roles',
         title: 'Roles and CSS classes',
         summary:
-          'The fourteen built-in role ids, what class each becomes on the web, and how an extension role is named.',
-        keywords: 'heading marker emphasis strong code link quote list task rule strikethrough theme',
+          'The nineteen built-in role ids, what class each becomes on the web, and how an extension role is named.',
+        keywords: 'heading marker emphasis strong code link quote list task rule strikethrough table html commonmark theme',
       },
     ],
   },
