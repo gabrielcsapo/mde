@@ -14,9 +14,8 @@ import './site.css';
 
 import App from './App.jsx';
 
-// Deliberately not wrapped in <StrictMode>. The live editor is an imperative object
-// that attaches a document-level `selectionchange` listener and has no teardown, so
-// StrictMode's development double-mount would leave a second orphaned editor listening
-// and would fetch the wasm core twice. The page has one imperative island; paying for
-// it here is cheaper than pretending it is not there.
+// Deliberately not wrapped in <StrictMode>. The live demo's slow reference resolver can
+// outlive a route, so its engine remains allocated until those promises settle; a
+// development-only double mount would intentionally build and fetch that island twice.
+// The editor itself still tears down every listener on unmount.
 createRoot(document.getElementById('root')).render(<App />);

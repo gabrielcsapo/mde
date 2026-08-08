@@ -43,7 +43,7 @@ export default function HistoryPanel({ getEditor, onJump }) {
       key={target}
       type="button"
       className="history-entry"
-      aria-current={position === target}
+      aria-current={position === target ? 'step' : undefined}
       onClick={() => jump(target)}
     >
       <span>{label}</span>
@@ -52,9 +52,9 @@ export default function HistoryPanel({ getEditor, onJump }) {
   );
 
   return (
-    <div className="history-panel" role="listbox" aria-label="Revision history">
+    <nav className="history-panel" id="revision-history" aria-label="Revision history">
       {entry(0, 'Opened document', null)}
       {revisions.map((rev) => entry(rev.index + 1, describe(rev), age(rev.atMs)))}
-    </div>
+    </nav>
   );
 }

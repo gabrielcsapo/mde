@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import { GROUPS } from '../docs/nav.js';
 import { Link, useRoute } from '../lib/router.jsx';
@@ -6,8 +6,8 @@ import { Link, useRoute } from '../lib/router.jsx';
 /**
  * The persistent navigation: every page, in reading order, grouped.
  *
- * Nothing collapses. Eighteen entries fit in a column on any screen tall enough to read
- * on, and a reader evaluating a library benefits far more from seeing the whole shape of
+ * Nothing collapses. The index fits in a column on any screen tall enough to read on,
+ * and a reader evaluating a library benefits far more from seeing the whole shape of
  * the documentation at once than from a tidier list they have to open twice to search
  * with their eyes.
  *
@@ -17,6 +17,14 @@ import { Link, useRoute } from '../lib/router.jsx';
  */
 export default function Sidebar({ open, onNavigate }) {
   const route = useRoute();
+  const [isDrawer, setIsDrawer] = useState(() => matchMedia('(max-width: 1023px)').matches);
+
+  useEffect(() => {
+    const media = matchMedia('(max-width: 1023px)');
+    const sync = () => setIsDrawer(media.matches);
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
+  }, []);
 
   // Escape closes the drawer, which is the only state this component has.
   useEffect(() => {
@@ -33,6 +41,8 @@ export default function Sidebar({ open, onNavigate }) {
         id="sidebar"
         className={`sidebar${open ? ' is-open' : ''}`}
         aria-label="Documentation"
+        aria-hidden={isDrawer && !open ? 'true' : undefined}
+        inert={isDrawer && !open ? true : undefined}
       >
         <div className="sidebar-inner">
           {GROUPS.map((group) => (

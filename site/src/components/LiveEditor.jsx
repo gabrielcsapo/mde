@@ -34,9 +34,9 @@ export default function LiveEditor() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('loading core…');
-  // Open by default: the timeline is part of the pitch, not a hidden extra. The
-  // toggle stays, because a quarter of the width is worth reclaiming while writing.
-  const [historyOpen, setHistoryOpen] = useState(true);
+  // Open by default where it has a real column; closed on phones, where stacking the
+  // timeline under the document doubles the distance through the demo before typing.
+  const [historyOpen, setHistoryOpen] = useState(() => matchMedia('(min-width: 721px)').matches);
 
   // The toolbar's enabled/pressed state is a function of the document *and* the
   // selection, and neither is React state. So rather than mirroring the editor, a
@@ -149,11 +149,12 @@ export default function LiveEditor() {
           title="The revision timeline — every edit, including undone ones; click to land anywhere"
           disabled={!ready || !!error}
           aria-pressed={String(historyOpen)}
+          aria-controls="revision-history"
           onClick={() => setHistoryOpen((open) => !open)}
         >
           History
         </button>
-        <span className="status" id="status">
+        <span className="status" id="status" role="status" aria-live="polite">
           {error ? 'core unavailable' : status}
         </span>
       </div>
@@ -178,7 +179,13 @@ export default function LiveEditor() {
       <div className={historyOpen && ready && !error ? 'editor-body with-history' : 'editor-body'}>
         {/* React never puts children in here: the editor owns this node's contents and
             its `contenteditable` attribute from the moment it mounts. */}
-        <div id="editor" ref={host} hidden={!!error} />
+        <div
+          id="editor"
+          ref={host}
+          aria-label="Live markdown editor"
+          aria-describedby="things-to-try"
+          hidden={!!error}
+        />
         {historyOpen && ready && !error ? (
           <HistoryPanel getEditor={getEditor} onJump={refresh} />
         ) : null}

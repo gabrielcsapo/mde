@@ -1,18 +1,24 @@
 import { Link } from '../lib/router.jsx';
 import { useTheme } from '../hooks/useTheme.js';
+import { PAGES } from '../docs/nav.js';
 
 /**
  * The one bar across the top: identity on the left, the two controls that apply to every
  * page on the right, and — below `sm` — the button that opens the navigation.
  *
- * Section links used to live here. They belong in the sidebar now: this is a site of
- * eighteen pages rather than one long page, and a row of six links cannot describe that.
+ * Section links used to live here. They belong in the sidebar now: this is a full
+ * documentation set rather than one long page, and a short row cannot describe it.
  */
-export default function TopBar({ onOpenSearch, onOpenNav, navOpen }) {
+export default function TopBar({ page, onOpenSearch, onOpenNav, navOpen }) {
   const theme = useTheme();
+  const pageIndex = page ? PAGES.findIndex((item) => item.path === page.path) : -1;
+  const progress = pageIndex >= 0 ? ((pageIndex + 1) / PAGES.length) * 100 : 0;
 
   return (
-    <header className="topbar sticky top-0 z-30 border-b border-rule-soft">
+    <header
+      className="topbar sticky top-0 z-30 border-b border-rule-soft"
+      style={{ '--reading-progress': `${progress}%` }}
+    >
       <div className="mx-auto flex h-[54px] w-full items-center gap-3 px-4 sm:px-6">
         <button
           type="button"
@@ -37,12 +43,30 @@ export default function TopBar({ onOpenSearch, onOpenNav, navOpen }) {
           </em>
         </Link>
 
-        <span className="docs-label">Docs</span>
+        <span
+          className="docs-label"
+          aria-label={page ? `Documentation: ${page.title}` : 'Documentation'}
+        >
+          {page ? page.title : 'Docs'}
+        </span>
+
+        {page ? (
+          <span className="page-count" aria-label={`Page ${pageIndex + 1} of ${PAGES.length}`}>
+            {String(pageIndex + 1).padStart(2, '0')}
+            <i>/</i>
+            {String(PAGES.length).padStart(2, '0')}
+          </span>
+        ) : null}
 
         {/* Not an input. It opens the palette, which is where typing actually happens —
             an input here would need its own results popover and its own focus rules for
             no gain. */}
-        <button type="button" className="search-trigger ml-auto" onClick={onOpenSearch}>
+        <button
+          type="button"
+          className="search-trigger ml-auto"
+          aria-label="Search documentation"
+          onClick={onOpenSearch}
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
             <circle cx="11" cy="11" r="6.4" />
             <path d="M15.8 15.8 21 21" />
@@ -87,6 +111,7 @@ export default function TopBar({ onOpenSearch, onOpenNav, navOpen }) {
           </svg>
         </button>
       </div>
+      {page ? <div className="reading-progress" aria-hidden="true" /> : null}
     </header>
   );
 }

@@ -213,8 +213,16 @@ impl Engine {
     ///
     /// Pass `None` on blur so the document collapses back to its rendered form.
     pub fn set_selection(&mut self, sel: Option<Selection>) -> Patch {
+        let before = self.selection;
         self.selection = sel;
         self.clamp_selection();
+        // Browser selectionchange and TextKit delegate callbacks can repeat the same
+        // range several times for one gesture. Reveal is a pure function of the
+        // clamped selection, so walking and diffing the entire decoration set again
+        // cannot produce useful work.
+        if self.selection == before {
+            return Patch::default();
+        }
         self.emit()
     }
 
@@ -716,6 +724,19 @@ mod tests {
         e.reset("x **a**");
         let p = e.set_selection(Some(Selection::caret(4)));
         assert!(!p.is_empty(), "moving into the node must repaint its markers");
+    }
+
+    #[test]
+    fn repeating_a_selection_is_a_no_op() {
+        let mut e = Engine::new(Registry::empty());
+        e.reset("x **a**");
+        e.set_selection(Some(Selection::caret(4)));
+
+        assert!(e.set_selection(Some(Selection::caret(4))).is_empty());
+        // Equality is checked after clamping, so noisy out-of-bounds callbacks are
+        // cheap too.
+        e.set_selection(Some(Selection::caret(999)));
+        assert!(e.set_selection(Some(Selection::caret(999))).is_empty());
     }
 
     #[test]

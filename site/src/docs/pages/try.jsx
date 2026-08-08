@@ -34,7 +34,7 @@ export default function Try() {
     <>
       <LiveEditor />
 
-      <ul className="hint">
+      <ul className="hint" id="things-to-try">
         {THINGS_TO_TRY.map((item, i) => (
           <li key={i}>{item}</li>
         ))}

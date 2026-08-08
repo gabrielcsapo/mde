@@ -106,11 +106,27 @@ export class MarkdownEditor extends EventTarget {
     );
 
     this.root = host;
+    this.rootHadEditorClass = this.root.classList.contains('mde-editor');
+    this.previousContentEditable = this.root.getAttribute('contenteditable');
     this.root.classList.add('mde-editor');
     // `plaintext-only` keeps the browser from inventing block structure on Enter: it
     // inserts a real newline character, which is what the document actually contains.
     this.root.setAttribute('contenteditable', 'plaintext-only');
-    this.root.setAttribute('spellcheck', 'false');
+    // These defaults make the framework-free editor usable on its own while preserving
+    // any host-supplied accessible name or spellcheck preference. React applies DOM
+    // props before its mount effect constructs us, so component props win here too.
+    this.defaultAttributes = [];
+    for (const [name, value] of [
+      ['role', 'textbox'],
+      ['aria-multiline', 'true'],
+      ['aria-label', 'Markdown editor'],
+      ['spellcheck', 'true'],
+    ]) {
+      if (!this.root.hasAttribute(name)) {
+        this.root.setAttribute(name, value);
+        this.defaultAttributes.push(name);
+      }
+    }
 
     /** Authoritative only as a mirror of the DOM; the DOM is the buffer. */
     this.text = '';
@@ -124,21 +140,31 @@ export class MarkdownEditor extends EventTarget {
 
     // Before the browser mutates anything — see `onBeforeInput` for why newline input
     // cannot be left to `plaintext-only`.
-    this.root.addEventListener('beforeinput', (e) => this.onBeforeInput(e));
-    this.root.addEventListener('input', () => this.onInput());
-    this.root.addEventListener('focus', () => this.onSelectionChange());
-    this.root.addEventListener('blur', () => this.applyPatch(this.engine.setSelection(null)));
-    this.root.addEventListener('click', (e) => this.onClick(e));
+    // One controller owns every listener, including those on `root`. A destroyed editor
+    // can leave its host element in the page and a new editor can reuse it; anonymous
+    // listeners that merely wait for the element to disappear would make both engines
+    // process every later keystroke.
+    this.events = new AbortController();
+    const listener = { signal: this.events.signal };
+    this.root.addEventListener('beforeinput', (e) => this.onBeforeInput(e), listener);
+    this.root.addEventListener('input', () => this.onInput(), listener);
+    this.root.addEventListener('focus', () => this.onSelectionChange(), listener);
+    this.root.addEventListener(
+      'blur',
+      () => this.applyPatch(this.engine.setSelection(null)),
+      listener
+    );
+    this.root.addEventListener('click', (e) => this.onClick(e), listener);
     // Before the browser gets to place a caret — see `onMouseDown`.
-    this.root.addEventListener('mousedown', (e) => this.onMouseDown(e));
+    this.root.addEventListener('mousedown', (e) => this.onMouseDown(e), listener);
 
-    // Kept so `destroy` can remove it. This is the only listener that is not on `root`:
-    // `selectionchange` fires on the document, so it outlives the element and would keep
-    // a detached editor alive and reacting after its host is gone.
+    // This is the only listener that is not on `root`: `selectionchange` fires on the
+    // document, so it outlives the element and would keep a detached editor alive. The
+    // shared abort signal removes it together with the element listeners.
     this.onDocumentSelectionChange = () => {
       if (document.activeElement === this.root) this.onSelectionChange();
     };
-    document.addEventListener('selectionchange', this.onDocumentSelectionChange);
+    document.addEventListener('selectionchange', this.onDocumentSelectionChange, listener);
     this.destroyed = false;
   }
 
@@ -147,8 +173,8 @@ export class MarkdownEditor extends EventTarget {
    *
    * Required by any host that mounts and unmounts — a React component under
    * `StrictMode` mounts twice on purpose, and without this the first editor stays
-   * subscribed to `selectionchange` forever, reacting to a document it no longer
-   * renders. Listeners on `root` die with the element; this one does not.
+   * subscribed to input and selection events forever, reacting to a host it no longer
+   * renders. This also makes it safe to construct another editor on the same element.
    *
    * The engine is *not* freed here: the caller constructed it and may outlive the view
    * or hand it to another one.
@@ -156,9 +182,12 @@ export class MarkdownEditor extends EventTarget {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
-    document.removeEventListener('selectionchange', this.onDocumentSelectionChange);
+    this.events.abort();
     this.applier.reset();
-    this.root.removeAttribute('contenteditable');
+    if (this.previousContentEditable === null) this.root.removeAttribute('contenteditable');
+    else this.root.setAttribute('contenteditable', this.previousContentEditable);
+    for (const name of this.defaultAttributes) this.root.removeAttribute(name);
+    if (!this.rootHadEditorClass) this.root.classList.remove('mde-editor');
     this.root.replaceChildren();
   }
 

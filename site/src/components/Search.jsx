@@ -19,16 +19,20 @@ export default function Search({ open, onClose }) {
   const [active, setActive] = useState(0);
   const input = useRef(null);
   const list = useRef(null);
+  const panel = useRef(null);
+  const returnFocus = useRef(null);
 
   const results = useMemo(() => (query.trim() ? search(query) : []), [query]);
 
   useEffect(() => {
     if (!open) return;
+    returnFocus.current = document.activeElement;
     setQuery('');
     setActive(0);
     // The dialog has just been committed; focusing in the same tick works because the
     // element is already in the document by the time this effect runs.
     input.current?.focus();
+    return () => returnFocus.current?.focus?.();
   }, [open]);
 
   useEffect(() => setActive(0), [query]);
@@ -63,6 +67,20 @@ export default function Search({ open, onClose }) {
       onClose();
       return;
     }
+    if (event.key === 'Tab') {
+      const focusable = [...panel.current.querySelectorAll('input, button:not(:disabled)')];
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       setActive((i) => (results.length ? (i + 1) % results.length : 0));
@@ -87,7 +105,14 @@ export default function Search({ open, onClose }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="search-panel" role="dialog" aria-modal="true" aria-label="Search the documentation">
+      <div
+        ref={panel}
+        className="search-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search the documentation"
+        onKeyDown={onKeyDown}
+      >
         <div className="search-field">
           <svg
             viewBox="0 0 24 24"
@@ -109,7 +134,6 @@ export default function Search({ open, onClose }) {
             autoComplete="off"
             spellCheck="false"
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
           />
           <kbd>esc</kbd>
         </div>

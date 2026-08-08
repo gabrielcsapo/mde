@@ -348,6 +348,19 @@
     -webkit-backdrop-filter: saturate(180%) blur(14px);
   }
 
+  /* The docs are intentionally one document split across routes. This rail makes that
+     reading order visible without turning it into a decorative stepper. */
+  .reading-progress {
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    width: var(--reading-progress);
+    height: 2px;
+    background: linear-gradient(90deg, var(--color-accent), var(--color-syntax));
+    transition: width 0.24s cubic-bezier(0.22, 0.7, 0.2, 1);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+
   /* Scroll spy. A quiet mark rather than a filled pill: it says where you are, it
      does not compete with the heading it points at. */
   .navlink { position: relative; }
@@ -493,6 +506,19 @@
     margin-left: 2px;
     border-left: 1px solid var(--color-rule-soft);
   }
+  .page-count {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    margin-left: -2px;
+    font-family: var(--font-mono);
+    font-size: 0.63rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+    color: var(--color-faint);
+  }
+  .page-count i { font-style: normal; opacity: 0.4; }
+  @media (max-width: 680px) { .page-count { display: none; } }
   @media (max-width: 460px) { .docs-label { display: none; } }
 
   .nav-toggle {
@@ -611,6 +637,29 @@
     max-width: 20ch;
   }
   .doc-summary { max-width: 62ch; font-size: 1.06rem; }
+
+  .route-pending {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 180px;
+    margin-top: 30px;
+    border: 1px solid var(--color-rule);
+    border-radius: 16px;
+    padding: 24px;
+    background: var(--color-surface);
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--color-faint);
+  }
+  .route-pending span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    animation: pending-pulse 1s ease-in-out infinite alternate;
+  }
+  @keyframes pending-pulse { to { opacity: 0.25; transform: scale(0.72); } }
 
   /* Headings own the space above them, so a section never needs a margin of its own. */
   .doc-h2 {
@@ -1221,7 +1270,7 @@
     border-color: var(--color-accent);
   }
 
-  .history-entry[aria-current='true'] {
+  .history-entry[aria-current] {
     border-color: var(--color-accent);
     background: color-mix(in srgb, var(--color-accent) 12%, transparent);
     font-weight: 600;

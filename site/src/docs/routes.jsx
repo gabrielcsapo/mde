@@ -1,12 +1,13 @@
 // Path → component. The only file that imports the pages.
 //
-// Static imports rather than `React.lazy`: the whole site is a few dozen kilobytes of
-// prose, the live editor's wasm core is fetched on demand by the page that uses it, and
-// a loading state between two documentation pages would be a spinner where there is
-// nothing to wait for.
+// Prose stays eager so moving between documentation pages is immediate. The one route
+// that imports the editor, reference host, extensions and wasm binding is split: none of
+// that code helps a reader on the landing page or in an API reference.
+
+import { lazy } from 'react';
 
 import Overview from './pages/overview.jsx';
-import Try from './pages/try.jsx';
+const Try = lazy(() => import('./pages/try.jsx'));
 import Install from './pages/install.jsx';
 import React from './pages/react.jsx';
 import InlineRendering from './pages/inline-rendering.jsx';

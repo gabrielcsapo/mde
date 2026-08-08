@@ -142,6 +142,48 @@ export async function run() {
     assertEqual(domText(e.root), source, 'DOM text diverged from the source');
   });
 
+  test('a bare editor exposes native text-editing semantics', () => {
+    const e = makeEditor();
+    assertEqual(e.root.getAttribute('role'), 'textbox');
+    assertEqual(e.root.getAttribute('aria-multiline'), 'true');
+    assertEqual(e.root.getAttribute('aria-label'), 'Markdown editor');
+    assertEqual(e.root.getAttribute('spellcheck'), 'true');
+  });
+
+  test('host accessibility and spellcheck preferences win', () => {
+    const host = document.createElement('div');
+    host.setAttribute('aria-label', 'Release notes');
+    host.setAttribute('spellcheck', 'false');
+    document.getElementById('sandbox').replaceChildren(host);
+    const engine = core.newEngine(encodeManifest(manifestSpec));
+    const e = new MarkdownEditor(host, engine);
+
+    assertEqual(e.root.getAttribute('aria-label'), 'Release notes');
+    assertEqual(e.root.getAttribute('spellcheck'), 'false');
+  });
+
+  test('destroy detaches listeners before a host is reused', () => {
+    const host = document.createElement('div');
+    document.getElementById('sandbox').replaceChildren(host);
+    const old = new MarkdownEditor(host, core.newEngine(encodeManifest(manifestSpec)));
+    old.setMarkdown('old');
+    old.destroy();
+
+    const current = new MarkdownEditor(host, core.newEngine(encodeManifest(manifestSpec)));
+    current.setMarkdown('new');
+    current.root.focus();
+    current.setSelectionRange({ start: 3, end: 3 });
+    const event = new InputEvent('beforeinput', {
+      inputType: 'insertParagraph',
+      bubbles: true,
+      cancelable: true,
+    });
+    current.root.dispatchEvent(event);
+
+    assertEqual(current.markdown, 'new\n');
+    assertEqual(old.markdown, 'old', 'the destroyed editor still handled input');
+  });
+
   test('markers are concealed while unfocused', () => {
     const e = makeEditor();
     e.setMarkdown('hello **world** end');

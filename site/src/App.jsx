@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 
 import DocPage from './components/DocPage.jsx';
 import Landing from './components/Landing.jsx';
@@ -52,6 +52,7 @@ function Shell() {
     return (
       <>
         <TopBar
+          page={page}
           onOpenSearch={() => setSearchOpen(true)}
           onOpenNav={() => setNavOpen((v) => !v)}
           navOpen={navOpen}
@@ -65,6 +66,7 @@ function Shell() {
   return (
     <>
       <TopBar
+        page={page}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenNav={() => setNavOpen((v) => !v)}
         navOpen={navOpen}
@@ -79,7 +81,9 @@ function Shell() {
         <main className="doc-column" id="main">
           {Page && page ? (
             <DocPage page={page}>
-              <Page />
+              <Suspense fallback={<RoutePending />}>
+                <Page />
+              </Suspense>
             </DocPage>
           ) : (
             <NotFound path={route.path} />
@@ -92,6 +96,15 @@ function Shell() {
 
       <Search open={searchOpen} onClose={() => setSearchOpen(false)} />
     </>
+  );
+}
+
+function RoutePending() {
+  return (
+    <div className="route-pending" role="status">
+      <span />
+      Loading the live editor…
+    </div>
   );
 }
 
