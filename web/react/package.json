@@ -21,22 +21,22 @@
     "README.md"
   ],
   "scripts": {
-    "build": "npm run typecheck && vite build",
+    "build": "pnpm run typecheck && vite build",
     "typecheck": "tsc -p tsconfig.json",
     "dev": "vite build --watch"
   },
   "dependencies": {
-    "@mde/web": "file:.."
+    "@mde/web": "workspace:^"
   },
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18"
   },
   "devDependencies": {
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.2",
-    "typescript": "^5.9.3",
-    "vite": "^7.2.2"
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
   },
   "engines": {
     "node": ">=18"

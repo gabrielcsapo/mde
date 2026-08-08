@@ -1,0 +1,10 @@
+{
+  "name": "mde-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.2.2",
+  "scripts": {
+    "build:web": "./scripts/build-web.sh",
+    "build:site": "pnpm --dir site run build",
+    "test": "./scripts/test.sh"
+  }
+}

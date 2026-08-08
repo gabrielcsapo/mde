@@ -172,7 +172,7 @@ Vite library build keeps all three external, so consumers get one framework-free
 and their existing React runtime rather than copied implementations.
 
 ```sh
-npm install @mde/react @mde/web
+pnpm add @mde/react @mde/web
 ```
 
 The theme is not bundled either. Import it yourself, and `extensions.css` too if you use
@@ -189,8 +189,8 @@ exported by `@mde/web`, so the decoration and host-service contracts have one so
 
 ```
 cd web/react/example
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Three editors under `StrictMode`: an uncontrolled one with a toolbar, a history timeline,

@@ -11,15 +11,10 @@ chmod 0644 "$ROOT/web/mde.wasm"
 printf '    %s bytes\n' "$(wc -c < "$ROOT/web/mde.wasm" | tr -d ' ')"
 echo "==> $ROOT/web/mde.wasm"
 
-ensure_dependencies() {
-    local directory="$1"
-    [ -d "$directory/node_modules" ] || npm --prefix "$directory" ci
-}
+[ -d "$ROOT/node_modules/.pnpm" ] || pnpm --dir "$ROOT" install --frozen-lockfile
 
 echo "==> @mde/web"
-ensure_dependencies "$ROOT/web"
-npm --prefix "$ROOT/web" run build
+pnpm --dir "$ROOT/web" run build
 
 echo "==> @mde/react"
-ensure_dependencies "$ROOT/web/react"
-npm --prefix "$ROOT/web/react" run build
+pnpm --dir "$ROOT/web/react" run build

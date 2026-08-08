@@ -12,15 +12,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-command -v npm > /dev/null || {
-    echo "npm is required for the site (the editor itself needs none)" >&2
+command -v pnpm > /dev/null || {
+    echo "pnpm is required for the web packages and documentation site" >&2
     exit 1
 }
 
-[ -d site/node_modules ] || {
+[ -d node_modules/.pnpm ] || {
     printf '\033[1m%s\033[0m\n' "==> installing site dependencies"
-    npm --prefix site install
+    pnpm install --frozen-lockfile
 }
 
 printf '\033[1m%s\033[0m\n' "==> vite dev server"
-exec npm --prefix site run "${1:-dev}"
+exec pnpm --dir site run "${1:-dev}"

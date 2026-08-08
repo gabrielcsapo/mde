@@ -22,6 +22,5 @@ React adapter. Optional extensions are separate imports:
 import { TypewriterMode } from '@mde/web/extensions/typewriter';
 ```
 
-Build with `npm run build`. Vite emits the ESM library and Wasm asset; TypeScript emits
+Build with `pnpm run build`. Vite emits the ESM library and Wasm asset; TypeScript emits
 declarations from the same source.
-

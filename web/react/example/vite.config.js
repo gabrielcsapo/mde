@@ -7,7 +7,7 @@ const web = fileURLToPath(new URL('../..', import.meta.url));
 export default defineConfig({
   plugins: [react()],
   server: {
-    // Both packages are local `file:` dependencies while this example is developed.
+    // Both packages are linked from the local pnpm workspace while this example is developed.
     fs: { allow: [web] },
   },
 });

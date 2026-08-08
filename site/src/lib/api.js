@@ -411,7 +411,7 @@ export const REACT_API = [
   {
     id: 'component',
     title: 'MarkdownEditor props',
-    file: 'web/react/src/MarkdownEditor.js',
+    file: 'web/react/src/MarkdownEditor.ts',
     intro:
       'A forwardRef component over the framework-free editor. Anything not listed here — `className`, `style`, `id`, `data-*` — is spread onto the editor element, which always carries `mde-editor` in its class list.',
     symbols: [

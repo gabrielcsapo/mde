@@ -165,7 +165,7 @@ export default function VanillaEditor() {
           <p>
             The wasm core is fetched over HTTP, so this usually means the dev or preview
             server is no longer running — restart <code>./scripts/serve-site.sh</code> (or{' '}
-            <code>npm run preview</code> in <code>site/</code>) and reload. Opening the
+            <code>pnpm run preview</code> in <code>site/</code>) and reload. Opening the
             built files directly from disk fails the same way: modules and wasm both need
             a real origin.
           </p>

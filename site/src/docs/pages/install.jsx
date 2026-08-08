@@ -64,8 +64,7 @@ export default function Install() {
       <Steps>
         <Step title="Build @mde/web and install it in your app">
           <code>./scripts/build-web.sh</code> compiles Rust, the framework-free TypeScript package,
-          and the React adapter. In this repository the docs use a local <code>file:</code>{' '}
-          dependency; a workspace works equally well.
+          and the React adapter. In this repository the docs link both from the pnpm workspace.
         </Step>
         <Step title="Give the editor an element and the theme stylesheet">
           The editor takes over the element completely: it sets <code>contenteditable</code>, owns
