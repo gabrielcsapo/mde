@@ -103,6 +103,8 @@ export class MarkdownEditor extends EventTarget {
   lines: string[];
   lineStarts: number[];
   lineEls: HTMLElement[];
+  chunkEls: HTMLElement[];
+  activeChunk: HTMLElement | null;
   suppressSelection: boolean;
   events: AbortController;
   onDocumentSelectionChange: () => void;
@@ -158,6 +160,9 @@ export class MarkdownEditor extends EventTarget {
     this.lineStarts = [];
     /** @type {HTMLElement[]} */
     this.lineEls = [];
+    /** Layout/paint containment groups. Source text still remains wholly in the DOM. */
+    this.chunkEls = [];
+    this.activeChunk = null;
 
     /** Guards the selection restore from re-entering as a user selection change. */
     this.suppressSelection = false;
@@ -173,11 +178,10 @@ export class MarkdownEditor extends EventTarget {
     this.root.addEventListener('beforeinput', (e) => this.onBeforeInput(e), listener);
     this.root.addEventListener('input', () => this.onInput(), listener);
     this.root.addEventListener('focus', () => this.onSelectionChange(), listener);
-    this.root.addEventListener(
-      'blur',
-      () => this.applyPatch(this.engine.setSelection(null)),
-      listener
-    );
+    this.root.addEventListener('blur', () => {
+      this.applyPatch(this.engine.setSelection(null));
+      this.activateChunk(null);
+    }, listener);
     this.root.addEventListener('click', (e) => this.onClick(e), listener);
     // Before the browser gets to place a caret — see `onMouseDown`.
     this.root.addEventListener('mousedown', (e) => this.onMouseDown(e), listener);
@@ -459,17 +463,22 @@ export class MarkdownEditor extends EventTarget {
    * The browser breaks this by wrapping lines in divs or inserting its own elements.
    */
   domIsCanonical() {
-    const children = this.root.children;
-    if (children.length !== this.lineEls.length) return false;
-    for (let i = 0; i < this.lineEls.length; i++) {
-      if (children[i] !== this.lineEls[i]) return false;
+    if (this.root.childNodes.length !== this.chunkEls.length) return false;
+    let line = 0;
+    for (let chunk = 0; chunk < this.chunkEls.length; chunk++) {
+      const el = this.chunkEls[chunk];
+      if (this.root.childNodes[chunk] !== el) return false;
+      for (const child of el.children) {
+        if (child !== this.lineEls[line++]) return false;
+      }
     }
-    return true;
+    return line === this.lineEls.length;
   }
 
   onSelectionChange() {
     if (this.suppressSelection) return;
     const range = this.selectionRange();
+    this.activateChunk(range?.start ?? null);
     this.applyPatch(this.engine.setSelection(range), null, range);
     // Hosts that decorate from the caret's position — a focus mode, a live outline —
     // recompute here and push a layer (DESIGN §5.3).
@@ -625,17 +634,79 @@ export class MarkdownEditor extends EventTarget {
     this.applier.text = this.text;
     this.lines = this.text.split('\n');
     this.lineEls = [];
+    this.chunkEls = [];
+    this.activeChunk = null;
     this.lineStarts = lineStarts(this.lines);
     const frag = document.createDocumentFragment();
+    let chunk: HTMLElement | null = null;
     for (let i = 0; i < this.lines.length; i++) {
+      if (i % 64 === 0) {
+        chunk = this.makeViewportChunk();
+        this.chunkEls.push(chunk);
+        frag.appendChild(chunk);
+      }
       const el = this.applier.buildLine(
         this.lineStarts[i],
         this.lineEnd(i, this.lines, this.lineStarts)
       );
       this.lineEls.push(el);
-      frag.appendChild(el);
+      chunk!.appendChild(el);
     }
     this.root.replaceChildren(frag);
+  }
+
+  /** A block formatting context the browser may skip when it is outside the viewport. */
+  makeViewportChunk(contained = this.lines.length > 128): HTMLElement {
+    const chunk = document.createElement('div');
+    chunk.className = 'mde-document-chunk';
+    // WebKit can misplace a native caret inside a `content-visibility` subtree. Keep
+    // short documents on its ordinary editing path; containment only pays for itself
+    // once there are multiple offscreen groups anyway.
+    if (contained) chunk.classList.add('mde-viewport-chunk');
+    return chunk;
+  }
+
+  /** Keep the chunk containing the native caret out of layout skipping. */
+  activateChunk(offset: number | null): void {
+    const next = offset === null || this.lineEls.length === 0
+      ? null
+      : this.lineEls[this.lineIndexAt(offset, this.lineStarts)]?.parentElement ?? null;
+    if (next === this.activeChunk) return;
+    this.activeChunk?.classList.remove('mde-viewport-active');
+    next?.classList.add('mde-viewport-active');
+    this.activeChunk = next;
+  }
+
+  /** Replace line nodes without disturbing untouched containment groups. */
+  replaceLineElements(first: number, removeCount: number, rebuilt: HTMLElement[]): void {
+    const nextLineCount = this.lineEls.length - removeCount + rebuilt.length;
+    const shouldContain = nextLineCount > 128;
+    const anchor = this.lineEls[first + removeCount] ?? null;
+    let container = anchor?.parentElement ?? this.lineEls[first]?.parentElement ?? null;
+    if (!container) {
+      container = this.chunkEls[this.chunkEls.length - 1] ?? this.makeViewportChunk(shouldContain);
+      if (!container.parentElement) this.root.appendChild(container);
+    }
+    for (let i = 0; i < removeCount; i++) this.lineEls[first + i]?.remove();
+    for (const el of rebuilt) container.insertBefore(el, anchor);
+    this.lineEls.splice(first, removeCount, ...rebuilt);
+
+    for (const chunk of this.chunkEls) {
+      if (chunk.childElementCount === 0) chunk.remove();
+    }
+    // A large paste may create many lines at once. Split only the touched group; normal
+    // typing leaves every distant group and its remembered intrinsic size untouched.
+    let current: HTMLElement | null = container;
+    while (current && current.childElementCount > 128) {
+      const next = this.makeViewportChunk(shouldContain);
+      while (current.childElementCount > 64) next.appendChild(current.children[64]);
+      current.after(next);
+      current = next;
+    }
+    this.chunkEls = Array.from(this.root.children) as HTMLElement[];
+    for (const chunk of this.chunkEls) {
+      chunk.classList.toggle('mde-viewport-chunk', shouldContain);
+    }
   }
 
   /** Exclusive end of a line, including its trailing newline when it has one. */
@@ -703,10 +774,7 @@ export class MarkdownEditor extends EventTarget {
       );
     }
     const removeCount = change.lastOld - change.first + 1;
-    const anchor = this.lineEls[change.lastOld + 1] ?? null;
-    for (let i = 0; i < removeCount; i++) this.lineEls[change.first + i]?.remove();
-    for (const el of rebuilt) this.root.insertBefore(el, anchor);
-    this.lineEls.splice(change.first, removeCount, ...rebuilt);
+    this.replaceLineElements(change.first, removeCount, rebuilt);
     this.lines = change.lines;
     this.lineStarts = change.starts;
     if (caret) this.setSelectionRange(caret);
@@ -757,11 +825,7 @@ export class MarkdownEditor extends EventTarget {
     const removeCount = Math.max(0, lastOld - first + 1);
     // Anchor on the first element *after* the replaced range: anchoring on the range's
     // own first element would leave `insertBefore` holding a node we just removed.
-    const anchor = this.lineEls[lastOld + 1] ?? null;
-    for (let i = 0; i < removeCount; i++) this.lineEls[first + i]?.remove();
-    for (const el of rebuilt) this.root.insertBefore(el, anchor);
-
-    this.lineEls.splice(first, removeCount, ...rebuilt);
+    this.replaceLineElements(first, removeCount, rebuilt);
     this.lines = newLines;
     this.lineStarts = starts;
 
@@ -851,6 +915,9 @@ export class MarkdownEditor extends EventTarget {
 
   /** @param {{start: number, end: number}} range */
   setSelectionRange(range: SelectionRange): void {
+    // WebKit can otherwise accept the DOM range but place subsequent native input at
+    // the start of a content-visibility subtree.
+    this.activateChunk(range.start);
     const nodes = textNodes(this.root);
     /** @param {number} target */
     const locate = (target) => {

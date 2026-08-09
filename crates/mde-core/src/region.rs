@@ -139,12 +139,75 @@ impl Regions {
 
     /// The first boundary at or after `offset`, or the end of the document.
     pub fn at_or_after(&self, offset: usize, len: usize) -> usize {
-        self.boundaries.iter().copied().find(|&b| b >= offset).unwrap_or(len)
+        let index = self
+            .boundaries
+            .partition_point(|&boundary| boundary < offset);
+        self.boundaries.get(index).copied().unwrap_or(len)
     }
 
     pub fn count(&self) -> usize {
         self.boundaries.len()
     }
+
+    /// Reuse a trusted boundary index for an edit that cannot alter line structure or
+    /// parser state. This is deliberately narrower than "single-line edit": fence,
+    /// directive, reference-definition, blankness, and indentation changes all fall
+    /// back to a scan of the whole document.
+    pub fn can_shift_for_edit(
+        &self,
+        before: &str,
+        start: usize,
+        end: usize,
+        inserted: &str,
+        reg: &Registry,
+    ) -> bool {
+        if inserted.contains(['\n', '\r']) || before[start..end].contains(['\n', '\r']) {
+            return false;
+        }
+        let line_start = before[..start].rfind('\n').map_or(0, |at| at + 1);
+        let line_end = before[end..].find('\n').map_or(before.len(), |at| end + at);
+        let old_line = &before[line_start..line_end];
+        let mut new_line = String::with_capacity(old_line.len() + inserted.len());
+        new_line.push_str(&before[line_start..start]);
+        new_line.push_str(inserted);
+        new_line.push_str(&before[end..line_end]);
+
+        let blank = |line: &str| line.trim().is_empty();
+        let at_column_zero = |line: &str| !line.starts_with(' ');
+        if blank(old_line) != blank(&new_line)
+            || at_column_zero(old_line) != at_column_zero(&new_line)
+            || structurally_sensitive(old_line, reg)
+            || structurally_sensitive(&new_line, reg)
+        {
+            return false;
+        }
+
+        true
+    }
+
+    /// Slide the suffix after an edit already approved by [`Self::can_shift_for_edit`].
+    pub fn shift_after(&mut self, end: usize, delta: isize) {
+        let first = self.boundaries.partition_point(|&boundary| boundary <= end);
+        for boundary in &mut self.boundaries[first..] {
+            // A boundary at the edit point is the start of the edited line and stays
+            // there. Every later line start slides with the suffix.
+            *boundary = (*boundary as isize + delta) as usize;
+        }
+    }
+}
+
+fn structurally_sensitive(line: &str, reg: &Registry) -> bool {
+    let body = line.trim_start_matches(' ');
+    if body.starts_with('[') && body.contains("]:") {
+        return true;
+    }
+    if matches!(body.as_bytes().first(), Some(b'`' | b'~')) {
+        return true;
+    }
+    reg.blocks.iter().any(|rule| match &rule.syntax {
+        BlockSyntax::Directive { marker, .. } => body.starts_with(marker),
+        BlockSyntax::Fence { .. } => false,
+    })
 }
 
 #[cfg(all(test, feature = "toml-manifest"))]
@@ -212,6 +275,27 @@ mod tests {
         assert_eq!(r.enclosing(6, 11, src.len()), (5, 15));
         // An edit in the last region runs to the end of the document.
         assert_eq!(r.enclosing(11, 12, src.len()), (10, 15));
+    }
+
+    #[test]
+    fn ordinary_edits_shift_the_existing_boundary_index() {
+        let before = "one\n\ntwo words\n\nthree";
+        let mut r = regions(before).unwrap();
+        let start = before.find("words").unwrap();
+        let after = before.replacen("words", "longer words", 1);
+        assert!(r.can_shift_for_edit(before, start, start + 5, "longer words", &Registry::empty()));
+        r.shift_after(start + 5, "longer words".len() as isize - 5);
+        assert_eq!(r.boundaries, regions(&after).unwrap().boundaries);
+    }
+
+    #[test]
+    fn edits_that_can_change_scanner_state_require_a_rescan() {
+        let reg = Registry::empty();
+        let r = regions("one\n\ntwo\n").unwrap();
+        assert!(!r.can_shift_for_edit("one\n\ntwo\n", 5, 5, "\n", &reg));
+        assert!(!r.can_shift_for_edit("one\n\ntwo\n", 5, 5, "```", &reg));
+        assert!(!r.can_shift_for_edit("one\n\ntwo\n", 5, 8, "[x]: url", &reg));
+        assert!(!r.can_shift_for_edit("one\n\ntwo\n", 5, 8, "", &reg));
     }
 
     #[test]

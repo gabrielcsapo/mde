@@ -914,6 +914,46 @@ function makeEditor(options = {}) {
     assertEqual(domText(e.root), e.markdown);
   });
 
+  test('large documents are grouped into viewport-contained layout regions', () => {
+    const e = makeEditor();
+    const source = 'line with **formatting**\n'.repeat(10_000);
+    e.setMarkdown(source);
+
+    assert(e.chunkEls.length > 100, 'the document was left as one unbounded layout tree');
+    assert(
+      e.chunkEls.every((chunk) => getComputedStyle(chunk).contentVisibility === 'auto'),
+      'an offscreen group is not eligible for browser layout/paint skipping',
+    );
+    assert(
+      e.chunkEls.every((chunk) => chunk.childElementCount <= 64),
+      'an initial containment group exceeds its bounded line count',
+    );
+    assertEqual(domText(e.root), source, 'containment changed the editable source');
+
+    const firstChunk = e.chunkEls[0];
+    const distantChunk = e.chunkEls[100];
+    e.replaceRange(source.length - 3, source.length - 3, 'Z');
+    assert(e.chunkEls[0] === firstChunk, 'a local edit rebuilt the first layout group');
+    assert(e.chunkEls[100] === distantChunk, 'a local edit rebuilt a distant layout group');
+  });
+
+  test('native typing stays at the caret inside a contained large document', async () => {
+    const e = makeEditor();
+    const source = 'line content\n'.repeat(1_000);
+    e.root.style.cssText = 'display:block;max-height:240px;overflow:auto';
+    e.setMarkdown(source);
+    e.root.scrollTop = e.root.scrollHeight;
+    e.root.focus();
+    const at = source.length - 2;
+    e.setSelectionRange({ start: at, end: at });
+
+    await userEvent.keyboard('Z');
+
+    assertEqual(e.markdown, source.slice(0, at) + 'Z' + source.slice(at));
+    assert(e.activeChunk?.classList.contains('mde-viewport-active'));
+    assertEqual(domText(e.root), e.markdown);
+  });
+
   test('selection repaint near EOF reuses the large document line index', () => {
     const e = makeEditor();
     const source = 'ordinary text\n'.repeat(10_000);
@@ -1438,14 +1478,11 @@ function makeEditor(options = {}) {
     // text. The walk sees no change, but the DOM shape no longer matches lineEls.
     const wrapper = document.createElement('div');
     const last = e.lineEls[e.lineEls.length - 1];
-    e.root.replaceChild(wrapper, last);
+    last.parentElement.replaceChild(wrapper, last);
     wrapper.append(last, document.createElement('br'));
     e.root.dispatchEvent(new InputEvent('input', { bubbles: true }));
 
-    assert(
-      [...e.root.children].every((c, i) => c === e.lineEls[i]),
-      'the mangled shape should have been rebuilt to canonical line elements'
-    );
+    assert(e.domIsCanonical(), 'the mangled shape should have been rebuilt canonically');
     assertEqual(e.markdown, 'alpha\nbeta\n', 'the text was never in question');
     assertEqual(domText(e.root), e.markdown);
   });

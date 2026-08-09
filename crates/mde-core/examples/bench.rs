@@ -1,9 +1,8 @@
 //! Per-keystroke cost of the core, measured rather than assumed.
 //!
-//! DESIGN §2.2 justifies full reparse per keystroke on the claim that "a 100 KB
-//! document parses in roughly 0.1 ms" and that the real cost is renderer mutation.
-//! That claim decides the whole architecture, so it needs a number attached to it, and
-//! a number that keeps being checked. This is the regression guard for it.
+//! DESIGN §2.2 bounds reparsing to a safe region on ordinary keystrokes and falls back
+//! to a full parse for structural edits. This prices the complete edit path and the
+//! fallback stages independently so both claims keep a number attached to them.
 //!
 //! No benchmarking framework on purpose: the core has exactly three dependencies and
 //! adding a fourth to time four function calls is a poor trade. `Instant` plus a median
@@ -305,7 +304,7 @@ fn run(label: &str, bytes: usize) -> f64 {
     });
 
     // -- keystroke ------------------------------------------------------------------
-    // A single character inserted mid-document: full reparse + decoration build + diff.
+    // A single character inserted mid-document: local reparse + decoration splice + diff.
     // Each iteration grows the document by one byte, which at these iteration counts is
     // under 2% and well inside the noise.
     let mut e = Engine::new(reg());
@@ -332,9 +331,9 @@ fn run(label: &str, bytes: usize) -> f64 {
     let after = e.decorations().to_vec();
     let (n_add, n_rem, n_mov) = (patch.added.len(), patch.removed.len(), patch.moved.len());
 
-    // -- region scan ------------------------------------------------------------------
-    // Every incremental edit scans the whole document for safe reparse boundaries, so
-    // this is an O(n) floor under the keystroke path however small the edited region is.
+    // -- structural fallback scan ----------------------------------------------------
+    // Ordinary edits shift the trusted boundary index. Newlines, fences, directives,
+    // and reference definitions take this conservative full-document fallback.
     let text_for_scan = doc.clone();
     let registry_for_scan = reg();
     let scan = bench(n, || {
@@ -432,7 +431,7 @@ fn run(label: &str, bytes: usize) -> f64 {
     println!("   patch for that keystroke: {n_add} added, {n_rem} removed, {n_mov} moved");
     println!("   breakdown of edit (min):");
     sub("mirror apply + reindex", apply.min, key.min);
-    sub("region boundary scan", scan.min, key.min);
+    sub("structural fallback scan", scan.min, key.min);
     sub("decorate::build", build.min, key.min);
     sub("payload map rebuild", payloads.min, key.min);
     sub("emit (reveal+UTF-16+diff)", sel.min, key.min);

@@ -79,12 +79,9 @@ pub struct Engine {
     /// Host-supplied decorations that no parse produced (DESIGN §5.3). Ordered: a
     /// layer's index is its paint order, so a later layer overrides an earlier one.
     layers: Vec<Layer>,
-    /// Whether the *previous* parse came from a document the region scan could vouch
-    /// for. An edit is only safe to do incrementally if both the before and after
-    /// states are trustworthy: deleting a link reference definition invalidates
-    /// decorations far outside the edited region, and the new text no longer contains
-    /// the definition that would have warned us.
-    regions_trusted: bool,
+    /// Safe block boundaries for the current text. Ordinary edits shift this index in
+    /// place; structural edits rescan it. `None` means regional parsing is unsafe.
+    regions: Option<region::Regions>,
 }
 
 impl Engine {
@@ -98,7 +95,7 @@ impl Engine {
             selection: None,
             history: History::new(),
             layers: Vec::new(),
-            regions_trusted: false,
+            regions: None,
         }
     }
 
@@ -165,10 +162,18 @@ impl Engine {
         // Byte span of the edit in the pre-edit document, captured before the mirror
         // moves; the incremental path needs both sides of the change.
         let span = single_edit_span(edits, &self.text);
+        let reuse_regions = match (span, edits) {
+            (Some((start, end, _)), [edit]) => self.regions.as_ref().is_some_and(|regions| {
+                regions.can_shift_for_edit(
+                    self.text.as_str(), start, end, &edit.text, &self.registry,
+                )
+            }),
+            _ => false,
+        };
         let inverse = self.text.apply(edits, expected_len)?;
         self.clamp_selection();
         self.history.record(edits, inverse, sel_before, self.selection, now_ms);
-        Ok(self.rebuild(span))
+        Ok(self.rebuild(span, reuse_regions))
     }
 
     /// Force the next edit to begin a new undo step. Call before a command that
@@ -365,13 +370,21 @@ impl Engine {
     /// Falls back to a full reparse whenever the region scan cannot vouch for the
     /// document. The fallback is not a rare path to be embarrassed about — it is what
     /// makes the optimization safe to have at all.
-    fn rebuild(&mut self, span: Option<(usize, usize, isize)>) -> Patch {
+    fn rebuild(&mut self, span: Option<(usize, usize, isize)>, reuse_regions: bool) -> Patch {
         self.rebase_layers(span);
-        let scan = region::Regions::scan(self.text.as_str(), &self.registry);
-        let trusted_before = std::mem::replace(&mut self.regions_trusted, scan.is_some());
+        let trusted_before = self.regions.is_some();
+        if reuse_regions {
+            let (_, old_end, delta) = span.expect("a shifted region index belongs to one edit");
+            self.regions
+                .as_mut()
+                .expect("only a trusted region index can be reused")
+                .shift_after(old_end, delta);
+        } else {
+            self.regions = region::Regions::scan(self.text.as_str(), &self.registry);
+        }
 
         let (Some((old_start, old_end, delta)), Some(regions), true) =
-            (span, scan, trusted_before)
+            (span, self.regions.as_ref(), trusted_before)
         else {
             return self.full_rebuild();
         };
@@ -453,8 +466,7 @@ impl Engine {
     }
 
     fn reparse(&mut self) -> Patch {
-        self.regions_trusted =
-            region::Regions::scan(self.text.as_str(), &self.registry).is_some();
+        self.regions = region::Regions::scan(self.text.as_str(), &self.registry);
         self.full_rebuild()
     }
 

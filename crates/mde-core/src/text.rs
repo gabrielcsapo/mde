@@ -108,7 +108,14 @@ impl Text {
         for (e, &(b0, b1)) in asc.iter().zip(&spans).rev() {
             self.s.replace_range(b0..b1, &e.text);
         }
-        self.reindex();
+        // Typing is overwhelmingly one replacement. Re-index only the lines that
+        // replacement can have changed, then slide the untouched suffix. Rebuilding
+        // every line made a one-character edit O(document) before parsing even began.
+        if let ([edit], [inverse], [(b0, b1)]) = (edits, inverse.as_slice(), spans.as_slice()) {
+            self.reindex_edit(*b0, *b1, edit, inverse.text.encode_utf16().count() as u32);
+        } else {
+            self.reindex();
+        }
 
         if let Some(expected) = expected_len {
             if expected != self.len_utf16 {
@@ -142,6 +149,59 @@ impl Text {
             last.ascii = ascii;
         }
         self.len_utf16 = u16_off;
+    }
+
+    /// Repair the line index after one edit whose byte range was measured in the old
+    /// string. Lines before the edit are reused verbatim; lines after it only need
+    /// their cumulative offsets shifted.
+    fn reindex_edit(&mut self, old_start: usize, old_end: usize, edit: &Edit, removed_u16: u32) {
+        let first = self.lines.partition_point(|l| (l.byte as usize) <= old_start) - 1;
+        // Include the line containing the end point. In particular, deleting a newline
+        // merges the line that started at `old_end` into the edited line.
+        let suffix = self.lines.partition_point(|l| (l.byte as usize) <= old_end);
+        let scan_start = self.lines[first].byte as usize;
+        let old_scan_end = self.lines.get(suffix).map(|l| l.byte as usize).unwrap_or_else(|| {
+            // Recover the old length from the already-mutated string.
+            let byte_delta = edit.text.len() as isize - (old_end - old_start) as isize;
+            (self.s.len() as isize - byte_delta) as usize
+        });
+
+        let byte_delta = edit.text.len() as isize - (old_end - old_start) as isize;
+        let inserted_u16 = edit.text.encode_utf16().count() as isize;
+        let utf16_delta = inserted_u16 - removed_u16 as isize;
+        let new_scan_end = (old_scan_end as isize + byte_delta) as usize;
+        let base_utf16 = self.lines[first].utf16;
+
+        let mut replacement = Vec::new();
+        if scan_start < new_scan_end || suffix == self.lines.len() {
+            replacement.push(Line { byte: scan_start as u32, utf16: base_utf16, ascii: true });
+            let mut u16_off = base_utf16;
+            let mut ascii = true;
+            for (relative, ch) in self.s[scan_start..new_scan_end].char_indices() {
+                u16_off += ch.len_utf16() as u32;
+                if !ch.is_ascii() { ascii = false; }
+                if ch == '\n' {
+                    replacement.last_mut().expect("the edited range has a line").ascii = ascii;
+                    let next = scan_start + relative + ch.len_utf8();
+                    // When a reusable suffix exists, its first line already represents
+                    // this boundary. At EOF the terminal empty line belongs to us.
+                    if next < new_scan_end || suffix == self.lines.len() {
+                        replacement.push(Line { byte: next as u32, utf16: u16_off, ascii: true });
+                    }
+                    ascii = true;
+                }
+            }
+            if let Some(last) = replacement.last_mut() {
+                last.ascii = self.s[last.byte as usize..new_scan_end].is_ascii();
+            }
+        }
+
+        for line in &mut self.lines[suffix..] {
+            line.byte = (line.byte as isize + byte_delta) as u32;
+            line.utf16 = (line.utf16 as isize + utf16_delta) as u32;
+        }
+        self.lines.splice(first..suffix, replacement);
+        self.len_utf16 = (self.len_utf16 as isize + utf16_delta) as u32;
     }
 
     /// UTF-8 byte offset -> UTF-16 code unit offset.
@@ -213,6 +273,23 @@ impl Text {
 mod tests {
     use super::*;
 
+    fn assert_same_index(actual: &Text, expected: &Text) {
+        assert_eq!(actual.s, expected.s);
+        assert_eq!(actual.len_utf16, expected.len_utf16);
+        assert_eq!(actual.lines.len(), expected.lines.len());
+        for (a, b) in actual.lines.iter().zip(&expected.lines) {
+            assert_eq!((a.byte, a.utf16, a.ascii), (b.byte, b.utf16, b.ascii));
+        }
+        for byte in 0..=actual.s.len() {
+            if actual.s.is_char_boundary(byte) {
+                assert_eq!(actual.utf8_to_utf16(byte), expected.utf8_to_utf16(byte));
+            }
+        }
+        for offset in 0..=actual.len_utf16 {
+            assert_eq!(actual.utf16_to_utf8(offset), expected.utf16_to_utf8(offset));
+        }
+    }
+
     #[test]
     fn utf16_roundtrip_across_astral_planes() {
         // "a" + U+1F600 (surrogate pair, 2 u16 units) + "b"
@@ -247,6 +324,50 @@ mod tests {
         )
         .unwrap();
         assert_eq!(t.as_str(), "goodbye there");
+    }
+
+    #[test]
+    fn one_edit_repairs_only_the_affected_lines() {
+        let cases = [
+            ("alpha\nbeta\ngamma", 7, 7, "😀\nnew "),
+            ("alpha\nbeta\ngamma", 5, 6, ""),
+            ("alpha\nbeta\ngamma", 0, 6, ""),
+            ("alpha\nbeta\n", 11, 11, "tail"),
+            ("één\n日本\nlast", 1, 5, "x\ny"),
+            ("a\nb\nc", 2, 4, ""),
+        ];
+        for (source, start, end, inserted) in cases {
+            let mut actual = Text::new(source);
+            actual.apply(&[Edit { start, end, text: inserted.into() }], None).unwrap();
+            let expected = Text::new(actual.as_str());
+            assert_same_index(&actual, &expected);
+        }
+    }
+
+    #[test]
+    fn incremental_index_matches_full_reindex_through_random_edits() {
+        let mut actual = Text::new("alpha\nβeta\n日本語\n😀 end\n");
+        let mut seed = 0x9e37_79b9_u32;
+        let insertions = ["x", "\n", "😀", "é", "", "two\nlines"];
+        for _ in 0..2_000 {
+            let boundaries: Vec<u32> = actual
+                .as_str()
+                .char_indices()
+                .map(|(byte, _)| actual.utf8_to_utf16(byte))
+                .chain(std::iter::once(actual.len_utf16()))
+                .collect();
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let a = boundaries[(seed as usize) % boundaries.len()];
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let b = boundaries[(seed as usize) % boundaries.len()];
+            let start = a.min(b);
+            let end = a.max(b);
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let text = insertions[(seed as usize) % insertions.len()].to_string();
+            actual.apply(&[Edit { start, end, text }], None).unwrap();
+            let expected = Text::new(actual.as_str());
+            assert_same_index(&actual, &expected);
+        }
     }
 
     #[test]

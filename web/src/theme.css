@@ -21,6 +21,19 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* Keep every source character in the contenteditable tree for native selection, IME,
+   spellcheck, and accessibility, while letting the browser skip layout and paint for
+   distant groups. `auto` remembers the real height after first exposure, avoiding the
+   scroll jumps caused by a permanently guessed spacer. */
+.mde-viewport-chunk {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 1024px;
+}
+.mde-viewport-chunk.mde-viewport-active {
+  content-visibility: visible;
+  contain-intrinsic-block-size: none;
+}
+
 /* Collapsing a range without removing the characters: a hairline glyph. Exactly the
    trick the Apple renderers use, and for the same reason — the character count must
    stay 1:1 with the source so every offset in the system stays honest. The characters
