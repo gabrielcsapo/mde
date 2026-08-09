@@ -57,11 +57,11 @@ if [ "$WHICH" = all ] || [ "$WHICH" = apple ]; then
 fi
 
 if [ "$WHICH" = all ] || [ "$WHICH" = web ]; then
-    section "web (headless chrome)"
+    section "web (vitest browser mode / chromium)"
     # The wasm the browser loads must be the wasm this tree builds.
     ./scripts/build-web.sh >/dev/null
     record $? "wasm build"
-    node scripts/test-web.mjs
+    (cd web && pnpm test)
     record $? "web tests"
 fi
 

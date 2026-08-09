@@ -40,5 +40,7 @@ DerivedData/
 
 # Test and coverage output
 /coverage/
+/web/.vitest-attachments/
+/web/test/__screenshots__/
 *.profraw
 *.profdata

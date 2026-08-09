@@ -60,6 +60,10 @@ final class DecorationApplier {
     /// Longest decoration in the index, so the backward search has a bound. A block
     /// widget can start far above the paragraph being repainted.
     private var maxLength = 0
+    /// Payload-bearing decorations indexed by reference, so one resource completion
+    /// does not scan the entire document (and then scan it again for a table parent).
+    private var references: [String: Set<UInt64>] = [:]
+    private var referenceByKey: [UInt64: String] = [:]
 
     /// Position-sorted view of `live`, for hosts and tests.
     var decorations: [Decoration] {
@@ -100,6 +104,8 @@ final class DecorationApplier {
 
     func reset() {
         live.removeAll()
+        references.removeAll()
+        referenceByKey.removeAll()
         resources.reset()
         widgetViews.removeAll()
         widgetOrder.removeAll()
@@ -126,6 +132,7 @@ final class DecorationApplier {
 
     func ingest(_ patch: Patch) {
         for key in patch.removed {
+            unindexReference(key)
             live.removeValue(forKey: key)
             // A removed key can never come back: it encodes the node's own source, so
             // its view is unreachable and would just occupy the cache.
@@ -139,7 +146,19 @@ final class DecorationApplier {
                 live[move.key] = d
             }
         }
-        for d in patch.added { live[d.key] = d }
+        for d in patch.added {
+            unindexReference(d.key)
+            live[d.key] = d
+            guard d.role != Role.table, let reference = engine.payload(for: d.key) else { continue }
+            referenceByKey[d.key] = reference
+            references[reference, default: []].insert(d.key)
+        }
+    }
+
+    private func unindexReference(_ key: UInt64) {
+        guard let reference = referenceByKey.removeValue(forKey: key) else { return }
+        references[reference]?.remove(key)
+        if references[reference]?.isEmpty == true { references.removeValue(forKey: reference) }
     }
 
     /// The range a patch requires repainting.
@@ -189,12 +208,10 @@ final class DecorationApplier {
     /// Ranges of every node whose reference is `reference`, so a resolved resource
     /// repaints exactly the nodes that point at it.
     func ranges(referencing reference: String) -> [NSRange] {
-        let referenced = live.values.filter {
-            $0.role != Role.table && engine.payload(for: $0.key) == reference
-        }
         var ranges = [NSRange]()
-        for decoration in referenced {
-            if let table = live.values.first(where: {
+        for key in references[reference] ?? [] {
+            guard let decoration = live[key] else { continue }
+            if let table = decorations(intersecting: decoration.range).first(where: {
                 $0.kind == .blockWidget
                     && $0.role == Role.table
                     && $0.range.location <= decoration.range.location

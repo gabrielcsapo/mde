@@ -33,8 +33,8 @@ const SUITES = [
   ],
   [
     'Web suite',
-    'web/test/index.html',
-    'Runs in a real browser on purpose: contenteditable behaviour, selection restore, CSS precedence on concealed runs, hit-testing a widget.',
+    'web/test/editor.browser.test.js',
+    'Vitest Browser Mode drives Chromium through Playwright: contenteditable behaviour, selection restore, CSS precedence, focus, and hit-testing all use the real browser.',
   ],
 ];
 
@@ -95,15 +95,18 @@ export default function Testing() {
       <H2 id="one-command">All of them, one command</H2>
       <SourceFigure className="mt-6" path="from the repository root" lang="bash" code={all} />
       <p className="mt-6">
-        This is not a convenience. The web half runs through headless Chrome over the DevTools
-        protocol, with Node serving the files itself so caching cannot hand the browser a stale
-        module. While the web suite needed a human to open a page, it grew a test that passed when
-        it was written and failed on re-run, because it depended on the window’s size.{' '}
+        This is not a convenience. The web half runs through Vitest Browser Mode with Playwright
+        and headless Chromium, so selection, layout, focus and input stay native while every case
+        gets isolated reporting and reproducible automation. While the suite needed a human to
+        open a page, it grew a test that passed when written and failed on re-run because it
+        depended on the window’s size.{' '}
         <strong>Nothing that is not in <code>test.sh</code> will stay honest.</strong>
       </p>
       <Note>
-        The browser suite has no npm dependencies either — the same rule as the editor itself. Only
-        this site has a <code>package.json</code>.
+        The editor remains dependency-free at runtime. Vitest, Playwright, TypeScript and Vite are
+        development-only tooling and are not included in <code>@mde/web</code>’s published runtime.
+        On a fresh machine, run <code>pnpm --dir web run test:install-browser</code> once to install
+        Playwright’s Chromium build.
       </Note>
 
       <H2 id="visual-captures">Reproduce all four platform screenshots</H2>

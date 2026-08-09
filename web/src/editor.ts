@@ -101,6 +101,7 @@ export class MarkdownEditor extends EventTarget {
   defaultAttributes: string[];
   text: string;
   lines: string[];
+  lineStarts: number[];
   lineEls: HTMLElement[];
   suppressSelection: boolean;
   events: AbortController;
@@ -153,6 +154,8 @@ export class MarkdownEditor extends EventTarget {
     this.text = '';
     /** @type {string[]} */
     this.lines = [];
+    /** UTF-16 start offset of each rendered line, shared by decoration-only repaints. */
+    this.lineStarts = [];
     /** @type {HTMLElement[]} */
     this.lineEls = [];
 
@@ -358,19 +361,29 @@ export class MarkdownEditor extends EventTarget {
    * which inserts a real `\n` through the engine and rebuilds the affected lines. Real
    * keyboards fire `insertParagraph` (Enter) and `insertLineBreak` (Shift+Enter); IME
    * confirm and paste arrive as `insertText`/`insertFromPaste` with the text attached.
-   * Single-line input stays with the browser, which handles it correctly.
+   * Ordinary single-line input stays with the browser. One exception is a structurally
+   * empty line: Chrome consumes the following newline when the first character is
+   * typed there, so that first character also goes through `replaceRange`.
    *
    * @param {InputEvent} e
    */
   onBeforeInput(e) {
     let text = null;
+    let selection = null;
     switch (e.inputType) {
       case 'insertParagraph':
       case 'insertLineBreak':
         text = '\n';
         break;
       case 'insertText':
-        if (e.data != null && e.data.includes('\n')) text = e.data;
+        if (e.data != null) {
+          selection = this.selectionRange();
+          const onEmptyLine = selection &&
+            selection.start === selection.end &&
+            (selection.start === 0 || this.text[selection.start - 1] === '\n') &&
+            (selection.start === this.text.length || this.text[selection.start] === '\n');
+          if (e.data.includes('\n') || onEmptyLine) text = e.data;
+        }
         break;
       case 'insertFromPaste':
       case 'insertFromDrop': {
@@ -384,7 +397,7 @@ export class MarkdownEditor extends EventTarget {
     if (text == null) return;
 
     e.preventDefault();
-    const sel = this.selectionRange();
+    const sel = selection ?? this.selectionRange();
     if (!sel) return;
     // Clipboards from other platforms carry CRLF; the document speaks \n only.
     this.replaceRange(sel.start, sel.end, text.replace(/\r\n?/g, '\n'));
@@ -537,9 +550,23 @@ export class MarkdownEditor extends EventTarget {
    * @param {number} start @param {number} end @param {string} text
    */
   replaceRange(start: number, end: number, text: string): void {
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) {
+      throw new RangeError('edit offsets must be safe integers');
+    }
+    if (start < 0 || end < start || end > this.text.length) {
+      throw new RangeError(`edit range ${start}..${end} is outside 0..${this.text.length}`);
+    }
+    // Public offsets are UTF-16, but they must still land between Unicode scalars.
+    // JavaScript's slice accepts a boundary between a surrogate pair and creates a
+    // lone surrogate; Rust correctly rejects it. Validate before touching either
+    // mirror so a bad host call cannot leave the editor half-mutated.
+    if (splitsSurrogatePair(this.text, start) || splitsSurrogatePair(this.text, end)) {
+      throw new RangeError('edit range splits a UTF-16 surrogate pair');
+    }
     const next = this.text.slice(0, start) + text + this.text.slice(end);
-    this.text = next;
     const patch = this.engine.edit(start, end, text, next.length);
+    // The core accepted the edit; only now publish the matching JS mirror.
+    this.text = next;
     this.applyPatch(patch, { start, end: start + text.length }, {
       start: start + text.length,
       end: start + text.length,
@@ -575,10 +602,13 @@ export class MarkdownEditor extends EventTarget {
     this.applier.text = this.text;
     this.lines = this.text.split('\n');
     this.lineEls = [];
-    const starts = lineStarts(this.lines);
+    this.lineStarts = lineStarts(this.lines);
     const frag = document.createDocumentFragment();
     for (let i = 0; i < this.lines.length; i++) {
-      const el = this.applier.buildLine(starts[i], this.lineEnd(i, this.lines, starts));
+      const el = this.applier.buildLine(
+        this.lineStarts[i],
+        this.lineEnd(i, this.lines, this.lineStarts)
+      );
       this.lineEls.push(el);
       frag.appendChild(el);
     }
@@ -602,34 +632,40 @@ export class MarkdownEditor extends EventTarget {
    * @param {{start: number, end: number}|null} caret
    */
   renderRange(dirty, caret) {
+    const textChanged = this.applier.text !== this.text;
     this.applier.text = this.text;
-    const newLines = this.text.split('\n');
+    // Selection, reveal, resource, and host-layer patches do not change the buffer.
+    // Reuse the line model for those extremely common paths: splitting the entire
+    // document and comparing from line zero made a caret move near EOF O(document).
+    const newLines = textChanged ? this.text.split('\n') : this.lines;
+    const starts = textChanged ? lineStarts(newLines) : this.lineStarts;
 
     // Widen the dirty offsets to whole lines, then to whole *changed* lines by
     // comparing old and new from both ends.
-    let first = this.lineIndexAt(dirty.start, newLines);
-    let lastNew = this.lineIndexAt(dirty.end, newLines);
+    let first = this.lineIndexAt(dirty.start, starts);
+    let lastNew = this.lineIndexAt(dirty.end, starts);
     let lastOld = lastNew + (this.lines.length - newLines.length);
 
-    const commonHead = Math.min(first, this.lines.length, newLines.length);
-    for (let i = 0; i < commonHead; i++) {
-      if (this.lines[i] !== newLines[i]) {
-        first = i;
-        break;
+    if (textChanged) {
+      const commonHead = Math.min(first, this.lines.length, newLines.length);
+      for (let i = 0; i < commonHead; i++) {
+        if (this.lines[i] !== newLines[i]) {
+          first = i;
+          break;
+        }
       }
-    }
-    while (
-      lastOld < this.lines.length &&
-      lastNew < newLines.length &&
-      this.lines[lastOld] !== newLines[lastNew]
-    ) {
-      lastOld++;
-      lastNew++;
+      while (
+        lastOld < this.lines.length &&
+        lastNew < newLines.length &&
+        this.lines[lastOld] !== newLines[lastNew]
+      ) {
+        lastOld++;
+        lastNew++;
+      }
     }
     lastOld = Math.min(lastOld, this.lines.length - 1);
     lastNew = Math.min(lastNew, newLines.length - 1);
 
-    const starts = lineStarts(newLines);
     /** @type {HTMLElement[]} */
     const rebuilt = [];
     for (let i = first; i <= lastNew; i++) {
@@ -645,6 +681,7 @@ export class MarkdownEditor extends EventTarget {
 
     this.lineEls.splice(first, removeCount, ...rebuilt);
     this.lines = newLines;
+    this.lineStarts = starts;
 
     if (caret) this.setSelectionRange(caret);
   }
@@ -658,14 +695,16 @@ export class MarkdownEditor extends EventTarget {
     for (const r of ranges) this.renderRange(r, caret);
   }
 
-  /** @param {number} offset @param {string[]} lines */
-  lineIndexAt(offset, lines) {
-    let acc = 0;
-    for (let i = 0; i < lines.length; i++) {
-      acc += lines[i].length + 1;
-      if (offset < acc) return i;
+  /** @param {number} offset @param {number[]} starts */
+  lineIndexAt(offset, starts) {
+    let lo = 0;
+    let hi = starts.length;
+    while (lo < hi) {
+      const middle = (lo + hi) >> 1;
+      if (starts[middle] <= offset) lo = middle + 1;
+      else hi = middle;
     }
-    return Math.max(0, lines.length - 1);
+    return Math.max(0, Math.min(lo - 1, starts.length - 1));
   }
 
   // MARK: - Selection
@@ -773,6 +812,14 @@ function lineStarts(lines) {
     offset += lines[i].length + 1;
   }
   return starts;
+}
+
+/** True when `offset` falls between the two code units of one Unicode scalar. */
+function splitsSurrogatePair(text, offset) {
+  if (offset <= 0 || offset >= text.length) return false;
+  const before = text.charCodeAt(offset - 1);
+  const after = text.charCodeAt(offset);
+  return before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff;
 }
 
 export { documentText, textNodes, Kind };

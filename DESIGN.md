@@ -613,17 +613,18 @@ Above it sit two Swift suites, both run by `swift test` from `apple/`:
   only the caret's own node revealed, substitution length-preserving, undo restoring
   storage *and* decorations. Since the applier is shared, these pin iOS too.
 
-The web suite is `web/test/index.html`. It runs in a real browser on purpose: every
+The web suite is `web/test/editor.browser.test.js`. It runs in a real browser on purpose: every
 hard bug in that layer — contenteditable behaviour, selection restore, CSS precedence
 on concealed runs, hit-testing a widget — only exists in a real engine, so a DOM shim
 would pass while the editor was broken.
 
 **All three suites run from one command**, `./scripts/test.sh`, which drives the web
-tests through headless Chrome over the DevTools protocol (`scripts/test-web.mjs`, no npm
-dependencies — Node serves the files itself so caching cannot hand the browser a stale
-module). This is not a convenience. While the web suite needed a human to open a page it
-grew a test that passed when written and failed on re-run, because it depended on the
-window's size; nothing that is not in `test.sh` will stay honest.
+tests through Vitest Browser Mode with the Playwright provider and Chromium. Interactions
+still use the browser's native event, selection, layout and focus implementations; Vitest
+adds isolated reporting, watch mode and traces without replacing the DOM with a shim.
+This is not a convenience. While the web suite needed a human to open a page it grew a
+test that passed when written and failed on re-run, because it depended on the window's
+size; nothing that is not in `test.sh` will stay honest.
 
 ## 9. Undo
 

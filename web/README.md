@@ -24,3 +24,11 @@ import { TypewriterMode } from '@mde/web/extensions/typewriter';
 
 Build with `pnpm run build`. Vite emits the ESM library and Wasm asset; TypeScript emits
 declarations from the same source.
+
+Browser tests run against the built package in real Chromium through Vitest Browser Mode:
+
+```sh
+pnpm run test:install-browser # once on a fresh machine
+pnpm test
+pnpm run test:watch           # visible browser during development
+```

@@ -2,8 +2,8 @@
 //
 // The script serves the production build, opens it in headless Chrome, injects a
 // compact CommonMark + custom-extension document through the public editor API, and
-// crops the live editor itself into site/assets/. No browser automation dependency is
-// needed; this uses the same small DevTools client as scripts/test-web.mjs.
+// crops the live editor itself into site/assets/. Capture stays a small standalone CDP
+// client because it has different lifecycle and image-cropping needs from the Vitest suite.
 
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';

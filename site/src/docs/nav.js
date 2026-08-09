@@ -239,7 +239,7 @@ export const GROUPS = [
         title: 'Testing',
         summary:
           'A golden corpus the three renderers are written against, two Swift suites, a browser suite, and one command that runs all of them.',
-        keywords: 'golden snapshot corpus swift test headless chrome verification',
+        keywords: 'golden snapshot corpus swift test vitest browser playwright chromium verification',
       },
       {
         path: '/internals/status',

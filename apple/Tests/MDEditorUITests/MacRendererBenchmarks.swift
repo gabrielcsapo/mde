@@ -308,5 +308,23 @@ final class MacRendererBenchmarks: XCTestCase {
         XCTAssertEqual(editor.markdown, source)
         _ = window
     }
+
+    func testBenchmarkResourceReferenceLookup() throws {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
+            throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
+        }
+        let count = 10_000
+        let source = (0..<count).map { "![\($0)](asset-\($0).png)" }.joined(separator: "\n") + "\n"
+        let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
+        let applier = DecorationApplier(engine: engine, theme: Theme())
+        applier.ingest(engine.reset(source))
+
+        let target = "asset-\(count - 1).png"
+        XCTAssertEqual(applier.ranges(referencing: target).count, 1) // warm the position index
+        let lookup = best(500) {
+            XCTAssertEqual(applier.ranges(referencing: target).count, 1)
+        }
+        print(String(format: "10k-resource indexed lookup %8.4f ms", lookup))
+    }
 }
 #endif

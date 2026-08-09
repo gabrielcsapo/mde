@@ -282,6 +282,8 @@ export const WEB_API = [
         signature: 'replaceRange(start: number, end: number, text: string): void',
         summary:
           'Programmatic edit through the same path a keystroke takes, so it is recorded and repainted identically.',
+        note:
+          'Offsets are UTF-16 and must be ordered, in bounds, and between Unicode scalars. Invalid ranges throw `RangeError` before either the JS mirror or Rust core changes.',
       },
       {
         name: 'MarkdownEditor.toggleTask',

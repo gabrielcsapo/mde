@@ -45,6 +45,7 @@ export class ResourceCache {
   states: Map<string, ResourceState>;
   reserved: Map<string, { width: number; height: number }>;
   known: Map<string, { width: number; height: number }>;
+  generation: number;
 
   /**
    * @param {ResourceResolver|null} resolver
@@ -67,9 +68,12 @@ export class ResourceCache {
      * @type {Map<string, {width: number, height: number}>}
      */
     this.known = new Map();
+    /** Invalidates completions belonging to a document that has since been reset. */
+    this.generation = 0;
   }
 
   reset() {
+    this.generation++;
     this.states.clear();
     this.reserved.clear();
     // `known` deliberately survives: it describes assets, not this document.
@@ -112,7 +116,7 @@ export class ResourceCache {
         this.known.get(req.reference) ?? this.resolver.reservedSize(request),
       );
       this.states.set(req.reference, { state: 'loading' });
-      this.start(request);
+      this.start(request, this.generation);
       return placeholder(basename(req.reference), false, this.reserved.get(req.reference));
     }
     if (known.state === 'ready') return known.view;
@@ -132,15 +136,17 @@ export class ResourceCache {
   }
 
   /** @param {ResourceRequest} request */
-  async start(request) {
+  async start(request: ResourceRequest, generation: number) {
     let result;
     try {
       result = await this.resolver.resolve(request);
     } catch (error) {
       result = { state: 'failed', message: String(error?.message ?? error) };
     }
-    // A reset between request and response means this document is gone.
-    if (!this.states.has(request.reference)) return;
+    // A reset between request and response means this document is gone. Checking only
+    // for the reference is insufficient: the next document may already be loading the
+    // same path, in which case the old completion must not overwrite its new request.
+    if (generation !== this.generation || !this.states.has(request.reference)) return;
     this.states.set(request.reference, result);
     if (result.state === 'ready') {
       const size = measure(result.view, this.reserved.get(request.reference));

@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { chmod, copyFile } from 'node:fs/promises';
 
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
+import { playwright } from '@vitest/browser-playwright';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 
@@ -35,6 +36,17 @@ export default defineConfig({
       output: {
         assetFileNames: 'assets/[name]-[hash][extname]',
       },
+    },
+  },
+  test: {
+    include: ['test/**/*.browser.test.js'],
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
+    browser: {
+      enabled: true,
+      headless: true,
+      provider: playwright(),
+      instances: [{ browser: 'chromium' }],
     },
   },
 });

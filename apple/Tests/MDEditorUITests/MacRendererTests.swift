@@ -554,6 +554,66 @@ final class MacRendererTests: XCTestCase {
         XCTAssertNil(cache.known["bad"])
     }
 
+    func testAStaleResourceDeliveryCannotOverwriteTheSamePathAfterReset() throws {
+        let cache = ResourceCache()
+        let resolver = DeferredResolver()
+        cache.resolver = resolver
+        var resolved = [String]()
+        cache.onResolved = { resolved.append($0) }
+        let request = ResourceRequest(
+            reference: "same.png",
+            roleName: "image",
+            source: "![x](same.png)",
+            fittingWidth: 200
+        )
+
+        guard case .loading = cache.state(for: request) else {
+            return XCTFail("the first request did not start loading")
+        }
+        cache.reset()
+        guard case .loading = cache.state(for: request) else {
+            return XCTFail("the replacement request did not start loading")
+        }
+
+        let stale = FixedSizeView(size: CGSize(width: 10, height: 10))
+        resolver.deliveries[0](.ready(stale))
+        guard case .loading = cache.state(for: request) else {
+            return XCTFail("the stale request overwrote the new loading state")
+        }
+        XCTAssertTrue(resolved.isEmpty)
+
+        let current = FixedSizeView(size: CGSize(width: 20, height: 20))
+        resolver.deliveries[1](.ready(current))
+        let view: PlatformView
+        if case .ready(let ready) = cache.state(for: request) {
+            view = ready
+        } else {
+            return XCTFail("the current request did not resolve")
+        }
+        XCTAssertTrue(view === current)
+        XCTAssertEqual(resolved, ["same.png"])
+    }
+
+    func testResourceReferenceIndexFollowsAnEditedDestination() throws {
+        let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
+        let applier = DecorationApplier(engine: engine, theme: Theme())
+        let source = (0..<600).map { "![\($0)](asset-\($0).png)" }.joined(separator: "\n") + "\n"
+        applier.ingest(engine.reset(source))
+
+        XCTAssertEqual(applier.ranges(referencing: "asset-599.png").count, 1)
+        let old = "asset-599.png"
+        let at = (source as NSString).range(of: old, options: .backwards).location
+        let replacement = "renamed.png"
+        let patch = try engine.apply(
+            [TextEdit(range: NSRange(location: at, length: old.utf16.count), text: replacement)],
+            documentLength: source.utf16.count - old.utf16.count + replacement.utf16.count
+        )
+        applier.ingest(patch)
+
+        XCTAssertTrue(applier.ranges(referencing: old).isEmpty)
+        XCTAssertEqual(applier.ranges(referencing: replacement).count, 1)
+    }
+
     func testTheEditorExposesRememberedSizesToTheHost() {
         editor.resourceSizes = ["photo.png": CGSize(width: 300, height: 120)]
         XCTAssertEqual(editor.resourceSizes["photo.png"], CGSize(width: 300, height: 120))
@@ -894,6 +954,22 @@ private final class RecordingResolver: ResourceResolver {
 
     func reservedSize(_ request: ResourceRequest) -> CGSize {
         CGSize(width: 100, height: 60)
+    }
+}
+
+private final class DeferredResolver: ResourceResolver {
+    private(set) var deliveries: [(ResourceState) -> Void] = []
+
+    func resolve(
+        _ request: ResourceRequest,
+        deliver: @escaping (ResourceState) -> Void
+    ) -> ResourceState {
+        deliveries.append(deliver)
+        return .loading
+    }
+
+    func reservedSize(_ request: ResourceRequest) -> CGSize {
+        CGSize(width: 40, height: 20)
     }
 }
 

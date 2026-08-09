@@ -108,6 +108,8 @@ export class DomApplier {
   widgetViews: Map<bigint, HTMLElement>;
   widgetOrder: bigint[];
   widgetCacheLimit: number;
+  references: Map<string, Set<bigint>>;
+  referenceByKey: Map<bigint, string>;
 
   /**
    * @param {import('./core.js').Engine} engine
@@ -135,10 +137,15 @@ export class DomApplier {
     /** Insertion order, for eviction. @type {bigint[]} */
     this.widgetOrder = [];
     this.widgetCacheLimit = 256;
+    /** Resource/reference lookup maintained with `live`, avoiding a document scan on resolve. */
+    this.references = new Map();
+    this.referenceByKey = new Map();
   }
 
   reset() {
     this.live.clear();
+    this.references.clear();
+    this.referenceByKey.clear();
     this.indexStale = true;
     this.resources?.reset();
     this.widgetViews.clear();
@@ -205,6 +212,7 @@ export class DomApplier {
   ingest(patch) {
     this.indexStale = true;
     for (const key of patch.removed) {
+      this.unindexReference(key);
       this.live.delete(key);
       // A removed key can never come back: it encodes the node's own source, so its
       // view is unreachable and would just occupy the cache.
@@ -220,7 +228,27 @@ export class DomApplier {
         d.end = m.end;
       }
     }
-    for (const d of patch.added) this.live.set(d.key, d);
+    for (const d of patch.added) {
+      this.unindexReference(d.key);
+      this.live.set(d.key, d);
+      if (d.role === Role.Table) continue;
+      const reference = this.engine.payload(d.key);
+      if (!reference) continue;
+      this.referenceByKey.set(d.key, reference);
+      const keys = this.references.get(reference) ?? new Set();
+      keys.add(d.key);
+      this.references.set(reference, keys);
+    }
+  }
+
+  /** @param {bigint} key */
+  unindexReference(key) {
+    const reference = this.referenceByKey.get(key);
+    if (!reference) return;
+    this.referenceByKey.delete(key);
+    const keys = this.references.get(reference);
+    keys?.delete(key);
+    if (keys?.size === 0) this.references.delete(reference);
   }
 
   /**
@@ -257,10 +285,10 @@ export class DomApplier {
   /** @param {string} reference */
   rangesReferencing(reference) {
     const out = [];
-    for (const d of this.live.values()) {
-      if (d.role === Role.Table) continue;
-      if (this.engine.payload(d.key) !== reference) continue;
-      const table = [...this.live.values()].find(
+    for (const key of this.references.get(reference) ?? []) {
+      const d = this.live.get(key);
+      if (!d) continue;
+      const table = this.covering(d.start, d.end).find(
         (candidate) =>
           candidate.kind === Kind.BlockWidget &&
           candidate.role === Role.Table &&

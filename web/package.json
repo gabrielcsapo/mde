@@ -39,7 +39,10 @@
     "build": "pnpm run typecheck && vite build && pnpm run build:types",
     "build:types": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "dev": "vite build --watch"
+    "dev": "vite build --watch",
+    "test": "vitest run",
+    "test:watch": "vitest --browser.headless=false",
+    "test:install-browser": "playwright install chromium"
   },
   "engines": {
     "node": ">=20"
@@ -52,7 +55,10 @@
     "wasm"
   ],
   "devDependencies": {
+    "@vitest/browser-playwright": "^4.1.10",
+    "playwright": "^1.62.1",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1"
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
   }
 }

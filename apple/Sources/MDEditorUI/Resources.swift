@@ -73,6 +73,8 @@ final class ResourceCache {
     private var states: [String: ResourceState] = [:]
     private var reserved: [String: CGSize] = [:]
     private var inFlight: Set<String> = []
+    /// Invalidates deliveries belonging to a document that has since been reset.
+    private var generation: UInt64 = 0
 
     /// Sizes learned from resources that have already resolved, keyed by reference.
     ///
@@ -83,6 +85,7 @@ final class ResourceCache {
     private(set) var known: [String: CGSize] = [:]
 
     func reset() {
+        generation &+= 1
         states.removeAll()
         reserved.removeAll()
         inFlight.removeAll()
@@ -106,11 +109,15 @@ final class ResourceCache {
         // before `resolve` returns, in which case the return value is stale and must
         // not overwrite the delivered state.
         var settled = false
+        let requestGeneration = generation
         inFlight.insert(request.reference)
         let reference = request.reference
         let fitting = request.fittingWidth
         let immediate = resolver.resolve(request) { [weak self] state in
-            guard let self, self.inFlight.contains(reference) else { return }
+            guard let self,
+                  self.generation == requestGeneration,
+                  self.inFlight.contains(reference)
+            else { return }
             settled = true
             self.inFlight.remove(reference)
             self.states[reference] = state

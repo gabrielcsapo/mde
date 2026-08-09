@@ -2,13 +2,18 @@
 //
 // These run in a real browser rather than under a DOM shim, deliberately: every hard
 // bug in this layer — contenteditable behaviour, selection restore, CSS precedence on
-// concealed runs — only exists in a real engine. Open web/test/index.html, or drive it
-// headlessly and read `window.__results`.
+// concealed runs — only exists in a real engine. Vitest Browser Mode drives Chromium
+// through Playwright so input and layout stay native.
+
+import { afterEach, beforeAll, expect, test } from 'vitest';
+import { userEvent } from 'vitest/browser';
+import '../src/theme.css';
 
 import {
   IGNORE_ATTR,
   Kind,
   MarkdownEditor,
+  ResourceCache,
   Role,
   diffText,
   encodeManifest,
@@ -19,35 +24,12 @@ import {
 import { TypewriterMode } from '../dist/extensions/typewriter.js';
 import { PartsOfSpeech, tagWord } from '../dist/extensions/parts-of-speech.js';
 
-/** @type {{name: string, ok: boolean, detail?: string}[]} */
-const results = [];
-
-function test(name, fn) {
-  try {
-    fn();
-    results.push({ name, ok: true });
-  } catch (error) {
-    results.push({ name, ok: false, detail: String(error?.message ?? error) });
-  }
-}
-
-async function asyncTest(name, fn) {
-  try {
-    await fn();
-    results.push({ name, ok: true });
-  } catch (error) {
-    results.push({ name, ok: false, detail: String(error?.message ?? error) });
-  }
-}
-
 function assert(condition, message) {
-  if (!condition) throw new Error(message ?? 'assertion failed');
+  expect(condition, message).toBeTruthy();
 }
 
 function assertEqual(actual, expected, message) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  if (a !== e) throw new Error(`${message ?? 'not equal'}: got ${a}, want ${e}`);
+  expect(actual, message).toEqual(expected);
 }
 
 const manifestSpec = {
@@ -92,16 +74,42 @@ function domText(root) {
   return text;
 }
 
-export async function run() {
-  const core = await loadCore('../dist/mde.wasm');
+let core;
 
-  /** @param {object} [options] */
-  function makeEditor(options = {}) {
-    const host = document.createElement('div');
-    document.getElementById('sandbox').replaceChildren(host);
-    const engine = core.newEngine(encodeManifest(manifestSpec));
-    return new MarkdownEditor(host, engine, options);
+beforeAll(async () => {
+  core = await loadCore('/dist/mde.wasm');
+});
+
+const sandbox = document.createElement('div');
+sandbox.id = 'sandbox';
+sandbox.style.cssText = 'width:100%;max-width:600px;border:1px dashed #ccc;margin-top:24px';
+document.body.appendChild(sandbox);
+
+const editors = [];
+
+function trackedEditor(host, engine, options = {}) {
+  const editor = new MarkdownEditor(host, engine, options);
+  editors.push({ editor, engine });
+  return editor;
+}
+
+afterEach(() => {
+  for (const { editor, engine } of editors.reverse()) {
+    editor.destroy();
+    if (engine.handle !== 0) engine.free();
   }
+  editors.length = 0;
+  sandbox.replaceChildren();
+  document.getSelection()?.removeAllRanges();
+});
+
+/** @param {object} [options] */
+function makeEditor(options = {}) {
+  const host = document.createElement('div');
+  sandbox.replaceChildren(host);
+  const engine = core.newEngine(encodeManifest(manifestSpec));
+  return trackedEditor(host, engine, options);
+}
 
   // ---- pure helpers -------------------------------------------------------
 
@@ -161,7 +169,7 @@ export async function run() {
     host.setAttribute('spellcheck', 'false');
     document.getElementById('sandbox').replaceChildren(host);
     const engine = core.newEngine(encodeManifest(manifestSpec));
-    const e = new MarkdownEditor(host, engine);
+    const e = trackedEditor(host, engine);
 
     assertEqual(e.root.getAttribute('aria-label'), 'Release notes');
     assertEqual(e.root.getAttribute('spellcheck'), 'false');
@@ -170,11 +178,11 @@ export async function run() {
   test('destroy detaches listeners before a host is reused', () => {
     const host = document.createElement('div');
     document.getElementById('sandbox').replaceChildren(host);
-    const old = new MarkdownEditor(host, core.newEngine(encodeManifest(manifestSpec)));
+    const old = trackedEditor(host, core.newEngine(encodeManifest(manifestSpec)));
     old.setMarkdown('old');
     old.destroy();
 
-    const current = new MarkdownEditor(host, core.newEngine(encodeManifest(manifestSpec)));
+    const current = trackedEditor(host, core.newEngine(encodeManifest(manifestSpec)));
     current.setMarkdown('new');
     current.root.focus();
     current.setSelectionRange({ start: 3, end: 3 });
@@ -248,7 +256,7 @@ export async function run() {
     assert(e.root.querySelector('.mde-code-block'), 'it should render as code');
   });
 
-  await asyncTest('a GFM table resolves nested images as semantic HTML without changing source', async () => {
+  test('a GFM table resolves nested images as semantic HTML without changing source', async () => {
     let resolutions = 0;
     const e = makeEditor({
       resourceResolver: {
@@ -296,7 +304,7 @@ export async function run() {
     assertEqual(domText(e.root), source, 'the semantic view changed the Markdown source');
   });
 
-  await asyncTest('table images support reference syntax and mixed text through the core', async () => {
+  test('table images support reference syntax and mixed text through the core', async () => {
     const requested = [];
     const e = makeEditor({
       resourceResolver: {
@@ -588,7 +596,7 @@ export async function run() {
 
   // ---- references ---------------------------------------------------------
 
-  await asyncTest('a reference reaches the resolver and resolves once', async () => {
+  test('a reference reaches the resolver and resolves once', async () => {
     /** @type {string[]} */
     const requested = [];
     const e = makeEditor({
@@ -620,12 +628,12 @@ export async function run() {
     );
   });
 
-  await asyncTest('destroy cancels a late resource repaint before the engine is freed', async () => {
+  test('destroy cancels a late resource repaint before the engine is freed', async () => {
     let release;
     const engine = core.newEngine(encodeManifest(manifestSpec));
     const host = document.createElement('div');
     document.getElementById('sandbox').replaceChildren(host);
-    const e = new MarkdownEditor(host, engine, {
+    const e = trackedEditor(host, engine, {
       resourceResolver: {
         resolve: () => new Promise((resolve) => { release = resolve; }),
         reservedSize: () => ({ width: 100, height: 60 }),
@@ -660,12 +668,12 @@ export async function run() {
 
   // ---- editing and undo ---------------------------------------------------
 
-  test('typing through the browser keeps the model and DOM in step', () => {
+  test('typing through the browser keeps the model and DOM in step', async () => {
     const e = makeEditor();
     e.setMarkdown('hello **world** end');
     e.root.focus();
     e.setSelectionRange({ start: 13, end: 13 });
-    document.execCommand('insertText', false, 'ly');
+    await userEvent.keyboard('ly');
 
     assertEqual(e.markdown, 'hello **worldly** end');
     assertEqual(domText(e.root), e.markdown, 'DOM diverged from the model after typing');
@@ -677,13 +685,13 @@ export async function run() {
     );
   });
 
-  test('a typing run undoes as one step and redoes', () => {
+  test('a typing run undoes as one step and redoes', async () => {
     const e = makeEditor();
     const source = 'hello **world** end';
     e.setMarkdown(source);
     e.root.focus();
     e.setSelectionRange({ start: 13, end: 13 });
-    document.execCommand('insertText', false, 'ly');
+    await userEvent.keyboard('ly');
 
     assert(e.canUndo, 'nothing recorded to undo');
     e.undo();
@@ -831,6 +839,34 @@ export async function run() {
     assertEqual(domText(e.root), source, 'DOM diverged after undoing a full delete');
   });
 
+  test('invalid programmatic edits are atomic and leave both mirrors usable', () => {
+    const e = makeEditor();
+    const source = 'A😀B\n';
+    e.setMarkdown(source);
+    const invalid = [
+      [-1, 0],
+      [3, 2],
+      [0, source.length + 1],
+      [1.5, 2],
+      [2, 2], // between the emoji's UTF-16 surrogate pair
+    ];
+    for (const [start, end] of invalid) {
+      let rejected = false;
+      try {
+        e.replaceRange(start, end, 'x');
+      } catch (error) {
+        rejected = error instanceof RangeError;
+      }
+      assert(rejected, `invalid range ${start}..${end} was accepted`);
+      assertEqual(e.markdown, source);
+      assertEqual(domText(e.root), source);
+    }
+
+    e.replaceRange(3, 4, 'C');
+    assertEqual(e.markdown, 'A😀C\n');
+    assertEqual(domText(e.root), e.markdown);
+  });
+
   test('selection can be placed at every offset of a hostile document', () => {
     const e = makeEditor();
     const source = '😀**bold**日本\n\n```callout x\nbody\n```\n\n@who [[link]]\n';
@@ -852,6 +888,22 @@ export async function run() {
     const at = Math.floor(source.length / 2);
     e.replaceRange(at, at, 'Z');
     assertEqual(domText(e.root), e.markdown);
+  });
+
+  test('selection repaint near EOF reuses the large document line index', () => {
+    const e = makeEditor();
+    const source = 'ordinary text\n'.repeat(10_000);
+    e.setMarkdown(source);
+    const lines = e.lines;
+    const starts = e.lineStarts;
+    const at = source.length - 2;
+
+    e.applyPatch(e.engine.setSelection({ start: at, end: at }), null, null);
+
+    assert(e.lines === lines, 'a selection-only repaint split the entire document again');
+    assert(e.lineStarts === starts, 'a selection-only repaint rebuilt every line offset');
+    assertEqual(e.lineIndexAt(at, starts), 9_999);
+    assertEqual(domText(e.root), source);
   });
 
   test('a widget view is built once and reused across re-renders', () => {
@@ -932,7 +984,7 @@ export async function run() {
     assertEqual(domText(e.root), source, 'eviction disturbed the document');
   });
 
-  await asyncTest('a resolved resource size is remembered and reused for the next reservation', async () => {
+  test('a resolved resource size is remembered and reused for the next reservation', async () => {
     const sizes = [];
     const resolver = {
       reservedSize: () => {
@@ -961,6 +1013,64 @@ export async function run() {
     sizes.length = 0;
     e.setMarkdown('![a](photo.png)\n');
     assertEqual(sizes.length, 0, 'the resolver was asked to guess a size it already knew');
+  });
+
+  test('a stale resource completion cannot overwrite the same path after reset', async () => {
+    const pending = [];
+    const resolved = [];
+    const cache = new ResourceCache(
+      {
+        resolve: () => new Promise((deliver) => pending.push(deliver)),
+        reservedSize: () => ({ width: 40, height: 20 }),
+      },
+      (reference) => resolved.push(reference)
+    );
+    const request = { reference: 'same.png', roleName: 'image', source: '![x](same.png)' };
+
+    cache.view(request);
+    cache.reset();
+    cache.view(request);
+    const stale = document.createElement('span');
+    stale.dataset.version = 'stale';
+    pending[0]({ state: 'ready', view: stale });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assertEqual(cache.states.get('same.png')?.state, 'loading');
+    assertEqual(resolved, [], 'the stale document triggered a repaint');
+
+    const current = document.createElement('span');
+    current.dataset.version = 'current';
+    pending[1]({ state: 'ready', view: current });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assertEqual(cache.view(request)?.dataset.version, 'current');
+    assertEqual(resolved, ['same.png']);
+  });
+
+  test('resource reference lookup stays indexed and follows edits', () => {
+    const e = makeEditor();
+    const source = Array.from({ length: 600 }, (_, index) => `![${index}](asset-${index}.png)`)
+      .join('\n') + '\n';
+    e.setMarkdown(source);
+
+    const originalPayload = e.engine.payload.bind(e.engine);
+    let payloadCalls = 0;
+    e.engine.payload = (key) => {
+      payloadCalls++;
+      return originalPayload(key);
+    };
+    const target = e.applier.rangesReferencing('asset-599.png');
+    assertEqual(target.length, 1);
+    assertEqual(payloadCalls, 0, 'lookup fell back to scanning payloads');
+
+    const at = e.markdown.lastIndexOf('asset-599.png');
+    e.replaceRange(at, at + 'asset-599.png'.length, 'renamed.png');
+    payloadCalls = 0;
+    assertEqual(e.applier.rangesReferencing('asset-599.png'), []);
+    assertEqual(e.applier.rangesReferencing('renamed.png').length, 1);
+    assertEqual(payloadCalls, 0, 'edited lookup fell back to scanning payloads');
   });
 
   test('remembered sizes can be seeded from a previous session', () => {
@@ -1232,7 +1342,7 @@ export async function run() {
 
   // ---- newline input (the Enter cascade) ----------------------------------
 
-  test('Enter is intercepted and inserted as a real newline', () => {
+  test('Enter is intercepted and inserted as a real newline', async () => {
     const e = makeEditor();
     e.setMarkdown('hello\n');
     e.root.focus();
@@ -1242,34 +1352,23 @@ export async function run() {
     // plaintext-only default for it is NOT plain text: at the end of the document it
     // inserts a <div><br></div> with empty text content — invisible to the tree walk —
     // and wraps existing line elements inside it. The editor must take over instead.
-    const event = new InputEvent('beforeinput', {
-      inputType: 'insertParagraph',
-      bubbles: true,
-      cancelable: true,
-    });
-    e.root.dispatchEvent(event);
+    await userEvent.keyboard('{Enter}');
 
-    assertEqual(event.defaultPrevented, true, 'the browser must not act on Enter');
     assertEqual(e.markdown, 'hello\n\n');
     assertEqual(domText(e.root), 'hello\n\n', 'DOM and mirror agree after Enter');
     assertEqual(e.selectionRange(), { start: 6, end: 6 }, 'caret sits after the newline');
   });
 
-  test('typing after an intercepted Enter does not cascade', () => {
+  test('typing after an intercepted Enter does not cascade', async () => {
     const e = makeEditor();
     e.setMarkdown('what is up?\n');
     e.root.focus();
     e.setSelectionRange({ start: 11, end: 11 });
 
-    e.root.dispatchEvent(new InputEvent('beforeinput', {
-      inputType: 'insertParagraph', bubbles: true, cancelable: true,
-    }));
+    await userEvent.keyboard('{Enter}');
     // The characters after Enter — the exact gesture that used to fossilise one copy
     // of the line per keypress.
-    for (const ch of 'what') {
-      const sel = e.selectionRange();
-      e.replaceRange(sel.start, sel.end, ch);
-    }
+    await userEvent.keyboard('what');
 
     assertEqual(e.markdown, 'what is up?\nwhat\n');
     assertEqual(domText(e.root), e.markdown, 'no fossil copies of the line');
@@ -1349,6 +1448,3 @@ export async function run() {
     assertEqual(e.markdown, 'tail\n\n', 'the Enter must not be dropped');
     assertEqual(domText(e.root), e.markdown);
   });
-
-  return results;
-}
