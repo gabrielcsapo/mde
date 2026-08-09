@@ -82,6 +82,17 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(editor.markdown, source, "the storage must never diverge from the source")
     }
 
+    func testReplacingAWidgetDocumentWithShortTextDropsStalePresentationRanges() {
+        editor.setMarkdown("| A | B |\n| --- | --- |\n| one | [two](https://example.dev) |\n")
+        forceLayout()
+
+        editor.setMarkdown("short")
+        forceLayout()
+
+        XCTAssertEqual(editor.markdown, "short")
+        XCTAssertTrue(editor.decorations.allSatisfy { $0.range.upperBound <= 5 })
+    }
+
     func testAHeadingRendersLargerThanBody() {
         editor.setMarkdown("# Title\n\nbody text")
         let headingSize = fontSize(at: 2) // inside "Title"
@@ -156,6 +167,15 @@ final class MacRendererTests: XCTestCase {
             ),
         ]), header: false)
         XCTAssertNotNil(link.attribute(.link, at: 0, effectiveRange: nil))
+        var opened: String?
+        let interactiveLink = TableTextCellView(
+            content: link,
+            alignment: .left,
+            onOpenLink: { opened = $0 }
+        )
+        XCTAssertTrue(interactiveLink.activateLink(at: 2))
+        XCTAssertEqual(opened, "https://example.dev")
+        XCTAssertTrue(interactiveLink.isSelectable)
 
         let code = TableCellRenderer.render(TableCellModel(source: "10", inlines: [
             TableInlineDecoration(
@@ -258,10 +278,10 @@ final class MacRendererTests: XCTestCase {
         func descendants(_ root: NSView) -> [NSView] {
             root.subviews.flatMap { [$0] + descendants($0) }
         }
-        let labels = descendants(table).compactMap { $0 as? NSTextField }
+        let labels = descendants(table).compactMap { $0 as? NSTextView }
         let inlineAttachments = labels.reduce(0) { count, label in
             var found = 0
-            let value = label.attributedStringValue
+            let value = label.attributedString()
             value.enumerateAttribute(
                 .attachment,
                 in: NSRange(location: 0, length: value.length)

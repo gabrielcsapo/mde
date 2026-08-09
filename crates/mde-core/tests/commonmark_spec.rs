@@ -6,6 +6,42 @@
 
 use mde_core::registry::role;
 use mde_core::{Engine, Kind, Registry};
+use pulldown_cmark::{html, Options, Parser};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct SpecExample {
+    markdown: String,
+    html: String,
+    example: u32,
+    section: String,
+}
+
+/// CommonMark defines the HTML semantics; serializers may omit needless escaping of
+/// quotes in text nodes and whitespace between block tags. Normalize only those two
+/// presentation differences before comparing the complete corpus.
+fn normalize_html(value: &str) -> String {
+    let mut normalized = String::with_capacity(value.len());
+    let mut index = 0;
+    let mut in_tag = false;
+    while index < value.len() {
+        if !in_tag && value[index..].starts_with("&quot;") {
+            normalized.push('"');
+            index += "&quot;".len();
+            continue;
+        }
+        let ch = value[index..].chars().next().expect("valid character boundary");
+        if ch == '<' {
+            in_tag = true;
+        }
+        normalized.push(ch);
+        if ch == '>' {
+            in_tag = false;
+        }
+        index += ch.len_utf8();
+    }
+    normalized.replace(">\n<", "><")
+}
 
 fn engine(source: &str) -> Engine {
     let mut engine = Engine::new(Registry::empty());
@@ -65,5 +101,68 @@ fn lazy_block_quote_continuations_do_not_invent_gutters() {
             .filter(|item| item.kind == Kind::Gutter && item.role == role::QUOTE)
             .count(),
         1
+    );
+}
+
+#[test]
+fn complete_commonmark_0_31_2_corpus_matches_and_projects_safely() {
+    let examples: Vec<SpecExample> = serde_json::from_str(include_str!("commonmark/spec.json"))
+        .expect("vendored CommonMark corpus should be valid JSON");
+    assert_eq!(examples.len(), 652, "unexpected CommonMark 0.31.2 corpus size");
+
+    let mut html_failures = Vec::new();
+    let mut projection_failures = Vec::new();
+    for example in examples {
+        let mut actual = String::new();
+        html::push_html(&mut actual, Parser::new_ext(&example.markdown, Options::empty()));
+        if normalize_html(&actual) != normalize_html(&example.html) {
+            html_failures.push(format!(
+                "#{} {} expected={:?} actual={:?}",
+                example.example, example.section, example.html, actual
+            ));
+        }
+
+        // The product parser enables documented extensions in addition to CommonMark,
+        // so its HTML can intentionally differ for extension-looking input. What every
+        // official example must still guarantee is a platform-safe renderer contract.
+        let parsed = engine(&example.markdown);
+        let units: Vec<u16> = example.markdown.encode_utf16().collect();
+        let mut previous = 0;
+        for decoration in parsed.decorations() {
+            let valid = decoration.start <= decoration.end
+                && decoration.end as usize <= units.len()
+                && decoration.start >= previous
+                && String::from_utf16(
+                    &units[decoration.start as usize..decoration.end as usize],
+                )
+                .is_ok();
+            if !valid {
+                projection_failures.push(format!(
+                    "#{} {}: {:?}",
+                    example.example, example.section, decoration
+                ));
+                break;
+            }
+            previous = decoration.start;
+        }
+        if parsed.text() != example.markdown {
+            projection_failures.push(format!(
+                "#{} {}: source changed",
+                example.example, example.section
+            ));
+        }
+    }
+
+    assert!(
+        html_failures.is_empty(),
+        "base parser diverged from official HTML semantics in {} examples: {}",
+        html_failures.len(),
+        html_failures.join(", ")
+    );
+    assert!(
+        projection_failures.is_empty(),
+        "renderer contract failed in {} examples: {}",
+        projection_failures.len(),
+        projection_failures.join(", ")
     );
 }

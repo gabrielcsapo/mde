@@ -100,6 +100,19 @@ final class MacRendererBenchmarks: XCTestCase {
         }
     }
 
+    private func enforceBudget(_ value: Double, environment key: String, metric: String) {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH_ENFORCE"] == "1",
+              let raw = ProcessInfo.processInfo.environment[key],
+              let budget = Double(raw)
+        else { return }
+        XCTAssertLessThanOrEqual(
+            value,
+            budget,
+            "\(metric) \(String(format: "%.3f", value)) ms exceeded "
+                + "\(String(format: "%.3f", budget)) ms budget"
+        )
+    }
+
     /// Runs the main queue until everything already enqueued has executed.
     ///
     /// `MarkdownTextView` hands the patch back to itself with `DispatchQueue.main.async`
@@ -204,6 +217,11 @@ final class MacRendererBenchmarks: XCTestCase {
                 format: "%-6@  storage %8.2f   repaint %8.2f   total %8.2f",
                 c.label as NSString, bestSync, bestRepaint, bestSync + bestRepaint
             ))
+            enforceBudget(
+                bestSync + bestRepaint,
+                environment: "MDE_APPLE_\(c.label)_KEYSTROKE_BUDGET_MS",
+                metric: "\(c.label) native keystroke"
+            )
             _ = window
         }
     }
@@ -305,6 +323,11 @@ final class MacRendererBenchmarks: XCTestCase {
             )
         }
         print(String(format: "100x10 table projection %8.2f ms", projection))
+        enforceBudget(
+            projection,
+            environment: "MDE_APPLE_TABLE_BUDGET_MS",
+            metric: "100x10 native table projection"
+        )
         XCTAssertEqual(editor.markdown, source)
         _ = window
     }
@@ -325,6 +348,11 @@ final class MacRendererBenchmarks: XCTestCase {
             XCTAssertEqual(applier.ranges(referencing: target).count, 1)
         }
         print(String(format: "10k-resource indexed lookup %8.4f ms", lookup))
+        enforceBudget(
+            lookup,
+            environment: "MDE_APPLE_RESOURCE_LOOKUP_BUDGET_MS",
+            metric: "10k-resource lookup"
+        )
     }
 }
 #endif

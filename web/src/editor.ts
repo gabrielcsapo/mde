@@ -420,6 +420,7 @@ export class MarkdownEditor extends EventTarget {
     }
 
     const edit = diffText(this.text, next);
+    const lineChange = this.spliceLineModel(edit.start, edit.end, edit.text);
     const caret = this.selectionRange();
     this.text = next;
 
@@ -427,7 +428,12 @@ export class MarkdownEditor extends EventTarget {
     try {
       const patch = this.engine.edit(edit.start, edit.end, edit.text, next.length);
       if (canonical) {
-        this.applyPatch(patch, { start: edit.start, end: edit.start + edit.text.length }, caret);
+        this.applyPatch(
+          patch,
+          { start: edit.start, end: edit.start + edit.text.length },
+          caret,
+          lineChange,
+        );
       } else {
         // Splicing individual lines assumes the DOM still has the shape the editor
         // built. When the browser has restructured it, rebuild wholesale instead —
@@ -565,12 +571,13 @@ export class MarkdownEditor extends EventTarget {
     }
     const next = this.text.slice(0, start) + text + this.text.slice(end);
     const patch = this.engine.edit(start, end, text, next.length);
+    const lineChange = this.spliceLineModel(start, end, text);
     // The core accepted the edit; only now publish the matching JS mirror.
     this.text = next;
     this.applyPatch(patch, { start, end: start + text.length }, {
       start: start + text.length,
       end: start + text.length,
-    });
+    }, lineChange);
     this.dispatchEvent(new CustomEvent('change'));
   }
 
@@ -581,7 +588,12 @@ export class MarkdownEditor extends EventTarget {
    * @param {{start: number, end: number}|null} [alsoDirty]
    * @param {{start: number, end: number}|null} [caret]
    */
-  applyPatch(patch: Patch, alsoDirty: SelectionRange | null = null, caret: SelectionRange | null = null): void {
+  applyPatch(
+    patch: Patch,
+    alsoDirty: SelectionRange | null = null,
+    caret: SelectionRange | null = null,
+    lineChange: LineChange | null = null,
+  ): void {
     // Disjoint ranges, not a bounding box: see `dirtyRanges`.
     const dirty = this.applier.dirtyRanges(patch, alsoDirty);
     this.applier.ingest(patch);
@@ -592,10 +604,21 @@ export class MarkdownEditor extends EventTarget {
     // input (or a second editor) bounced focus straight back.
     const at =
       caret ?? (document.activeElement === this.root ? this.selectionRange() : null);
+    if (lineChange) {
+      this.renderLineChange(lineChange, at);
+    }
     if (dirty.length === 0) return;
     // Back to front, so an earlier range's line indices stay valid while the later ones
     // are still pending.
-    for (let i = dirty.length - 1; i >= 0; i--) this.renderRange(dirty[i], at);
+    for (let i = dirty.length - 1; i >= 0; i--) {
+      const range = dirty[i];
+      if (
+        lineChange &&
+        range.start >= lineChange.newStart &&
+        range.end <= lineChange.newEnd
+      ) continue;
+      this.renderRange(range, at);
+    }
   }
 
   renderAll() {
@@ -622,6 +645,74 @@ export class MarkdownEditor extends EventTarget {
   }
 
   /**
+   * Derive the next line model from only the edited lines.
+   *
+   * JavaScript strings are immutable, so constructing the next document still copies
+   * its characters. The expensive avoidable work was then splitting that entire string
+   * and comparing every line before the caret. This preserves the untouched prefix and
+   * suffix and splits only the source fragment that actually changed.
+   */
+  spliceLineModel(start: number, end: number, inserted: string): LineChange {
+    // A host can programmatically edit immediately after construction, before its
+    // first `setMarkdown`. Treat that unrendered initial buffer as one empty line.
+    const oldLines = this.lines.length > 0 ? this.lines : [this.text];
+    const oldStarts = this.lineStarts.length > 0 ? this.lineStarts : [0];
+    const first = this.lineIndexAt(start, oldStarts);
+    const lastOld = this.lineIndexAt(end, oldStarts);
+    const modelStart = oldStarts[first];
+    const oldContentEnd = oldStarts[lastOld] + oldLines[lastOld].length;
+    const replacement =
+      this.text.slice(modelStart, start) + inserted + this.text.slice(end, oldContentEnd);
+    const replacementLines = replacement.split('\n');
+    const oldCount = lastOld - first + 1;
+    const nextLines = oldLines.slice();
+    nextLines.splice(first, oldCount, ...replacementLines);
+
+    const nextStarts = oldStarts.slice(0, first);
+    let offset = modelStart;
+    for (const line of replacementLines) {
+      nextStarts.push(offset);
+      offset += line.length + 1;
+    }
+    const delta = inserted.length - (end - start);
+    for (let i = lastOld + 1; i < oldStarts.length; i++) {
+      nextStarts.push(oldStarts[i] + delta);
+    }
+    const lastNew = first + replacementLines.length - 1;
+    return {
+      first,
+      lastOld,
+      lastNew,
+      lines: nextLines,
+      starts: nextStarts,
+      newStart: nextStarts[first],
+      newEnd: this.lineEnd(lastNew, nextLines, nextStarts),
+    };
+  }
+
+  /** Apply one already-computed local line splice to the DOM. */
+  renderLineChange(change: LineChange, caret: SelectionRange | null): void {
+    this.applier.text = this.text;
+    const rebuilt = [];
+    for (let i = change.first; i <= change.lastNew; i++) {
+      rebuilt.push(
+        this.applier.buildLine(
+          change.starts[i],
+          this.lineEnd(i, change.lines, change.starts),
+        ),
+      );
+    }
+    const removeCount = change.lastOld - change.first + 1;
+    const anchor = this.lineEls[change.lastOld + 1] ?? null;
+    for (let i = 0; i < removeCount; i++) this.lineEls[change.first + i]?.remove();
+    for (const el of rebuilt) this.root.insertBefore(el, anchor);
+    this.lineEls.splice(change.first, removeCount, ...rebuilt);
+    this.lines = change.lines;
+    this.lineStarts = change.starts;
+    if (caret) this.setSelectionRange(caret);
+  }
+
+  /**
    * Re-render only the lines the change touched.
    *
    * Typing inside a paragraph rebuilds one line. Lines after an inserted newline are
@@ -633,12 +724,20 @@ export class MarkdownEditor extends EventTarget {
    */
   renderRange(dirty, caret) {
     const textChanged = this.applier.text !== this.text;
+    if (textChanged) {
+      // All ordinary edits provide a local line splice. This is a defensive recovery
+      // path for a host that mutates the public fields or for a future caller that
+      // forgets to do so.
+      this.renderAll();
+      if (caret) this.setSelectionRange(caret);
+      return;
+    }
     this.applier.text = this.text;
     // Selection, reveal, resource, and host-layer patches do not change the buffer.
     // Reuse the line model for those extremely common paths: splitting the entire
     // document and comparing from line zero made a caret move near EOF O(document).
-    const newLines = textChanged ? this.text.split('\n') : this.lines;
-    const starts = textChanged ? lineStarts(newLines) : this.lineStarts;
+    const newLines = this.lines;
+    const starts = this.lineStarts;
 
     // Widen the dirty offsets to whole lines, then to whole *changed* lines by
     // comparing old and new from both ends.
@@ -646,23 +745,6 @@ export class MarkdownEditor extends EventTarget {
     let lastNew = this.lineIndexAt(dirty.end, starts);
     let lastOld = lastNew + (this.lines.length - newLines.length);
 
-    if (textChanged) {
-      const commonHead = Math.min(first, this.lines.length, newLines.length);
-      for (let i = 0; i < commonHead; i++) {
-        if (this.lines[i] !== newLines[i]) {
-          first = i;
-          break;
-        }
-      }
-      while (
-        lastOld < this.lines.length &&
-        lastNew < newLines.length &&
-        this.lines[lastOld] !== newLines[lastNew]
-      ) {
-        lastOld++;
-        lastNew++;
-      }
-    }
     lastOld = Math.min(lastOld, this.lines.length - 1);
     lastNew = Math.min(lastNew, newLines.length - 1);
 
@@ -801,6 +883,16 @@ export class MarkdownEditor extends EventTarget {
       this.suppressSelection = false;
     }
   }
+}
+
+interface LineChange {
+  first: number;
+  lastOld: number;
+  lastNew: number;
+  lines: string[];
+  starts: number[];
+  newStart: number;
+  newEnd: number;
 }
 
 /** @param {string[]} lines */

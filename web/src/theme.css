@@ -34,6 +34,9 @@
    `font-size: 0` as well as `line-height: 0` — the block box's strut is sized from the
    inherited font, so zeroing the leading alone still leaves a few pixels behind. */
 .mde-line-concealed {
+  display: block;
+  height: 0;
+  overflow: hidden;
   line-height: 0;
   font-size: 0;
 }

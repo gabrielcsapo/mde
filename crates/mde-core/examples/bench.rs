@@ -237,8 +237,20 @@ fn main() {
     println!("mde-core keystroke benchmark  (profile: {})", profile());
     println!("all times in milliseconds; n = iterations, med = median\n");
 
+    let check = args.iter().any(|arg| arg == "--check");
     for &(label, bytes) in SIZES {
-        run(label, bytes);
+        let edit_median = run(label, bytes);
+        if check {
+            let key = format!("MDE_CORE_{}_EDIT_BUDGET_MS", label.replace(' ', ""));
+            if let Ok(raw) = std::env::var(&key) {
+                let budget: f64 = raw.parse().unwrap_or_else(|_| panic!("invalid {key}={raw}"));
+                assert!(
+                    edit_median <= budget,
+                    "{label} edit median {edit_median:.3} ms exceeds {budget:.3} ms budget"
+                );
+                println!("   budget: {edit_median:.3} <= {budget:.3} ms\n");
+            }
+        }
     }
 
     println!("\nBudget: DESIGN §2.2 allows 4 ms for parse + decorate + diff before the");
@@ -267,7 +279,7 @@ fn dump(dir: &str) {
     println!("{dir}/manifest.toml");
 }
 
-fn run(label: &str, bytes: usize) {
+fn run(label: &str, bytes: usize) -> f64 {
     let doc = document(bytes);
     let n = iters_for(doc.len());
     let reg = || Registry::from_toml(MANIFEST).expect("manifest parses");
@@ -442,6 +454,7 @@ fn run(label: &str, bytes: usize) {
         (ms(build.min) - ms(build_flat.min)) * 1e6 / decorations.max(1) as f64
     );
     println!();
+    ms(key.median)
 }
 
 /// The `:::chart` rule, split out so the benchmark can build a registry without it and

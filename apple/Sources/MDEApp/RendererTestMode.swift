@@ -27,7 +27,10 @@ enum RendererTestMode {
             let tableBefore = editor.decorations.first { $0.role == Role.table }
             let views = descendants(of: editor)
             let tableView = views.first { $0.accessibilityIdentifier == "mde.rendered-table" }
-            let labels = views.compactMap { $0 as? UILabel }.compactMap(\.attributedText)
+            let tableTextViews = views.compactMap { $0 as? UITextView }.filter {
+                $0.accessibilityIdentifier == "mde.table-cell"
+            }
+            let labels = tableTextViews.compactMap(\.attributedText)
 
             let bold = labels.contains { text in
                 guard text.string == "JS" || text.string == "UIKit" else { return false }
@@ -36,6 +39,14 @@ enum RendererTestMode {
             }
             let link = labels.contains { text in
                 text.string.contains("Web") && text.attribute(.link, at: 0, effectiveRange: nil) != nil
+            }
+            let interactiveLink = tableTextViews.contains { textView in
+                textView.isSelectable && textView.delegate != nil && textView.attributedText.length > 0
+                    && textView.attributedText.attribute(
+                        .link,
+                        at: 0,
+                        effectiveRange: nil
+                    ) != nil
             }
             let code = labels.contains { text in
                 guard text.string.contains("wasm") else { return false }
@@ -89,6 +100,7 @@ enum RendererTestMode {
                 "collapsed": tableBefore?.kind == .blockWidget,
                 "bold": bold,
                 "link": link,
+                "interactiveLink": interactiveLink,
                 "code": code,
                 "image": image,
                 "mixedImage": mixedImage,

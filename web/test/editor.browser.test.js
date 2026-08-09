@@ -810,6 +810,13 @@ function makeEditor(options = {}) {
     }
   });
 
+  test('a programmatic edit is valid before the first setMarkdown call', () => {
+    const e = makeEditor();
+    e.replaceRange(0, 0, 'first\nedit');
+    assertEqual(e.markdown, 'first\nedit');
+    assertEqual(domText(e.root), e.markdown);
+  });
+
   test('an edit storm keeps the DOM and the model identical', () => {
     const e = makeEditor();
     e.setMarkdown('');
@@ -887,6 +894,23 @@ function makeEditor(options = {}) {
     // And an edit in the middle still lands correctly.
     const at = Math.floor(source.length / 2);
     e.replaceRange(at, at, 'Z');
+    assertEqual(domText(e.root), e.markdown);
+  });
+
+  test('a large-document edit splits only the locally changed line model', () => {
+    const e = makeEditor();
+    const source = 'line content\n'.repeat(10_000);
+    e.setMarkdown(source);
+    const firstLine = e.lineEls[0];
+    const distantLine = e.lineEls[9_000];
+    const at = source.length - 3;
+
+    e.replaceRange(at, at, 'Z');
+
+    assert(e.lineEls[0] === firstLine, 'an edit near EOF rebuilt the untouched prefix');
+    assert(e.lineEls[9_000] === distantLine, 'a distant untouched line was rebuilt');
+    assertEqual(e.lines.length, 10_001);
+    assertEqual(e.lineStarts[10_000], e.markdown.length);
     assertEqual(domText(e.root), e.markdown);
   });
 

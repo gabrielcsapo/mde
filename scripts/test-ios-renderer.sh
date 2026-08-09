@@ -6,7 +6,21 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 BUNDLE_ID="dev.mde.editor"
-DEVICE="${MDE_DEVICE:-B67C4805-DF13-4975-8E9C-967C522F683F}"
+DEVICE="${MDE_DEVICE:-}"
+
+if [ -z "$DEVICE" ]; then
+    DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys
+for runtime, devices in json.load(sys.stdin)["devices"].items():
+    if "iOS" not in runtime: continue
+    for device in devices:
+        if device.get("isAvailable", True) and "iPhone" in device["name"]:
+            print(device["udid"]); raise SystemExit')
+fi
+
+if [ -z "$DEVICE" ]; then
+    echo "UIKit renderer tests: no available iPhone simulator; install an iOS runtime or set MDE_DEVICE=<udid>" >&2
+    exit 1
+fi
 
 if ! xcrun simctl list devices -j | grep -q "$DEVICE"; then
     echo "UIKit renderer tests: simulator $DEVICE does not exist; set MDE_DEVICE=<udid>" >&2

@@ -1,0 +1,61 @@
+name: Extended validation
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extended-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browsers:
+    name: ${{ matrix.browser }} browser
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.2.2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir web exec playwright install --with-deps ${{ matrix.browser }}
+      - run: ./scripts/build-web.sh
+      - run: pnpm --dir web exec vitest run
+        env:
+          MDE_BROWSERS: ${{ matrix.browser }}
+
+  performance:
+    name: Performance budgets
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+      - run: test "$(uname -m)" = arm64
+      - run: ./scripts/test-performance.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: performance-report
+          path: target/performance
+          if-no-files-found: warn

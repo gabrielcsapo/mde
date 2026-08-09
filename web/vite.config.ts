@@ -5,6 +5,13 @@ import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
+const supportedBrowsers = ['chromium', 'firefox', 'webkit'] as const;
+const requestedBrowsers = (process.env.MDE_BROWSERS ?? 'chromium').split(',');
+const browserInstances = requestedBrowsers.map((name) => {
+  const browser = supportedBrowsers.find((candidate) => candidate === name.trim());
+  if (!browser) throw new Error(`unsupported MDE_BROWSERS entry: ${name}`);
+  return { browser };
+});
 
 export default defineConfig({
   publicDir: false,
@@ -46,7 +53,7 @@ export default defineConfig({
       enabled: true,
       headless: true,
       provider: playwright(),
-      instances: [{ browser: 'chromium' }],
+      instances: browserInstances,
     },
   },
 });

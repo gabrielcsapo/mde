@@ -13,7 +13,12 @@ default = ["toml-manifest"]
 toml-manifest = ["dep:serde", "dep:toml"]
 
 [dependencies]
-pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["simd"] }
 regex-lite = "0.1"
 serde = { version = "1", features = ["derive"], optional = true }
 toml = { version = "0.8", default-features = false, features = ["parse"], optional = true }
+
+[dev-dependencies]
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html", "simd"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

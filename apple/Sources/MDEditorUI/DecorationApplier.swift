@@ -32,6 +32,8 @@ final class DecorationApplier {
     /// HostWidgets()`), and a weak reference would drop it before the first paint.
     /// Providers must not retain the editor.
     var widgetProvider: (any WidgetProvider)?
+    /// Routes links inside presentation widgets back through the editor's delegate.
+    var openLink: ((String) -> Void)?
     let resources = ResourceCache()
 
     /// Host-drawn widget views, kept by decoration key.
@@ -386,7 +388,8 @@ final class DecorationApplier {
                 resources: resources,
                 cache: self,
                 key: w.key,
-                tableModel: tableModel
+                tableModel: tableModel,
+                openLink: openLink
             )
             attachment.fittingWidth = max(containerWidth, 1)
             let local = NSRange(location: w.range.location - range.location, length: 1)

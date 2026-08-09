@@ -175,12 +175,26 @@ enum TableCellRenderer {
         }
         let points = cuts.filter { $0 >= 0 && $0 <= source.length }.sorted()
         var emittedImages = Set<Int>()
+        var startsAt = [Int: [Int]]()
+        var endsAt = [Int: [Int]]()
+        var active = Set<Int>()
+        for (inlineIndex, inline) in cell.inlines.enumerated() {
+            guard inline.range.upperBound > 0, inline.range.location < source.length else { continue }
+            if inline.range.location <= 0 {
+                active.insert(inlineIndex)
+            } else {
+                startsAt[inline.range.location, default: []].append(inlineIndex)
+            }
+            if inline.range.upperBound < source.length {
+                endsAt[inline.range.upperBound, default: []].append(inlineIndex)
+            }
+        }
         for index in 0..<max(points.count - 1, 0) {
             let range = NSRange(location: points[index], length: points[index + 1] - points[index])
             guard range.length > 0 else { continue }
-            let covering = cell.inlines.filter {
-                $0.range.location <= range.location && $0.range.upperBound >= range.upperBound
-            }
+            for ending in endsAt[range.location] ?? [] { active.remove(ending) }
+            for starting in startsAt[range.location] ?? [] { active.insert(starting) }
+            let covering = active.sorted().map { cell.inlines[$0] }
             if let image = covering.first(where: { $0.kind == .inlineWidget && $0.role == Role.image }) {
                 if emittedImages.insert(image.range.location).inserted {
                     result.append(NSAttributedString(attachment: imageAttachment(
@@ -214,7 +228,9 @@ enum TableCellRenderer {
                 case Role.linkText:
                     attributes[.foregroundColor] = PlatformColor.platformAccent
                     attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
-                    if let destination = inline.payload { attributes[.link] = destination }
+                    if let destination = inline.payload {
+                        attributes[.link] = URL(string: destination) ?? destination
+                    }
                 default: break
                 }
             }
@@ -256,6 +272,102 @@ enum TableCellRenderer {
         return attachment
     }
 }
+
+#if os(macOS)
+/// Selectable native text gives links pointer, keyboard, and VoiceOver interaction.
+final class TableTextCellView: NSTextView, NSTextViewDelegate {
+    private let onOpenLink: ((String) -> Void)?
+
+    init(content: NSAttributedString, alignment: NSTextAlignment, onOpenLink: ((String) -> Void)?) {
+        self.onOpenLink = onOpenLink
+        let storage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        let container = NSTextContainer()
+        storage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(container)
+        super.init(frame: .zero, textContainer: container)
+        storage.setAttributedString(content)
+        isEditable = false
+        isSelectable = true
+        drawsBackground = false
+        textContainerInset = .zero
+        textContainer?.lineFragmentPadding = 0
+        textContainer?.widthTracksTextView = true
+        isVerticallyResizable = true
+        isHorizontallyResizable = false
+        self.alignment = alignment
+        delegate = self
+        identifier = NSUserInterfaceItemIdentifier("mde.table-cell")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
+
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        guard let destination = Self.destination(link) else { return false }
+        onOpenLink?(destination)
+        return onOpenLink != nil
+    }
+
+    @discardableResult
+    func activateLink(at index: Int) -> Bool {
+        guard index >= 0, index < attributedString().length,
+              let link = attributedString().attribute(.link, at: index, effectiveRange: nil),
+              let destination = Self.destination(link)
+        else { return false }
+        onOpenLink?(destination)
+        return onOpenLink != nil
+    }
+
+    private static func destination(_ value: Any) -> String? {
+        if let url = value as? URL { return url.absoluteString }
+        return value as? String
+    }
+}
+#else
+/// Selectable native text gives links touch, keyboard, and VoiceOver interaction.
+final class TableTextCellView: UITextView, UITextViewDelegate {
+    private let onOpenLink: ((String) -> Void)?
+
+    init(content: NSAttributedString, alignment: NSTextAlignment, onOpenLink: ((String) -> Void)?) {
+        self.onOpenLink = onOpenLink
+        super.init(frame: .zero, textContainer: nil)
+        attributedText = content
+        isEditable = false
+        isSelectable = true
+        isScrollEnabled = false
+        backgroundColor = .clear
+        textContainerInset = .zero
+        textContainer.lineFragmentPadding = 0
+        self.textAlignment = alignment
+        delegate = self
+        accessibilityIdentifier = "mde.table-cell"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
+
+    func textView(
+        _ textView: UITextView,
+        primaryActionFor textItem: UITextItem,
+        defaultAction: UIAction
+    ) -> UIAction? {
+        guard case .link(let url) = textItem.content else { return defaultAction }
+        return UIAction { [weak self] _ in self?.onOpenLink?(url.absoluteString) }
+    }
+
+    @discardableResult
+    func activateLink(at index: Int) -> Bool {
+        guard index >= 0, index < attributedText.length,
+              let value = attributedText.attribute(.link, at: index, effectiveRange: nil)
+        else { return false }
+        let destination = (value as? URL)?.absoluteString ?? value as? String
+        guard let destination else { return false }
+        onOpenLink?(destination)
+        return onOpenLink != nil
+    }
+}
+#endif
 
 struct TableImageSpec {
     let alt: String
@@ -400,7 +512,12 @@ final class TableWidgetView: PlatformView {
     private let rules: [PlatformView]
     private var targetSize: CGSize
 
-    init(model: MarkdownTableModel, fittingWidth: CGFloat, resources: ResourceCache? = nil) {
+    init(
+        model: MarkdownTableModel,
+        fittingWidth: CGFloat,
+        resources: ResourceCache? = nil,
+        onOpenLink: ((String) -> Void)? = nil
+    ) {
         self.model = model
         targetSize = Self.size(for: model, fittingWidth: fittingWidth)
 
@@ -422,24 +539,11 @@ final class TableWidgetView: PlatformView {
                     header: rowIndex == 0,
                     resources: resources
                 )
-                #if os(macOS)
-                let label = NSTextField(wrappingLabelWithString: "")
-                label.attributedStringValue = content
-                label.isEditable = false
-                label.isSelectable = false
-                label.isBordered = false
-                label.drawsBackground = false
-                label.maximumNumberOfLines = 0
-                label.alignment = model.alignments[column]
-                #else
-                let label = UILabel()
-                label.attributedText = content
-                label.numberOfLines = 0
-                label.textAlignment = model.alignments[column]
-                label.isAccessibilityElement = true
-                label.accessibilityLabel = cell.source
-                #endif
-                cells.append(label)
+                cells.append(TableTextCellView(
+                    content: content,
+                    alignment: model.alignments[column],
+                    onOpenLink: onOpenLink
+                ))
             }
         }
         self.cells = cells

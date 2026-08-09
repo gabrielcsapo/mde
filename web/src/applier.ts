@@ -580,17 +580,35 @@ export class DomApplier {
       if (d.end > from && d.end < to) cuts.add(d.end);
     }
     const points = [...cuts].sort((a, b) => a - b);
+    const startsAt = new Map<number, Decoration[]>();
+    const endsAt = new Map<number, Decoration[]>();
+    const active = new Set<Decoration>();
+    for (const d of covering) {
+      if (d.end <= from || d.start >= to) continue;
+      if (d.start <= from) active.add(d);
+      else {
+        const starts = startsAt.get(d.start) ?? [];
+        starts.push(d);
+        startsAt.set(d.start, starts);
+      }
+      if (d.end < to) {
+        const ends = endsAt.get(d.end) ?? [];
+        ends.push(d);
+        endsAt.set(d.end, ends);
+      }
+    }
 
     for (let i = 0; i < points.length - 1; i++) {
       const segStart = points[i];
       const segEnd = points[i + 1];
+      for (const d of endsAt.get(segStart) ?? []) active.delete(d);
+      for (const d of startsAt.get(segStart) ?? []) active.add(d);
       const text = this.text.slice(segStart, segEnd);
       if (text.length === 0) continue;
 
       const classes = ['mde-run'];
       let concealed = false;
-      for (const d of covering) {
-        if (d.start > segStart || d.end < segEnd) continue;
+      for (const d of active) {
         if (d.kind === Kind.InlineWidget || d.kind === Kind.BlockWidget) continue;
         if (d.kind === Kind.Conceal) concealed = true;
         const name = this.className(d);

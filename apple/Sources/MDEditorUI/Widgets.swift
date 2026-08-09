@@ -59,6 +59,7 @@ final class WidgetAttachment: NSTextAttachment {
     weak var cache: DecorationApplier?
     let key: UInt64
     let tableModel: MarkdownTableModel?
+    let openLink: ((String) -> Void)?
     var fittingWidth: CGFloat = 320
 
     init(
@@ -69,7 +70,8 @@ final class WidgetAttachment: NSTextAttachment {
         resources: ResourceCache?,
         cache: DecorationApplier?,
         key: UInt64,
-        tableModel: MarkdownTableModel? = nil
+        tableModel: MarkdownTableModel? = nil,
+        openLink: ((String) -> Void)? = nil
     ) {
         self.roleName = roleName
         self.source = source
@@ -79,6 +81,7 @@ final class WidgetAttachment: NSTextAttachment {
         self.cache = cache
         self.key = key
         self.tableModel = tableModel
+        self.openLink = openLink
         super.init(data: nil, ofType: nil)
     }
 
@@ -109,9 +112,10 @@ final class WidgetAttachment: NSTextAttachment {
         }
         if roleName == "table", let tableModel {
             let view = TableWidgetView(
-            model: tableModel,
-            fittingWidth: fittingWidth,
-            resources: resources
+                model: tableModel,
+                fittingWidth: fittingWidth,
+                resources: resources,
+                onOpenLink: openLink
             )
             cache?.cacheWidgetView(view, for: key)
             return view
@@ -180,8 +184,8 @@ final class WidgetViewProvider: NSTextAttachmentViewProvider {
         }
         view = WidgetContainer(
             hosting: attachment.makeView(),
-            wantsTouches: attachment.provider?.widgetWantsTouches(roleName: attachment.roleName)
-                ?? false
+            wantsTouches: attachment.roleName == "table"
+                || (attachment.provider?.widgetWantsTouches(roleName: attachment.roleName) ?? false)
         )
     }
 }

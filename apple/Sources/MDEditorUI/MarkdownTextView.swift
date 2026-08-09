@@ -99,6 +99,10 @@ public final class MarkdownTextView: UITextView {
         super.init(frame: .zero, textContainer: container)
 
         applier.widgetProvider = nil
+        applier.openLink = { [weak self] destination in
+            guard let self else { return }
+            self.markdownDelegate?.markdownTextView(self, didRequestOpenLink: destination)
+        }
         applier.resources.onResolved = { [weak self] reference in
             self?.repaintNodes(referencing: reference)
         }
@@ -156,13 +160,16 @@ public final class MarkdownTextView: UITextView {
     public var decorations: [Decoration] { applier.decorations }
 
     public func setMarkdown(_ text: String) {
+        // TextKit may ask for presentation paragraphs synchronously while replacing
+        // storage. Drop old-document widget ranges first so they can never be sliced
+        // from the new, possibly shorter buffer.
+        applier.reset()
         isRewinding = true
         textStorage.setAttributedString(
             NSAttributedString(string: text, attributes: theme.baseAttributes)
         )
         isRewinding = false
 
-        applier.reset()
         applier.ingest(engine.reset(text))
         repaintAll()
     }
