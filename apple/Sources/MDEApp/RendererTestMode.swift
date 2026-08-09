@@ -48,6 +48,16 @@ enum RendererTestMode {
                 }
                 return found
             }
+            let mixedImage = labels.contains { text in
+                var found = false
+                text.enumerateAttribute(
+                    .attachment,
+                    in: NSRange(location: 0, length: text.length)
+                ) { value, _, _ in
+                    if value != nil { found = true }
+                }
+                return found
+            }
             let tableImages = views.compactMap { $0 as? UIImageView }.filter { imageView in
                 imageView.image != nil && ancestors(of: imageView).contains {
                     $0.accessibilityIdentifier == "mde.table-image"
@@ -81,6 +91,7 @@ enum RendererTestMode {
                 "link": link,
                 "code": code,
                 "image": image,
+                "mixedImage": mixedImage,
                 "imageRowsFit": imageRowsFit,
                 "noDuplicateImage": noDuplicateImage,
                 "revealed": revealed,

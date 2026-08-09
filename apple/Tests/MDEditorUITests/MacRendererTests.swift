@@ -89,6 +89,18 @@ final class MacRendererTests: XCTestCase {
         XCTAssertGreaterThan(headingSize, bodySize)
     }
 
+    func testRequestingALinkUsesTheCoreDestinationWithoutChangingSource() {
+        let source = "Read [the docs](https://example.dev/docs)."
+        let recorder = LinkRecorder()
+        editor.markdownDelegate = recorder
+        editor.setMarkdown(source)
+
+        XCTAssertTrue(editor.requestOpenLink(at: 8))
+        XCTAssertEqual(recorder.destination, "https://example.dev/docs")
+        XCTAssertEqual(editor.markdown, source)
+        XCTAssertFalse(editor.requestOpenLink(at: 1))
+    }
+
     func testASetextHeadingUsesLevelTwoAndConcealsItsUnderline() {
         editor.setMarkdown("Heading\n-------\n\nbody")
         let headingSize = fontSize(at: 1)
@@ -118,7 +130,7 @@ final class MacRendererTests: XCTestCase {
         let view = try XCTUnwrap(attachment.makeView() as? TableWidgetView)
 
         XCTAssertEqual(view.model.rows.count, 2)
-        XCTAssertEqual(view.model.rows[1], [
+        XCTAssertEqual(view.model.rows[1].map(\.source), [
             "**Ada**", "[profile](https://example.dev) + `10`", "![chart](chart.png)",
         ])
         XCTAssertEqual(view.model.alignments, [.left, .center, .right])
@@ -127,29 +139,77 @@ final class MacRendererTests: XCTestCase {
     }
 
     func testNativeTableCellsRenderBoldLinksAndCode() {
-        let bold = TableCellRenderer.render("**Ada**", header: false)
+        let bold = TableCellRenderer.render(TableCellModel(source: "Ada", inlines: [
+            TableInlineDecoration(
+                range: NSRange(location: 0, length: 3), role: Role.strong, kind: .style, payload: nil
+            ),
+        ]), header: false)
         let boldFont = bold.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
         XCTAssertTrue(boldFont?.fontDescriptor.symbolicTraits.contains(.bold) ?? false)
 
-        let link = TableCellRenderer.render("[profile](https://example.dev)", header: false)
+        let link = TableCellRenderer.render(TableCellModel(source: "profile", inlines: [
+            TableInlineDecoration(
+                range: NSRange(location: 0, length: 7),
+                role: Role.linkText,
+                kind: .style,
+                payload: "https://example.dev"
+            ),
+        ]), header: false)
         XCTAssertNotNil(link.attribute(.link, at: 0, effectiveRange: nil))
 
-        let code = TableCellRenderer.render("`10`", header: false)
+        let code = TableCellRenderer.render(TableCellModel(source: "10", inlines: [
+            TableInlineDecoration(
+                range: NSRange(location: 0, length: 2), role: Role.codeInline, kind: .style, payload: nil
+            ),
+        ]), header: false)
         let codeFont = code.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
         XCTAssertTrue(codeFont?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false)
 
     }
 
+    func testMixedTableImageKeepsAdjacentInlineCodeVisible() {
+        let rendered = TableCellRenderer.render(TableCellModel(source: "`DOM` + ![chart](chart.png)", inlines: [
+            TableInlineDecoration(
+                range: NSRange(location: 0, length: 5), role: Role.codeInline, kind: .style, payload: nil
+            ),
+            TableInlineDecoration(
+                range: NSRange(location: 0, length: 1), role: Role.codeInline, kind: .conceal, payload: nil
+            ),
+            TableInlineDecoration(
+                range: NSRange(location: 4, length: 1), role: Role.codeInline, kind: .conceal, payload: nil
+            ),
+            TableInlineDecoration(
+                range: NSRange(location: 8, length: 19),
+                role: Role.image,
+                kind: .inlineWidget,
+                payload: "chart.png"
+            ),
+        ]), header: false)
+
+        XCTAssertTrue(rendered.string.hasPrefix("DOM + "))
+        XCTAssertEqual(rendered.string.last, "\u{fffc}")
+        let attachment = rendered.attribute(
+            .attachment,
+            at: rendered.length - 1,
+            effectiveRange: nil
+        ) as? NSTextAttachment
+        XCTAssertLessThanOrEqual(attachment?.bounds.width ?? .greatestFiniteMagnitude, 40)
+    }
+
     func testNativeTableImagesComeFromTheResourceResolverWithoutADuplicateAttachment() throws {
         let source = "| Asset |\n| :---: |\n| ![chart](chart.png) |\n"
-        let resources = ResourceCache()
         let resolver = ImageResolver()
-        resources.resolver = resolver
-        let view = try XCTUnwrap(TableWidgetView(
-            source: source,
-            fittingWidth: 320,
-            resources: resources
+        editor.resourceResolver = resolver
+        editor.setMarkdown(source)
+        let paragraph = try XCTUnwrap(editor.textContentStorage(
+            editor.contentStorage,
+            textParagraphWith: NSRange(location: 0, length: storage.length)
         ))
+        let attachment = try XCTUnwrap(
+            paragraph.attributedString.attribute(.attachment, at: 0, effectiveRange: nil)
+                as? WidgetAttachment
+        )
+        let view = try XCTUnwrap(attachment.makeView() as? TableWidgetView)
 
         func descendants(_ root: NSView) -> [NSView] {
             root.subviews.flatMap { [$0] + descendants($0) }
@@ -164,14 +224,57 @@ final class MacRendererTests: XCTestCase {
             "the attachment reserved less height than its image row draws"
         )
 
-        editor.resourceResolver = resolver
-        editor.setMarkdown(source)
         let imageRange = (source as NSString).range(of: "![chart](chart.png)")
         let paragraphRange = (source as NSString).paragraphRange(for: imageRange)
         XCTAssertNil(
             editor.textContentStorage(editor.contentStorage, textParagraphWith: paragraphRange),
             "the nested image also became a full-size attachment behind the table"
         )
+        XCTAssertEqual(editor.markdown, source)
+    }
+
+    func testNativeTablesResolveReferenceImagesInsideMixedContent() throws {
+        let source = """
+        | Mixed | Reference |
+        | :--- | ---: |
+        | before ![chart][chart-ref] after | ![photo][photo-ref] |
+
+        [chart-ref]: chart.png
+        [photo-ref]: photo.png
+        """
+        let resolver = ImageResolver()
+        editor.resourceResolver = resolver
+        editor.setMarkdown(source)
+        let paragraph = try XCTUnwrap(editor.textContentStorage(
+            editor.contentStorage,
+            textParagraphWith: NSRange(location: 0, length: storage.length)
+        ))
+        let attachment = try XCTUnwrap(
+            paragraph.attributedString.attribute(.attachment, at: 0, effectiveRange: nil)
+                as? WidgetAttachment
+        )
+        let table = try XCTUnwrap(attachment.makeView() as? TableWidgetView)
+
+        func descendants(_ root: NSView) -> [NSView] {
+            root.subviews.flatMap { [$0] + descendants($0) }
+        }
+        let labels = descendants(table).compactMap { $0 as? NSTextField }
+        let inlineAttachments = labels.reduce(0) { count, label in
+            var found = 0
+            let value = label.attributedStringValue
+            value.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: value.length)
+            ) { attachment, _, _ in
+                if attachment != nil { found += 1 }
+            }
+            return count + found
+        }
+        XCTAssertGreaterThanOrEqual(inlineAttachments, 1, "mixed image fell back to source text")
+        XCTAssertEqual(Set(resolver.requested), Set(["chart.png", "photo.png"]))
+        XCTAssertEqual(table.model.rows[1].map(\.source), [
+            "before ![chart][chart-ref] after", "![photo][photo-ref]",
+        ])
         XCTAssertEqual(editor.markdown, source)
     }
 
@@ -674,6 +777,13 @@ final class MacRendererTests: XCTestCase {
 
         XCTAssertTrue(editor.performUndo())
         XCTAssertEqual(editor.markdown, "- [ ] a task\n")
+
+        editor.setMarkdown("- [X] already checked\n")
+        let uppercase = try XCTUnwrap(
+            editor.decorations.first { $0.role == Role.taskCheckbox }
+        )
+        editor.toggleTask(at: uppercase)
+        XCTAssertEqual(editor.markdown, "- [ ] already checked\n")
     }
 
     func testTheViewRefusesToUndoWhenThereIsNothingToUndo() {
@@ -724,6 +834,17 @@ private final class ResolvingResolver: ResourceResolver {
     func reservedSize(_ request: ResourceRequest) -> CGSize {
         guesses += 1
         return CGSize(width: 100, height: 60)
+    }
+}
+
+private final class LinkRecorder: MarkdownTextViewDelegate {
+    var destination: String?
+
+    func markdownTextView(
+        _ view: MarkdownTextView,
+        didRequestOpenLink destination: String
+    ) {
+        self.destination = destination
     }
 }
 

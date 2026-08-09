@@ -376,12 +376,10 @@ public final class MarkdownEngine {
     }
 
     /// Extra text the parser already resolved for this decoration: an image or link
-    /// destination, a fence argument, the inside of a delimited token.
+    /// destination, table alignments, a fence argument, or a delimited token's content.
     ///
-    /// This is a **reference, never content**. A document holds `![alt](photo.jpg)`,
-    /// not the bytes of the photo — inlining them would make notes enormous and stop
-    /// them being portable markdown. Turning the reference into something displayable
-    /// is the host's job, via `ResourceResolver`.
+    /// A resource payload is a **reference, never content**. A document holds
+    /// `![alt](photo.jpg)`, not the bytes of the photo; `ResourceResolver` displays it.
     public func payload(for key: UInt64) -> String? {
         var len = 0
         guard let ptr = mde_payload(handle, key, &len), len > 0 else { return nil }

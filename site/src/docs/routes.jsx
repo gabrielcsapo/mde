@@ -24,6 +24,7 @@ import RefWeb from './pages/ref-web.jsx';
 import RefSwift from './pages/ref-swift.jsx';
 import RefFfi from './pages/ref-ffi.jsx';
 import RefRoles from './pages/ref-roles.jsx';
+import MarkdownSupport from './pages/markdown.jsx';
 import Architecture from './pages/architecture.jsx';
 import Performance from './pages/performance.jsx';
 import Testing from './pages/testing.jsx';
@@ -49,6 +50,7 @@ export const ROUTES = {
   '/reference/swift': RefSwift,
   '/reference/ffi': RefFfi,
   '/reference/roles': RefRoles,
+  '/reference/markdown': MarkdownSupport,
   '/internals/architecture': Architecture,
   '/internals/performance': Performance,
   '/internals/testing': Testing,

@@ -534,6 +534,13 @@ of that source and rebuilds the same lines as ordinary editable text; leaving th
 restores the table. There is still one document and one set of offsets — the table is a
 view, never a second model.
 
+Cell boundaries, nested inline roles, resource destinations, and the compact column
+alignment payload all come from the Rust decoration stream. Neither web nor Apple
+parses pipe syntax to build the projection, and Swift does not invoke Foundation's
+Markdown parser for cell content. This is the same single-parser rule as the rest of
+the document; a reference-style or mixed-content image in a cell therefore resolves
+identically on every host.
+
 | primitive | how it is drawn |
 |---|---|
 | `Style` | a class per role on a run |

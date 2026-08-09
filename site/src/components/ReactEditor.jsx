@@ -86,6 +86,9 @@ export default function ReactEditor({ historyInitiallyOpen, descriptionId }) {
           resourceResolver={resourceResolver}
           onChange={updateStatus}
           onSelectionChange={refresh}
+          onLinkOpen={({ destination }) => {
+            window.open(destination, '_blank', 'noopener,noreferrer');
+          }}
           onHistoryChange={(next) => {
             onHistoryChange(next);
             refresh();

@@ -167,6 +167,14 @@ final class EditorViewController: UIViewController {
 extension EditorViewController: MarkdownTextViewDelegate {
     func markdownTextView(
         _ view: MarkdownTextView,
+        didRequestOpenLink destination: String
+    ) {
+        guard let url = URL(string: destination) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    func markdownTextView(
+        _ view: MarkdownTextView,
         didTap decoration: Decoration,
         source: String
     ) {

@@ -313,11 +313,10 @@ export class Engine {
 
   /**
    * Extra text the parser already resolved for this decoration: an image or link
-   * destination, a fence argument, the inside of a delimited token.
+   * destination, table alignments, a fence argument, or a delimited token's content.
    *
-   * This is a **reference, never content**. A document holds `![alt](photo.jpg)`, not
-   * the bytes of the photo — inlining them would make notes enormous and stop them
-   * being portable markdown. Turning it into something displayable is the host's job.
+   * A resource payload is a **reference, never content**. A document holds
+   * `![alt](photo.jpg)`, not the bytes of the photo; displaying it is the host's job.
    *
    * @param {bigint} key
    * @returns {string|null}

@@ -195,6 +195,14 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
 extension MacAppDelegate: MarkdownTextViewDelegate {
     func markdownTextView(
         _ view: MarkdownTextView,
+        didRequestOpenLink destination: String
+    ) {
+        guard let url = URL(string: destination) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func markdownTextView(
+        _ view: MarkdownTextView,
         didTap decoration: Decoration,
         source: String
     ) {

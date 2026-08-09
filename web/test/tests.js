@@ -296,6 +296,56 @@ export async function run() {
     assertEqual(domText(e.root), source, 'the semantic view changed the Markdown source');
   });
 
+  await asyncTest('table images support reference syntax and mixed text through the core', async () => {
+    const requested = [];
+    const e = makeEditor({
+      resourceResolver: {
+        async resolve({ reference }) {
+          requested.push(reference);
+          const image = document.createElement('img');
+          image.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+          image.dataset.reference = reference;
+          return { state: 'ready', view: image };
+        },
+        reservedSize: () => ({ width: 64, height: 36 }),
+      },
+    });
+    const source =
+      '| Mixed | Reference |\n' +
+      '| :--- | ---: |\n' +
+      '| before ![chart][chart-ref] after | ![photo][photo-ref] |\n\n' +
+      '[chart-ref]: chart.png\n' +
+      '[photo-ref]: photo.png\n';
+    e.setMarkdown(source);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const table = e.root.querySelector('table.mde-rendered-table');
+    assertEqual(table?.querySelectorAll('img.mde-table-resource-image').length, 2);
+    assert(table?.textContent.includes('before') && table?.textContent.includes('after'));
+    assertEqual(requested.sort(), ['chart.png', 'photo.png']);
+    assertEqual(domText(e.root), source);
+  });
+
+  test('a 100 by 10 table projects within the interactive test budget', () => {
+    const columns = Array.from({ length: 10 }, (_, index) => `C${index}`);
+    const rows = Array.from({ length: 100 }, (_, row) =>
+      `| ${columns.map((_, column) => `r${row}c${column}`).join(' | ')} |`
+    );
+    const source =
+      `| ${columns.join(' | ')} |\n` +
+      `| ${columns.map(() => '---').join(' | ')} |\n` +
+      `${rows.join('\n')}\n`;
+    const e = makeEditor();
+    const started = performance.now();
+    e.setMarkdown(source);
+    const elapsed = performance.now() - started;
+
+    assertEqual(e.root.querySelectorAll('tbody td').length, 1000);
+    assertEqual(domText(e.root), source);
+    assert(elapsed < 1500, `large table projection took ${elapsed.toFixed(1)}ms`);
+  });
+
   test('clicking a rendered table reveals its editable pipe source', () => {
     const e = makeEditor();
     const source = '| Name | Score |\n| :--- | ----: |\n| Ada | 10 |\n\nafter\n';
@@ -324,6 +374,21 @@ export async function run() {
     assertEqual(e.root.querySelectorAll('.mde-link-text').length, 2);
     assertEqual(e.root.querySelectorAll('.mde-conceal').length, 4);
     assertEqual(domText(e.root), source);
+  });
+
+  test('Command or Control click requests link navigation without changing source', () => {
+    const e = makeEditor();
+    const source = '[docs](https://example.dev/docs)';
+    e.setMarkdown(source);
+    e.root.focus();
+    e.setSelectionRange({ start: 2, end: 2 });
+    let opened = null;
+    e.addEventListener('linkopen', (event) => {
+      opened = event.detail.destination;
+    });
+    e.onClick(new MouseEvent('click', { ctrlKey: true, cancelable: true }));
+    assertEqual(opened, 'https://example.dev/docs');
+    assertEqual(e.markdown, source);
   });
 
   test('setext headings use their parsed level and conceal the underline', () => {
@@ -651,6 +716,12 @@ export async function run() {
     assertEqual(e.markdown, '- [x] a task\n');
     e.undo();
     assertEqual(e.markdown, '- [ ] a task\n');
+
+    e.setMarkdown('- [X] already checked\n');
+    const uppercase = e.decorations.find((d) => d.role === Role.TaskCheckbox);
+    assert(uppercase, 'no uppercase checkbox decoration');
+    e.toggleTask(uppercase);
+    assertEqual(e.markdown, '- [ ] already checked\n');
   });
 
   test('undo restores the caret to where the edit began', () => {

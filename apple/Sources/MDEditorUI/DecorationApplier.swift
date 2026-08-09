@@ -189,7 +189,9 @@ final class DecorationApplier {
     /// Ranges of every node whose reference is `reference`, so a resolved resource
     /// repaints exactly the nodes that point at it.
     func ranges(referencing reference: String) -> [NSRange] {
-        let referenced = live.values.filter { engine.payload(for: $0.key) == reference }
+        let referenced = live.values.filter {
+            $0.role != Role.table && engine.payload(for: $0.key) == reference
+        }
         var ranges = [NSRange]()
         for decoration in referenced {
             if let table = live.values.first(where: {
@@ -349,14 +351,25 @@ final class DecorationApplier {
         )
         for w in widgets.sorted(by: { $0.range.location > $1.range.location }) {
             guard let roleName = engine.roleName(w.role) else { continue }
+            let source = ns.substring(with: w.range)
+            let tableModel = roleName == "table"
+                ? MarkdownTableModel(
+                    source: source,
+                    tableRange: w.range,
+                    decorations: Array(decorations(intersecting: w.range)),
+                    alignmentPayload: engine.payload(for: w.key),
+                    payload: { [engine] key in engine.payload(for: key) }
+                )
+                : nil
             let attachment = WidgetAttachment(
                 roleName: roleName,
-                source: ns.substring(with: w.range),
+                source: source,
                 payload: engine.payload(for: w.key),
                 provider: widgetProvider,
                 resources: resources,
                 cache: self,
-                key: w.key
+                key: w.key,
+                tableModel: tableModel
             )
             attachment.fittingWidth = max(containerWidth, 1)
             let local = NSRange(location: w.range.location - range.location, length: 1)
@@ -371,6 +384,15 @@ final class DecorationApplier {
     func hit(at offset: Int) -> Decoration? {
         decorations(intersecting: NSRange(location: offset, length: 1))
             .filter { $0.kind == .hit && NSLocationInRange(offset, $0.range) }
+            .min { $0.range.length < $1.range.length }
+    }
+
+    /// The smallest visible link label containing `offset`, if any.
+    func link(at offset: Int) -> Decoration? {
+        decorations(intersecting: NSRange(location: offset, length: 1))
+            .filter {
+                $0.role == Role.linkText && NSLocationInRange(offset, $0.range)
+            }
             .min { $0.range.length < $1.range.length }
     }
 }

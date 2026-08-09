@@ -285,5 +285,28 @@ final class MacRendererBenchmarks: XCTestCase {
             }
         }
     }
+
+    func testBenchmarkLargeTableProjection() throws {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
+            throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
+        }
+        let columns = (0..<10).map { "C\($0)" }
+        let rows = (0..<100).map { row in
+            "| " + columns.indices.map { "r\(row)c\($0)" }.joined(separator: " | ") + " |"
+        }
+        let source = "| " + columns.joined(separator: " | ") + " |\n"
+            + "| " + columns.map { _ in "---" }.joined(separator: " | ") + " |\n"
+            + rows.joined(separator: "\n") + "\n"
+        let (window, editor) = makeEditor()
+        let projection = timed {
+            editor.setMarkdown(source)
+            editor.contentStorage.textLayoutManagers.first?.ensureLayout(
+                for: editor.contentStorage.documentRange
+            )
+        }
+        print(String(format: "100x10 table projection %8.2f ms", projection))
+        XCTAssertEqual(editor.markdown, source)
+        _ = window
+    }
 }
 #endif

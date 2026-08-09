@@ -91,6 +91,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
     onChange,
     onSelectionChange: _onSelectionChange,
     onHit,
+    onLinkOpen,
     onHistoryChange,
     onReady,
     onError,
@@ -186,6 +187,10 @@ function MarkdownEditorImpl(props, forwardedRef) {
       latest.current.onHit?.(detail, api);
     };
 
+    const onLinkOpen = (/** @type {any} */ event) => {
+      latest.current.onLinkOpen?.(event.detail, api);
+    };
+
     sharedCore(latest.current.wasm ?? DEFAULT_WASM_URL)
       .then((core) => {
         if (cancelled) return;
@@ -229,6 +234,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
         editor.addEventListener('change', onChange);
         editor.addEventListener('selectionchange', onSelectionChange);
         editor.addEventListener('hit', onHit);
+        editor.addEventListener('linkopen', onLinkOpen);
 
         const initial = props0.value !== undefined ? props0.value : (props0.defaultValue ?? '');
         // Mounting is not a change the host made; firing `onChange` here would look like

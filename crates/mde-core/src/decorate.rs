@@ -7,7 +7,7 @@
 use crate::decoration::{node_key, Kind, Reveal, RoleId};
 use crate::registry::{role, BlockSyntax, Matcher, Registry};
 use crate::text::Text;
-use pulldown_cmark::{CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
 
 /// A decoration before selection is applied. All offsets are UTF-8 bytes; conversion
@@ -24,9 +24,9 @@ pub struct Built {
     pub depth: u8,
     pub key: u64,
     /// Extra text the parser already knew and the renderer would otherwise have to
-    /// re-derive: an image or link destination, a fence info string, the inside of a
-    /// delimited token. Renderers must never re-parse markdown to find these — that is
-    /// duplicated, divergent work in three languages.
+    /// re-derive: an image or link destination, table alignments, a fence info string,
+    /// or the inside of a delimited token. Renderers must never re-parse markdown to
+    /// find these — that is duplicated, divergent work in three languages.
     pub payload: Option<String>,
 }
 
@@ -269,6 +269,40 @@ fn run_len(s: &str, c: char) -> usize {
     s.chars().take_while(|&x| x == c).count()
 }
 
+/// Byte length of indentation plus a list marker, excluding the whitespace after it.
+/// CommonMark permits a tab after the marker; splitting on a literal space styled the
+/// entire item as a gutter in that case.
+fn list_marker_len(line: &str) -> usize {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
+        i += 1;
+    }
+    let marker = i;
+    if bytes.get(i).is_some_and(|byte| matches!(byte, b'-' | b'+' | b'*')) {
+        return i + 1;
+    }
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i > marker && bytes.get(i).is_some_and(|byte| matches!(byte, b'.' | b')')) {
+        i + 1
+    } else {
+        marker
+    }
+}
+
+/// A quote marker must occur after indentation, not merely somewhere on a lazy
+/// continuation line whose ordinary prose happens to contain `>`.
+fn quote_marker(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
+        i += 1;
+    }
+    (bytes.get(i) == Some(&b'>')).then_some(i)
+}
+
 pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
     let src = text.as_str();
     let mut b = Builder {
@@ -289,26 +323,27 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
         match ev {
             Event::Start(Tag::Heading { level, .. }) => {
                 b.block_stack.push((r.start, r.end));
-                let line_end = text.line_range(r.start).1;
-                b.push(r.start, line_end, (r.start, line_end), Kind::Style, role::HEADING, Reveal::Never);
+                let (line_start, line_end) = text.line_range(r.start);
+                b.push(line_start, line_end, (line_start, line_end), Kind::Style, role::HEADING, Reveal::Never);
                 if let Some(heading) = b.out.last_mut() {
                     heading.depth = level as u8;
                 }
-                let hashes = run_len(&src[r.start..], '#');
+                let line = &src[line_start..line_end];
+                let marker_offset = line.bytes().take_while(|byte| matches!(byte, b' ' | b'\t')).count();
+                let hashes = run_len(&line[marker_offset..], '#');
                 if hashes > 0 && hashes == level as usize {
-                    let mut m = r.start + hashes;
-                    if src[m..].starts_with(' ') {
+                    let mut m = line_start + marker_offset + hashes;
+                    if src.as_bytes().get(m).is_some_and(|byte| matches!(byte, b' ' | b'\t')) {
                         m += 1;
                     }
                     b.push(
-                        r.start,
+                        line_start,
                         m,
-                        (r.start, line_end),
+                        (line_start, line_end),
                         Kind::Conceal,
                         role::MARKER,
                         Reveal::CaretInLine,
                     );
-                    let line = &src[r.start..line_end];
                     let trimmed = line.trim_end_matches([' ', '\t']);
                     let closing = trimmed.bytes().rev().take_while(|&c| c == b'#').count();
                     if closing > 0 {
@@ -318,9 +353,9 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                         {
                             let marker_start = line[..hash_start].trim_end_matches([' ', '\t']).len();
                             b.push(
-                                r.start + marker_start,
+                                line_start + marker_start,
                                 line_end,
-                                (r.start, line_end),
+                                (line_start, line_end),
                                 Kind::Conceal,
                                 role::MARKER,
                                 Reveal::CaretInLine,
@@ -358,7 +393,7 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                 let depth = b.quote_depth;
                 let mut off = r.start;
                 for line in src[r.start..r.end].split_inclusive('\n') {
-                    let marker = line.find('>').map(|i| off + i);
+                    let marker = quote_marker(line).map(|i| off + i);
                     if let Some(m) = marker {
                         b.push(m, m + 1, (r.start, r.end), Kind::Gutter, role::QUOTE, Reveal::Never);
                         if let Some(last) = b.out.last_mut() {
@@ -376,8 +411,7 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
             Event::Start(Tag::Item) => {
                 b.block_stack.push((r.start, r.end));
                 let line = &src[r.start..text.line_range(r.start).1];
-                let marker_len = line.len() - line.trim_start().len()
-                    + line.trim_start().split(' ').next().unwrap_or("").len();
+                let marker_len = list_marker_len(line);
                 b.push(
                     r.start,
                     r.start + marker_len,
@@ -483,17 +517,27 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                 b.block_stack.pop();
             }
 
-            Event::Start(Tag::Table(_)) => {
+            Event::Start(Tag::Table(alignments)) => {
                 b.block_stack.push((r.start, r.end));
                 // A table is a native/semantic block view until the caret enters it,
                 // then the exact pipe source returns for editing on every renderer.
-                b.push(
+                let alignment_payload = alignments
+                    .iter()
+                    .map(|alignment| match alignment {
+                        Alignment::Left => 'l',
+                        Alignment::Center => 'c',
+                        Alignment::Right => 'r',
+                        Alignment::None => 'n',
+                    })
+                    .collect();
+                b.push_with(
                     r.start,
                     r.end,
                     (r.start, r.end),
                     Kind::BlockWidget,
                     role::TABLE,
                     Reveal::CaretInBlock,
+                    Some(alignment_payload),
                 );
                 let mut lines = src[r.start..r.end].split_inclusive('\n');
                 let first_len = lines.next().map_or(0, str::len);
@@ -724,6 +768,7 @@ mod tests {
         assert_eq!(table.len(), 1);
         assert_eq!(&t.as_str()[table[0].start..table[0].end], src);
         assert_eq!(table[0].reveal, Reveal::CaretInBlock);
+        assert_eq!(table[0].payload.as_deref(), Some("lr"));
         assert_eq!(find(&d, Kind::Style, role::TABLE_HEADER).len(), 1);
         let delimiter = find(&d, Kind::Style, role::TABLE_DELIMITER);
         assert_eq!(&t.as_str()[delimiter[0].start..delimiter[0].end], "| :--- | ---: |");
@@ -809,6 +854,30 @@ mod tests {
         let h = find(&d, Kind::Hit, role::TASK_CHECKBOX);
         assert_eq!(h.len(), 1);
         assert_eq!(&t.as_str()[h[0].start..h[0].end], "[ ]");
+    }
+
+    #[test]
+    fn legal_indentation_and_tabs_keep_markers_precise() {
+        let (heading_text, heading) = built("  #\tHeading\n", None);
+        let markers = find(&heading, Kind::Conceal, role::MARKER);
+        assert!(markers.iter().any(|item| {
+            &heading_text.as_str()[item.start..item.end] == "  #\t"
+        }));
+
+        let (list_text, list) = built("3.\titem\n", None);
+        let bullets = find(&list, Kind::Gutter, role::LIST_BULLET);
+        assert_eq!(&list_text.as_str()[bullets[0].start..bullets[0].end], "3.");
+    }
+
+    #[test]
+    fn a_lazy_quote_continuation_does_not_promote_a_literal_angle_bracket() {
+        let (text, decorations) = built("> first\nlazy a > b\n", None);
+        let quotes = find(&decorations, Kind::Gutter, role::QUOTE);
+        let sources: Vec<_> = quotes
+            .iter()
+            .map(|item| &text.as_str()[item.start..item.end])
+            .collect();
+        assert_eq!(sources, vec![">"]);
     }
 
     #[test]

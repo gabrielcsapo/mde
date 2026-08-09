@@ -346,6 +346,14 @@ export const WEB_API = [
           'A `Hit` decoration was clicked — a task checkbox, a mention. The host decides what that means.',
       },
       {
+        name: 'linkopen',
+        kind: 'event',
+        signature:
+          "addEventListener('linkopen', (e) => e.detail.destination)",
+        summary:
+          'Command/Ctrl-click requested navigation to a parser-resolved link destination.',
+      },
+      {
         name: 'diffText',
         kind: 'function',
         signature:
@@ -449,6 +457,13 @@ export const REACT_API = [
         signature:
           'onHit?(hit: {decoration: Decoration, source: string}, handle: MarkdownEditorHandle): void',
         summary: 'A `Hit` decoration was clicked — a task checkbox, a mention.',
+      },
+      {
+        name: 'onLinkOpen',
+        kind: 'property',
+        signature:
+          'onLinkOpen?(link: {decoration: Decoration, destination: string}, handle: MarkdownEditorHandle): void',
+        summary: 'Command/Ctrl-click requested navigation without changing the Markdown source.',
       },
       {
         name: 'onHistoryChange',
@@ -827,6 +842,13 @@ export const SWIFT_API = [
         summary: 'Flip a checkbox through the normal edit path, as its own undo step.',
       },
       {
+        name: 'MarkdownTextView.requestOpenLink',
+        kind: 'method',
+        signature: '@discardableResult func requestOpenLink(at offset: Int) -> Bool',
+        summary:
+          'Ask the host delegate to open the parser-resolved link at an offset. Used by Command-click and iOS long press.',
+      },
+      {
         name: 'MarkdownTextView.setLayer',
         kind: 'method',
         signature:
@@ -837,7 +859,7 @@ export const SWIFT_API = [
         name: 'MarkdownTextViewDelegate',
         kind: 'protocol',
         signature:
-          'func markdownTextView(_:didTap:source:) · markdownTextViewDidChange(_:) · markdownTextViewDidChangeSelection(_:)',
+          'func markdownTextView(_:didTap:source:) · markdownTextView(_:didRequestOpenLink:) · markdownTextViewDidChange(_:) · markdownTextViewDidChangeSelection(_:)',
         summary:
           'Observe the view without taking its `UITextViewDelegate` slot, which it needs for itself. Every method has a default, so implement only what you use.',
       },

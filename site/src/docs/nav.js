@@ -172,6 +172,14 @@ export const GROUPS = [
     title: 'Reference',
     pages: [
       {
+        path: '/reference/markdown',
+        file: 'markdown',
+        title: 'Markdown support',
+        summary:
+          'The exact CommonMark and GFM contract: rendered inline, preserved as source, resolved as a widget, or deliberately not enabled.',
+        keywords: 'commonmark gfm support matrix footnotes math html tables tasks images links',
+      },
+      {
         path: '/reference/web',
         file: 'ref-web',
         title: 'Web API',

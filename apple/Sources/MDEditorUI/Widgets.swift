@@ -58,6 +58,7 @@ final class WidgetAttachment: NSTextAttachment {
     /// Owns the view cache. Weak because the applier outlives any one attachment.
     weak var cache: DecorationApplier?
     let key: UInt64
+    let tableModel: MarkdownTableModel?
     var fittingWidth: CGFloat = 320
 
     init(
@@ -67,7 +68,8 @@ final class WidgetAttachment: NSTextAttachment {
         provider: (any WidgetProvider)?,
         resources: ResourceCache?,
         cache: DecorationApplier?,
-        key: UInt64
+        key: UInt64,
+        tableModel: MarkdownTableModel? = nil
     ) {
         self.roleName = roleName
         self.source = source
@@ -76,6 +78,7 @@ final class WidgetAttachment: NSTextAttachment {
         self.resources = resources
         self.cache = cache
         self.key = key
+        self.tableModel = tableModel
         super.init(data: nil, ofType: nil)
     }
 
@@ -104,11 +107,12 @@ final class WidgetAttachment: NSTextAttachment {
             cache?.cacheWidgetView(view, for: key)
             return view
         }
-        if roleName == "table", let view = TableWidgetView(
-            source: source,
+        if roleName == "table", let tableModel {
+            let view = TableWidgetView(
+            model: tableModel,
             fittingWidth: fittingWidth,
             resources: resources
-        ) {
+            )
             cache?.cacheWidgetView(view, for: key)
             return view
         }
@@ -154,8 +158,8 @@ final class WidgetAttachment: NSTextAttachment {
         ) {
             return CGRect(origin: .zero, size: size)
         }
-        if roleName == "table" {
-            return CGRect(origin: .zero, size: TableWidgetView.size(for: source, fittingWidth: width))
+        if roleName == "table", let tableModel {
+            return CGRect(origin: .zero, size: TableWidgetView.size(for: tableModel, fittingWidth: width))
         }
         if let request, let resources {
             return CGRect(origin: .zero, size: resources.size(for: request))

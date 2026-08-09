@@ -96,41 +96,6 @@ function lowerBound(index, offset) {
   return lo;
 }
 
-/** Split a source table row on unescaped pipes, dropping optional outside pipes. */
-function sourceTableCells(line: string): string[] {
-  const cells = [];
-  let cell = '';
-  let escaped = false;
-  for (const char of line.trim()) {
-    if (escaped) {
-      cell += char;
-      escaped = false;
-    } else if (char === '\\') {
-      cell += char;
-      escaped = true;
-    } else if (char === '|') {
-      cells.push(cell);
-      cell = '';
-    } else {
-      cell += char;
-    }
-  }
-  cells.push(cell);
-  if (cells[0]?.trim() === '') cells.shift();
-  if (cells.at(-1)?.trim() === '') cells.pop();
-  return cells;
-}
-
-/** Column alignment encoded by the GFM delimiter row. */
-function tableAlignments(line: string): Array<'left' | 'center' | 'right'> {
-  return sourceTableCells(line).map((cell) => {
-    const marker = cell.trim();
-    if (marker.startsWith(':') && marker.endsWith(':')) return 'center';
-    if (marker.endsWith(':')) return 'right';
-    return 'left';
-  });
-}
-
 export class DomApplier {
   engine: Engine;
   text: string;
@@ -293,6 +258,7 @@ export class DomApplier {
   rangesReferencing(reference) {
     const out = [];
     for (const d of this.live.values()) {
+      if (d.role === Role.Table) continue;
       if (this.engine.payload(d.key) !== reference) continue;
       const table = [...this.live.values()].find(
         (candidate) =>
@@ -312,6 +278,17 @@ export class DomApplier {
     let best = null;
     for (const d of this.covering(offset, offset + 1)) {
       if (d.kind !== Kind.Hit || offset < d.start || offset >= d.end) continue;
+      if (!best || d.end - d.start < best.end - best.start) best = d;
+    }
+    return best;
+  }
+
+  /** The smallest visible link label containing `offset`, if any. */
+  /** @param {number} offset */
+  link(offset) {
+    let best = null;
+    for (const d of this.covering(offset, offset + 1)) {
+      if (d.role !== Role.LinkText || offset < d.start || offset >= d.end) continue;
       if (!best || d.end - d.start < best.end - best.start) best = d;
     }
     return best;
@@ -432,22 +409,50 @@ export class DomApplier {
 
     const source = this.text.slice(tableDecoration.start, tableDecoration.end);
     const sourceLines = source.split('\n');
-    const alignments = tableAlignments(sourceLines[1] ?? '');
+    const alignments = [...(this.engine.payload(tableDecoration.key) ?? '')].map((alignment) => {
+      if (alignment === 'c') return 'center';
+      if (alignment === 'r') return 'right';
+      return 'left';
+    });
     const allDecorations = this.covering(tableDecoration.start, tableDecoration.end)
       .slice()
       .sort((a, b) => paintOrder(a) - paintOrder(b) || a.layer - b.layer);
     const cellDecorations = allDecorations
       .filter((d) => d.kind === Kind.Style && d.role === Role.TableCell)
       .sort((a, b) => a.start - b.start);
+    const decorationsByCell = new Map();
+    let containingCell = 0;
+    for (const decoration of allDecorations.slice().sort((a, b) => a.start - b.start || a.end - b.end)) {
+      while (
+        containingCell < cellDecorations.length &&
+        cellDecorations[containingCell].end <= decoration.start
+      ) containingCell++;
+      const cell = cellDecorations[containingCell];
+      if (cell && decoration.start >= cell.start && decoration.end <= cell.end) {
+        const entries = decorationsByCell.get(cell.key) ?? [];
+        entries.push(decoration);
+        decorationsByCell.set(cell.key, entries);
+      }
+    }
 
     let lineStart = tableDecoration.start;
+    let nextCell = 0;
     for (let lineIndex = 0; lineIndex < sourceLines.length; lineIndex++) {
       const line = sourceLines[lineIndex];
       const lineEnd = lineStart + line.length;
       if (lineIndex !== 1) {
-        const cells = cellDecorations.filter(
-          (cell) => cell.start >= lineStart && cell.end <= lineEnd
-        );
+        while (nextCell < cellDecorations.length && cellDecorations[nextCell].end <= lineStart) {
+          nextCell++;
+        }
+        const cells = [];
+        while (
+          nextCell < cellDecorations.length &&
+          cellDecorations[nextCell].start >= lineStart &&
+          cellDecorations[nextCell].end <= lineEnd
+        ) {
+          cells.push(cellDecorations[nextCell]);
+          nextCell++;
+        }
         if (cells.length > 0) {
           const row = document.createElement('tr');
           cells.forEach((cell, column) => {
@@ -457,7 +462,12 @@ export class DomApplier {
             while (cellStart < cellEnd && /\s/.test(this.text[cellStart])) cellStart++;
             while (cellEnd > cellStart && /\s/.test(this.text[cellEnd - 1])) cellEnd--;
             if (cellEnd > cellStart) {
-              this.appendTableCellContent(element, cellStart, cellEnd, allDecorations);
+              this.appendTableCellContent(
+                element,
+                cellStart,
+                cellEnd,
+                decorationsByCell.get(cell.key) ?? [cell]
+              );
             }
             element.dataset.align = alignments[column] ?? 'left';
             row.appendChild(element);

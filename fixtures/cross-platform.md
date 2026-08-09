@@ -10,7 +10,7 @@ CommonMark stays editable: **bold**, *emphasis*, `code`, [links](https://example
 | Surface | Nested content | Proof |
 | :--- | :---: | ---: |
 | **JS** | [Web](https://example.dev/web) + `wasm` | ![chart](chart.png) |
-| **React** | *Same editor*, component adapter | `DOM` |
+| **React** | *Same editor*, component adapter | `DOM` + ![chart](chart.png) |
 | **iOS** | **UIKit** + [TextKit 2](https://developer.apple.com) | ![photo](photo.png) |
 | **macOS** | ~~forked~~ **AppKit** | `FFI` |
 

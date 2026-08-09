@@ -52,6 +52,12 @@ export default function Testing() {
         which is stripped before parsing — so <Link to="/concepts/reveal">reveal behaviour</Link> is
         snapshotted too, not just the parse.
       </p>
+      <p>
+        A separate CommonMark contract suite carries selected upstream specification cases that are
+        especially easy for a renderer to mishandle — tabs after markers, legal indentation,
+        escaped constructs, nested inline nodes, and lazy block-quote continuation. Pulldown owns
+        parsing conformance; these fixtures pin the decoration ranges every host consumes.
+      </p>
       <SourceFigure className="mt-6" path="regenerating the snapshots" lang="bash" code={golden} />
       <Aside tone="note" title="When a renderer disagrees with a snapshot, the renderer is wrong">
         That is the whole point of writing three renderers against one corpus. It is also why the

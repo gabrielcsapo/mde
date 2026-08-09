@@ -499,6 +499,19 @@ export class MarkdownEditor extends EventTarget {
   onClick(event) {
     const range = this.selectionRange();
     if (!range) return;
+    if (event.metaKey || event.ctrlKey) {
+      const link = this.applier.link(range.start);
+      const destination = link ? this.engine.payload(link.key) : null;
+      if (link && destination) {
+        event.preventDefault();
+        this.dispatchEvent(
+          new CustomEvent('linkopen', {
+            detail: { decoration: link, destination },
+          })
+        );
+        return;
+      }
+    }
     const hit = this.applier.hit(range.start);
     if (!hit) return;
     const source = this.text.slice(hit.start, hit.end);
@@ -512,7 +525,7 @@ export class MarkdownEditor extends EventTarget {
    */
   toggleTask(decoration: Decoration): void {
     const current = this.text.slice(decoration.start, decoration.end);
-    const replacement = current.includes('x') ? '[ ]' : '[x]';
+    const replacement = /x/i.test(current) ? '[ ]' : '[x]';
     this.engine.boundary();
     this.replaceRange(decoration.start, decoration.end, replacement);
     this.engine.boundary();

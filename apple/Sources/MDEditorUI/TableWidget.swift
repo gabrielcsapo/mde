@@ -1,4 +1,5 @@
 import Foundation
+import MDECore
 
 #if os(macOS)
 import AppKit
@@ -6,151 +7,252 @@ import AppKit
 import UIKit
 #endif
 
-/// Parsed display data for a GFM table. The source remains in NSTextStorage; this is
-/// only the native projection installed by the table's block attachment.
-struct MarkdownTableModel {
-    let rows: [[String]]
-    let alignments: [NSTextAlignment]
+/// One core-produced decoration projected into a table cell's local UTF-16 space.
+/// The native renderer never parses Markdown: cell boundaries, inline roles and
+/// resource destinations all come from Rust.
+struct TableInlineDecoration {
+    let range: NSRange
+    let role: UInt32
+    let kind: DecorationKind
+    let payload: String?
+}
 
-    init?(source: String) {
-        let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard lines.count >= 2 else { return nil }
-        let header = Self.cells(in: lines[0])
-        let delimiter = Self.cells(in: lines[1])
-        guard !header.isEmpty, delimiter.count == header.count,
-              delimiter.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).range(
-                  of: #"^:?-{3,}:?$"#, options: .regularExpression
-              ) != nil })
-        else { return nil }
+struct TableCellModel {
+    let source: String
+    let inlines: [TableInlineDecoration]
 
-        var parsed = [header]
-        for line in lines.dropFirst(2) where !line.trimmingCharacters(in: .whitespaces).isEmpty {
-            var row = Self.cells(in: line)
-            if row.count < header.count {
-                row.append(contentsOf: repeatElement("", count: header.count - row.count))
-            }
-            parsed.append(Array(row.prefix(header.count)))
-        }
-        rows = parsed
-        alignments = delimiter.map { marker in
-            let value = marker.trimmingCharacters(in: .whitespaces)
-            if value.hasPrefix(":") && value.hasSuffix(":") { return .center }
-            if value.hasSuffix(":") { return .right }
-            return .left
-        }
+    var imageOnly: TableImageSpec? {
+        let length = (source as NSString).length
+        guard let image = inlines.first(where: {
+            $0.kind == .inlineWidget && $0.role == Role.image
+                && $0.range == NSRange(location: 0, length: length)
+        }), let reference = image.payload else { return nil }
+        return TableImageSpec(alt: Self.imageAlt(in: source), reference: reference, source: source)
     }
 
-    private static func cells(in line: String) -> [String] {
-        var cells = [String]()
-        var cell = ""
-        var escaped = false
-        for character in line.trimmingCharacters(in: .whitespaces) {
-            if escaped {
-                cell.append(character)
-                escaped = false
-            } else if character == "\\" {
-                cell.append(character)
-                escaped = true
-            } else if character == "|" {
-                cells.append(cell)
-                cell = ""
-            } else {
-                cell.append(character)
-            }
-        }
-        cells.append(cell)
-        if cells.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { cells.removeFirst() }
-        if cells.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { cells.removeLast() }
-        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
+    private static func imageAlt(in source: String) -> String {
+        guard source.hasPrefix("!["), let close = source.firstIndex(of: "]") else { return "Image" }
+        return String(source[source.index(source.startIndex, offsetBy: 2)..<close])
     }
 }
 
-/// Turns CommonMark inline content inside one cell into native attributed content.
-/// Foundation supplies the inline parse; the renderer maps its presentation intents
-/// onto the same fonts and colours as the rest of the editor.
-enum TableCellRenderer {
-    private static let intentKey = NSAttributedString.Key("NSInlinePresentationIntent")
-    private static let imageKey = NSAttributedString.Key("NSImageURL")
+/// Display data assembled exclusively from Rust decorations. The source remains in
+/// NSTextStorage; this is only the native projection installed by the table attachment.
+struct MarkdownTableModel {
+    let rows: [[TableCellModel]]
+    let alignments: [NSTextAlignment]
 
-    static func render(_ source: String, header: Bool) -> NSAttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        let parsed = (try? AttributedString(markdown: source, options: options))
-            ?? AttributedString(source)
-        let result = NSMutableAttributedString(attributedString: NSAttributedString(parsed))
-        let baseFont = PlatformFont.platformSystem(ofSize: 14, weight: header ? .semibold : .regular)
-        result.addAttributes(
-            [.font: baseFont, .foregroundColor: PlatformColor.platformLabel],
-            range: NSRange(location: 0, length: result.length)
-        )
-
-        var images = [(NSRange, String)]()
-        result.enumerateAttributes(in: NSRange(location: 0, length: result.length)) { attrs, range, _ in
-            if let raw = attrs[intentKey] as? NSNumber {
-                let value = raw.intValue
-                #if os(macOS)
-                var traits: NSFontDescriptor.SymbolicTraits = []
-                #else
-                var traits: UIFontDescriptor.SymbolicTraits = []
-                #endif
-                if value & 1 != 0 { traits.insert(PlatformFont.platformItalicTrait) }
-                if value & 2 != 0 { traits.insert(PlatformFont.platformBoldTrait) }
-                if !traits.isEmpty { result.addAttribute(.font, value: baseFont.withTraits(traits), range: range) }
-                if value & 4 != 0 {
-                    result.addAttributes(
-                        [.font: PlatformFont.platformMono(ofSize: 13),
-                         .backgroundColor: PlatformColor.platformSecondaryBackground],
-                        range: range
-                    )
-                }
-                if value & 32 != 0 {
-                    result.addAttribute(
-                        .strikethroughStyle,
-                        value: NSUnderlineStyle.single.rawValue,
-                        range: range
-                    )
-                }
-            }
-            if attrs[.link] != nil {
-                result.addAttributes(
-                    [.foregroundColor: PlatformColor.platformAccent,
-                     .underlineStyle: NSUnderlineStyle.single.rawValue],
-                    range: range
-                )
-            }
-            if let reference = attrs[imageKey] {
-                images.append((range, String(describing: reference)))
-            }
+    init?(
+        source: String,
+        tableRange: NSRange,
+        decorations: [Decoration],
+        alignmentPayload: String?,
+        payload: (UInt64) -> String?
+    ) {
+        let source = source as NSString
+        let cells = decorations
+            .filter { $0.role == Role.tableCell && $0.kind == .style }
+            .sorted { $0.range.location < $1.range.location }
+        guard !cells.isEmpty else { return nil }
+        let inlineCandidates = decorations.filter {
+            $0.role != Role.table
+                && $0.role != Role.tableCell
+                && $0.role != Role.tableHeader
+                && $0.role != Role.tableDelimiter
+        }.sorted { left, right in
+            left.range.location == right.range.location
+                ? left.range.upperBound < right.range.upperBound
+                : left.range.location < right.range.location
         }
 
-        // Mixed text-and-image cells retain an accessible inline fallback. A cell that
-        // consists of an image is promoted to a real resolved thumbnail by
-        // TableImageCellView below.
-        for (range, reference) in images.reversed() {
-            let alt = (result.string as NSString).substring(with: range)
-            let replacement = NSMutableAttributedString(attachment: imageAttachment())
-            replacement.append(NSAttributedString(
-                string: " \(alt)",
-                attributes: [
-                    .font: baseFont,
-                    .foregroundColor: PlatformColor.platformAccent,
-                    imageKey: reference,
-                ]
-            ))
-            result.replaceCharacters(in: range, with: replacement)
+        var lineStarts = [0]
+        for offset in 0..<source.length where source.character(at: offset) == 10 {
+            lineStarts.append(offset + 1)
+        }
+        func lineIndex(at offset: Int) -> Int {
+            var low = 0
+            var high = lineStarts.count
+            while low < high {
+                let middle = (low + high) / 2
+                if lineStarts[middle] <= offset { low = middle + 1 } else { high = middle }
+            }
+            return max(0, low - 1)
+        }
+
+        var rowsByLine = [Int: [TableCellModel]]()
+        var inlineCursor = 0
+        for cell in cells {
+            let local = NSRange(
+                location: cell.range.location - tableRange.location,
+                length: cell.range.length
+            )
+            guard local.location >= 0, local.upperBound <= source.length else { continue }
+            let raw = source.substring(with: local) as NSString
+            let content = raw.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.inverted)
+            let trimmed: NSRange
+            if content.location == NSNotFound {
+                trimmed = NSRange(location: local.location, length: 0)
+            } else {
+                let last = raw.rangeOfCharacter(
+                    from: CharacterSet.whitespacesAndNewlines.inverted,
+                    options: NSString.CompareOptions.backwards
+                )
+                trimmed = NSRange(
+                    location: local.location + content.location,
+                    length: last.location + last.length - content.location
+                )
+            }
+            let global = NSRange(
+                location: tableRange.location + trimmed.location,
+                length: trimmed.length
+            )
+            while inlineCursor < inlineCandidates.count,
+                  inlineCandidates[inlineCursor].range.upperBound <= global.location {
+                inlineCursor += 1
+            }
+            var inline = [TableInlineDecoration]()
+            var candidate = inlineCursor
+            while candidate < inlineCandidates.count,
+                  inlineCandidates[candidate].range.location < global.upperBound {
+                let decoration = inlineCandidates[candidate]
+                if decoration.range.location >= global.location,
+                   decoration.range.upperBound <= global.upperBound {
+                    inline.append(TableInlineDecoration(
+                        range: NSRange(
+                            location: decoration.range.location - global.location,
+                            length: decoration.range.length
+                        ),
+                        role: decoration.role,
+                        kind: decoration.kind,
+                        payload: payload(decoration.key)
+                    ))
+                }
+                candidate += 1
+            }
+            let model = TableCellModel(source: source.substring(with: trimmed), inlines: inline)
+            rowsByLine[lineIndex(at: trimmed.location), default: []].append(model)
+        }
+        guard let first = rowsByLine.keys.min(), let header = rowsByLine[first], !header.isEmpty else {
+            return nil
+        }
+        let columns = header.count
+        rows = rowsByLine.keys.sorted().map { line in
+            var row = rowsByLine[line] ?? []
+            if row.count < columns {
+                row.append(contentsOf: repeatElement(
+                    TableCellModel(source: "", inlines: []),
+                    count: columns - row.count
+                ))
+            }
+            return Array(row.prefix(columns))
+        }
+        let encoded = Array(alignmentPayload ?? "")
+        alignments = (0..<columns).map { column in
+            switch column < encoded.count ? encoded[column] : "n" {
+            case "c": return .center
+            case "r": return .right
+            default: return .left
+            }
+        }
+    }
+}
+
+/// Applies core inline roles to a native attributed string. This deliberately does not
+/// invoke Foundation's Markdown parser; Rust has already made every semantic decision.
+enum TableCellRenderer {
+    static func render(
+        _ cell: TableCellModel,
+        header: Bool,
+        resources: ResourceCache? = nil
+    ) -> NSAttributedString {
+        let source = cell.source as NSString
+        let baseFont = PlatformFont.platformSystem(ofSize: 14, weight: header ? .semibold : .regular)
+        let result = NSMutableAttributedString()
+        var cuts = Set([0, source.length])
+        for inline in cell.inlines {
+            cuts.insert(inline.range.location)
+            cuts.insert(inline.range.upperBound)
+        }
+        let points = cuts.filter { $0 >= 0 && $0 <= source.length }.sorted()
+        var emittedImages = Set<Int>()
+        for index in 0..<max(points.count - 1, 0) {
+            let range = NSRange(location: points[index], length: points[index + 1] - points[index])
+            guard range.length > 0 else { continue }
+            let covering = cell.inlines.filter {
+                $0.range.location <= range.location && $0.range.upperBound >= range.upperBound
+            }
+            if let image = covering.first(where: { $0.kind == .inlineWidget && $0.role == Role.image }) {
+                if emittedImages.insert(image.range.location).inserted {
+                    result.append(NSAttributedString(attachment: imageAttachment(
+                        reference: image.payload,
+                        source: source.substring(with: image.range),
+                        resources: resources
+                    )))
+                }
+                continue
+            }
+            if covering.contains(where: { $0.kind == .conceal }) { continue }
+
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: baseFont,
+                .foregroundColor: PlatformColor.platformLabel,
+            ]
+            #if os(macOS)
+            var traits: NSFontDescriptor.SymbolicTraits = []
+            #else
+            var traits: UIFontDescriptor.SymbolicTraits = []
+            #endif
+            for inline in covering where inline.kind == .style {
+                switch inline.role {
+                case Role.emphasis: traits.insert(PlatformFont.platformItalicTrait)
+                case Role.strong: traits.insert(PlatformFont.platformBoldTrait)
+                case Role.strikethrough:
+                    attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+                case Role.codeInline:
+                    attributes[.font] = PlatformFont.platformMono(ofSize: 13)
+                    attributes[.backgroundColor] = PlatformColor.platformSecondaryBackground
+                case Role.linkText:
+                    attributes[.foregroundColor] = PlatformColor.platformAccent
+                    attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                    if let destination = inline.payload { attributes[.link] = destination }
+                default: break
+                }
+            }
+            if !traits.isEmpty {
+                let font = attributes[.font] as? PlatformFont ?? baseFont
+                attributes[.font] = font.withTraits(traits)
+            }
+            result.append(NSAttributedString(string: source.substring(with: range), attributes: attributes))
         }
         return result
     }
 
-    private static func imageAttachment() -> NSTextAttachment {
+    private static func imageAttachment(
+        reference: String?,
+        source: String,
+        resources: ResourceCache?
+    ) -> NSTextAttachment {
         let attachment = NSTextAttachment()
-        #if os(macOS)
-        attachment.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "Image")
-        #else
-        attachment.image = UIImage(systemName: "photo")
-        #endif
-        attachment.bounds = CGRect(x: 0, y: -2, width: 14, height: 14)
+        // Mixed cells need to leave room for adjacent text in a three-column
+        // phone layout. Image-only cells use the larger TableImageCellView.
+        let width: CGFloat = 40
+        if let reference, let resources,
+           case .ready(let view) = resources.state(for: ResourceRequest(
+            reference: reference,
+            roleName: "image",
+            source: source,
+            fittingWidth: width
+           )), let image = view.snapshotImage() {
+            attachment.image = image
+            attachment.bounds = CGRect(x: 0, y: -3, width: width, height: width * 9 / 16)
+        } else {
+            #if os(macOS)
+            attachment.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "Image")
+            #else
+            attachment.image = UIImage(systemName: "photo")
+            #endif
+            attachment.bounds = CGRect(x: 0, y: -2, width: 14, height: 14)
+        }
         return attachment
     }
 }
@@ -158,20 +260,7 @@ enum TableCellRenderer {
 struct TableImageSpec {
     let alt: String
     let reference: String
-
-    init?(source: String) {
-        let pattern = #"^!\[([^\]]*)\]\(([^\s\)]+)(?:\s+[^\)]*)?\)$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(
-                in: source,
-                range: NSRange(location: 0, length: (source as NSString).length)
-              ),
-              match.range.location != NSNotFound
-        else { return nil }
-        let value = source as NSString
-        alt = value.substring(with: match.range(at: 1))
-        reference = value.substring(with: match.range(at: 2))
-    }
+    let source: String
 }
 
 /// A real resource thumbnail inside a native table cell. It snapshots the cached
@@ -191,7 +280,7 @@ final class TableImageCellView: PlatformView {
         let request = ResourceRequest(
             reference: spec.reference,
             roleName: "image",
-            source: "![\(spec.alt)](\(spec.reference))",
+            source: spec.source,
             fittingWidth: width
         )
         if let resources, case .ready(let resolved) = resources.state(for: request),
@@ -311,8 +400,7 @@ final class TableWidgetView: PlatformView {
     private let rules: [PlatformView]
     private var targetSize: CGSize
 
-    init?(source: String, fittingWidth: CGFloat, resources: ResourceCache? = nil) {
-        guard let model = MarkdownTableModel(source: source) else { return nil }
+    init(model: MarkdownTableModel, fittingWidth: CGFloat, resources: ResourceCache? = nil) {
         self.model = model
         targetSize = Self.size(for: model, fittingWidth: fittingWidth)
 
@@ -320,7 +408,7 @@ final class TableWidgetView: PlatformView {
         var cells = [PlatformView]()
         for (rowIndex, row) in model.rows.enumerated() {
             for (column, cell) in row.enumerated() {
-                if let image = TableImageSpec(source: cell) {
+                if let image = cell.imageOnly {
                     cells.append(TableImageCellView(
                         spec: image,
                         alignment: model.alignments[column],
@@ -329,7 +417,11 @@ final class TableWidgetView: PlatformView {
                     ))
                     continue
                 }
-                let content = TableCellRenderer.render(cell, header: rowIndex == 0)
+                let content = TableCellRenderer.render(
+                    cell,
+                    header: rowIndex == 0,
+                    resources: resources
+                )
                 #if os(macOS)
                 let label = NSTextField(wrappingLabelWithString: "")
                 label.attributedStringValue = content
@@ -345,6 +437,7 @@ final class TableWidgetView: PlatformView {
                 label.numberOfLines = 0
                 label.textAlignment = model.alignments[column]
                 label.isAccessibilityElement = true
+                label.accessibilityLabel = cell.source
                 #endif
                 cells.append(label)
             }
@@ -409,14 +502,7 @@ final class TableWidgetView: PlatformView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    static func size(for source: String, fittingWidth: CGFloat) -> CGSize {
-        guard let model = MarkdownTableModel(source: source) else {
-            return CGSize(width: max(fittingWidth, 1), height: minimumRowHeight)
-        }
-        return size(for: model, fittingWidth: fittingWidth)
-    }
-
-    private static func size(for model: MarkdownTableModel, fittingWidth: CGFloat) -> CGSize {
+    static func size(for model: MarkdownTableModel, fittingWidth: CGFloat) -> CGSize {
         let width = fittingWidth > 1 ? fittingWidth : 320
         let columnWidth = width / CGFloat(max(model.rows[0].count, 1))
         let rowHeights = model.rows.enumerated().map { rowIndex, row in
@@ -472,9 +558,9 @@ final class TableWidgetView: PlatformView {
         targetSize = CGSize(width: bounds.width, height: y)
     }
 
-    private static func rowHeight(_ row: [String], header: Bool, columnWidth: CGFloat) -> CGFloat {
+    private static func rowHeight(_ row: [TableCellModel], header: Bool, columnWidth: CGFloat) -> CGFloat {
         row.map { cell in
-            if TableImageSpec(source: cell) != nil {
+            if cell.imageOnly != nil {
                 let width = min(TableImageCellView.maximumWidthForLayout, max(columnWidth - horizontalInset * 2, 36))
                 return ceil(width * 9 / 16) + verticalInset * 2
             }

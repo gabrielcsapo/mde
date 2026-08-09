@@ -147,6 +147,9 @@ function Uncontrolled() {
             // to show the hook exists.
           }
         }}
+        onLinkOpen={({ destination }) => {
+          window.open(destination, '_blank', 'noopener,noreferrer');
+        }}
         onReady={(editor) => {
           // The escape hatch: an extension that predates this package, constructed with
           // the framework-free editor it was written against.

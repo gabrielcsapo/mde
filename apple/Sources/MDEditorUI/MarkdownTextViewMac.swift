@@ -6,6 +6,8 @@ import MDECore
 public protocol MarkdownTextViewDelegate: AnyObject {
     /// A `Hit` decoration was clicked — a task checkbox, a mention chip.
     func markdownTextView(_ view: MarkdownTextView, didTap decoration: Decoration, source: String)
+    /// Command-click requested navigation without taking normal clicks away from editing.
+    func markdownTextView(_ view: MarkdownTextView, didRequestOpenLink destination: String)
     func markdownTextViewDidChange(_ view: MarkdownTextView)
     /// The caret or selection moved. Hosts that decorate from the caret's position —
     /// a focus mode, a live outline — recompute here and push a layer (DESIGN §5.3).
@@ -14,6 +16,7 @@ public protocol MarkdownTextViewDelegate: AnyObject {
 
 public extension MarkdownTextViewDelegate {
     func markdownTextView(_: MarkdownTextView, didTap _: Decoration, source _: String) {}
+    func markdownTextView(_: MarkdownTextView, didRequestOpenLink _: String) {}
     func markdownTextViewDidChange(_: MarkdownTextView) {}
     func markdownTextViewDidChangeSelection(_: MarkdownTextView) {}
 }
@@ -208,6 +211,10 @@ public final class MarkdownTextView: NSTextView {
     override public func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let index = characterIndexForInsertion(at: point)
+        if event.modifierFlags.contains(.command),
+           requestOpenLink(at: index) {
+            return
+        }
         if let hit = applier.hit(at: index) {
             let source = (string as NSString).substring(with: hit.range)
             markdownDelegate?.markdownTextView(self, didTap: hit, source: source)
@@ -215,11 +222,23 @@ public final class MarkdownTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
+    /// Ask the host to open the link label at a UTF-16 offset. Command-click calls
+    /// this; hosts may also expose it from a menu or keyboard command.
+    @discardableResult
+    public func requestOpenLink(at offset: Int) -> Bool {
+        guard let link = applier.link(at: offset),
+              let destination = engine.payload(for: link.key)
+        else { return false }
+        markdownDelegate?.markdownTextView(self, didRequestOpenLink: destination)
+        return true
+    }
+
     public func toggleTask(at decoration: Decoration) {
         guard let storage = textStorage else { return }
         let ns = string as NSString
         guard decoration.range.upperBound <= ns.length else { return }
-        let replacement = ns.substring(with: decoration.range).contains("x") ? "[ ]" : "[x]"
+        let replacement = ns.substring(with: decoration.range).lowercased().contains("x")
+            ? "[ ]" : "[x]"
         engine.boundary()
         storage.replaceCharacters(in: decoration.range, with: replacement)
         engine.boundary()

@@ -123,6 +123,11 @@ export interface MarkdownEditorProps
     hit: { decoration: Decoration; source: string },
     editor: MarkdownEditorHandle
   ): void;
+  /** Command/Ctrl-click on a rendered link label requested navigation. */
+  onLinkOpen?(
+    link: { decoration: Decoration; destination: string },
+    editor: MarkdownEditorHandle
+  ): void;
   /** Fires only when one of the four scalars moves. Pair with `useEditorHistory`. */
   onHistoryChange?(state: HistoryState): void;
   /** The editor exists and the document is rendered. */

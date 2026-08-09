@@ -7,6 +7,9 @@ import UIKit
 public protocol MarkdownTextViewDelegate: AnyObject {
     /// A `Hit` decoration was tapped — a task checkbox, a mention chip.
     func markdownTextView(_ view: MarkdownTextView, didTap decoration: Decoration, source: String)
+    /// A long-pressed link label requested navigation without stealing ordinary taps
+    /// from source editing.
+    func markdownTextView(_ view: MarkdownTextView, didRequestOpenLink destination: String)
     func markdownTextViewDidChange(_ view: MarkdownTextView)
     /// The caret or selection moved. Hosts that decorate from the caret's position —
     /// a focus mode, a live outline — recompute here and push a layer (DESIGN §5.3).
@@ -15,6 +18,7 @@ public protocol MarkdownTextViewDelegate: AnyObject {
 
 public extension MarkdownTextViewDelegate {
     func markdownTextView(_: MarkdownTextView, didTap _: Decoration, source _: String) {}
+    func markdownTextView(_: MarkdownTextView, didRequestOpenLink _: String) {}
     func markdownTextViewDidChange(_: MarkdownTextView) {}
     func markdownTextViewDidChangeSelection(_: MarkdownTextView) {}
 }
@@ -124,6 +128,14 @@ public final class MarkdownTextView: UITextView {
         tap.delaysTouchesEnded = false
         tap.delegate = self
         addGestureRecognizer(tap)
+
+        let linkPress = UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(handleLinkPress(_:))
+        )
+        linkPress.minimumPressDuration = 0.45
+        linkPress.cancelsTouchesInView = false
+        addGestureRecognizer(linkPress)
     }
 
     @available(*, unavailable)
@@ -240,12 +252,32 @@ public final class MarkdownTextView: UITextView {
         markdownDelegate?.markdownTextView(self, didTap: hit, source: source)
     }
 
+    @objc private func handleLinkPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began,
+              let position = closestPosition(to: gesture.location(in: self))
+        else { return }
+        let index = offset(from: beginningOfDocument, to: position)
+        requestOpenLink(at: index)
+    }
+
+    /// Ask the host to open the link label at a UTF-16 offset. Long press calls this;
+    /// hosts may also expose it from a context menu or keyboard command.
+    @discardableResult
+    public func requestOpenLink(at offset: Int) -> Bool {
+        guard let link = applier.link(at: offset),
+              let destination = engine.payload(for: link.key)
+        else { return false }
+        markdownDelegate?.markdownTextView(self, didRequestOpenLink: destination)
+        return true
+    }
+
     /// Toggle a `- [ ]` / `- [x]` checkbox. Goes through the normal edit path, so it
     /// lands in the undo history as its own step.
     public func toggleTask(at decoration: Decoration) {
         let ns = textStorage.string as NSString
         guard decoration.range.upperBound <= ns.length else { return }
-        let replacement = ns.substring(with: decoration.range).contains("x") ? "[ ]" : "[x]"
+        let replacement = ns.substring(with: decoration.range).lowercased().contains("x")
+            ? "[ ]" : "[x]"
         engine.boundary()
         textStorage.replaceCharacters(in: decoration.range, with: replacement)
         engine.boundary()

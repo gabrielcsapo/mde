@@ -69,7 +69,7 @@ pub struct Engine {
     built: Vec<Built>,
     emitted: Vec<Decoration>,
     /// Parser-supplied extra text per decoration key — image and link destinations,
-    /// fence arguments, delimited inner text. Rebuilt on every reparse.
+    /// table alignments, fence arguments, delimited inner text. Rebuilt on every reparse.
     payloads: FastMap<u64, String>,
     /// `None` means unfocused — no caret, so nothing reveals. A document opened but
     /// not yet edited must render fully collapsed; without this state a caret

@@ -76,6 +76,9 @@ export default function VanillaEditor({ historyInitiallyOpen, descriptionId }) {
           onChange();
         }
       });
+      ed.addEventListener('linkopen', (e) => {
+        window.open(e.detail.destination, '_blank', 'noopener,noreferrer');
+      });
 
       ed.setMarkdown(sample);
       editor.current = ed;
