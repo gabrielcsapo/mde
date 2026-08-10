@@ -60,6 +60,17 @@ public final class MarkdownTextView: NSTextView {
         }
     }
 
+    /// Avoids TextKit 2's pathological wrapped-paragraph reflow on very long lines.
+    ///
+    /// AppKit lays out a paragraph as its smallest unit, so one giant wrapped paragraph
+    /// can block the main thread for seconds on every keystroke. The default keeps the
+    /// source exact and switches the document to horizontal scrolling when a paragraph
+    /// reaches the safety threshold. Set this to `false` if preserving soft wrapping is
+    /// more important than responsive editing for hostile input.
+    public var optimizesLongParagraphLayout = true {
+        didSet { updateLongParagraphLayout() }
+    }
+
     private let applier: DecorationApplier
     /// Internal rather than private so the renderer tests can drive paragraph
     /// substitution directly.
@@ -67,6 +78,9 @@ public final class MarkdownTextView: NSTextView {
     private lazy var ownUndoManager = DisabledUndoManager()
     private var isRewinding = false
     private static let eagerPaintLimit = 256 * 1024
+    private static let longParagraphThreshold = 8 * 1024
+    private var longParagraphAnchor: Int?
+    private var previousHorizontalScroller: Bool?
     private var usesViewportPainting = false
     private var paintedRanges: [NSRange] = []
     private var viewportPaintScheduled = false
@@ -129,6 +143,11 @@ public final class MarkdownTextView: NSTextView {
         scheduleViewportPaint()
     }
 
+    override public func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        synchronizeHorizontalScroller()
+    }
+
     override public func scrollRangeToVisible(_ range: NSRange) {
         super.scrollRangeToVisible(range)
         pendingPaintLocation = range.location
@@ -150,6 +169,7 @@ public final class MarkdownTextView: NSTextView {
 
     public func setMarkdown(_ text: String) {
         guard let storage = textStorage else { return }
+        updateLongParagraphLayout(in: text as NSString)
         // TextKit may ask for presentation paragraphs synchronously while replacing
         // storage. Drop old-document widget ranges first so they can never be sliced
         // from the new, possibly shorter buffer.
@@ -165,6 +185,100 @@ public final class MarkdownTextView: NSTextView {
         paintedRanges.removeAll()
         refreshPainting()
         pluginsDidChangeMarkdown()
+    }
+
+    private static func longParagraph(in source: NSString) -> NSRange? {
+        var location = 0
+        while location < source.length {
+            let paragraph = source.paragraphRange(
+                for: NSRange(location: location, length: 0)
+            )
+            if paragraph.length >= longParagraphThreshold { return paragraph }
+            let next = paragraph.upperBound
+            guard next > location else { break }
+            location = next
+        }
+        return nil
+    }
+
+    private func updateLongParagraphLayout() {
+        guard let storage = textStorage else { return }
+        updateLongParagraphLayout(in: storage.string as NSString)
+    }
+
+    private func updateLongParagraphLayout(in source: NSString) {
+        let paragraph = optimizesLongParagraphLayout ? Self.longParagraph(in: source) : nil
+        setLongParagraphLayout(anchor: paragraph?.location)
+    }
+
+    private func updateLongParagraphLayout(afterEditAt location: Int, delta: Int) {
+        guard let storage = textStorage else { return }
+        let source = storage.string as NSString
+        guard optimizesLongParagraphLayout else {
+            setLongParagraphLayout(anchor: nil)
+            return
+        }
+
+        if let anchor = longParagraphAnchor, source.length > 0 {
+            let shifted = anchor >= location ? max(0, anchor + delta) : anchor
+            let safe = min(shifted, source.length - 1)
+            let paragraph = source.paragraphRange(for: NSRange(location: safe, length: 0))
+            if paragraph.length >= Self.longParagraphThreshold {
+                setLongParagraphLayout(anchor: paragraph.location)
+                return
+            }
+        } else if source.length > 0 {
+            let safe = min(location, source.length - 1)
+            let paragraph = source.paragraphRange(for: NSRange(location: safe, length: 0))
+            if paragraph.length >= Self.longParagraphThreshold {
+                setLongParagraphLayout(anchor: paragraph.location)
+                return
+            }
+        }
+        setLongParagraphLayout(anchor: Self.longParagraph(in: source)?.location)
+    }
+
+    private func setLongParagraphLayout(anchor: Int?) {
+        let shouldUnwrap = optimizesLongParagraphLayout && anchor != nil
+        let wasUnwrapped = longParagraphAnchor != nil
+        longParagraphAnchor = shouldUnwrap ? anchor : nil
+        guard shouldUnwrap != wasUnwrapped else {
+            synchronizeHorizontalScroller()
+            return
+        }
+
+        textContainer?.widthTracksTextView = !shouldUnwrap
+        isHorizontallyResizable = shouldUnwrap
+        if shouldUnwrap {
+            maxSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            textContainer?.size = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        } else {
+            textContainer?.size = NSSize(
+                width: max(0, bounds.width - textContainerInset.width * 2),
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        }
+        synchronizeHorizontalScroller()
+        needsLayout = true
+    }
+
+    private func synchronizeHorizontalScroller() {
+        guard let scrollView = enclosingScrollView else { return }
+        if longParagraphAnchor != nil {
+            if previousHorizontalScroller == nil {
+                previousHorizontalScroller = scrollView.hasHorizontalScroller
+            }
+            scrollView.hasHorizontalScroller = true
+        } else if let previousHorizontalScroller {
+            scrollView.hasHorizontalScroller = previousHorizontalScroller
+            self.previousHorizontalScroller = nil
+        }
     }
 
     // MARK: - Undo
@@ -205,6 +319,7 @@ public final class MarkdownTextView: NSTextView {
         storage.endEditing()
         isRewinding = false
 
+        updateLongParagraphLayout()
         applier.ingest(rewind.patch)
         refreshPainting()
         if let sel = rewind.selection, sel.upperBound <= storage.length {
@@ -412,6 +527,10 @@ extension MarkdownTextView: NSTextStorageDelegate {
             )
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                self.updateLongParagraphLayout(
+                    afterEditAt: editedRange.location,
+                    delta: delta
+                )
                 self.applyPatch(patch, alsoDirty: editedRange)
                 self.reportSelection()
                 self.pluginsDidChangeMarkdown()

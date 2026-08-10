@@ -362,14 +362,20 @@ final class MacRendererBenchmarks: XCTestCase {
         editor.setMarkdown(source)
         XCTAssertTrue(window.makeFirstResponder(editor))
         drainMainQueue()
-        let storage = try XCTUnwrap(editor.textStorage)
-        var at = storage.length / 2
-        let update = best(2) {
-            storage.replaceCharacters(in: NSRange(location: at, length: 0), with: "x")
-            drainMainQueue()
-            at += 1
+        let at = editor.string.utf16.count / 2
+        editor.setSelectedRange(NSRange(location: at, length: 0))
+        editor.scrollRangeToVisible(NSRange(location: at, length: 0))
+        drainMainQueue()
+        var input = 0.0
+        var display = 0.0
+        let update = timed {
+            input = timed {
+                editor.insertText("x", replacementRange: NSRange(location: at, length: 0))
+            }
+            display = timed { drainMainQueue() }
         }
         print(String(format: "32KB giant Unicode paragraph %8.3f ms", update))
+        print(String(format: "  input %8.3f ms  display %8.3f ms", input, display))
         enforceBudget(
             update,
             environment: "MDE_APPLE_GIANT_PARAGRAPH_BUDGET_MS",

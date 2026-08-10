@@ -548,6 +548,15 @@ requested again.
 
 **macOS (built).** `NSTextView`, also TextKit 2.
 
+TextKit 2's smallest invalidation unit is a paragraph. A hostile document containing a
+single multi-kilobyte wrapped line therefore asks CoreText to reshape the entire line on
+every keypress, even though parsing and decoration painting are local. The AppKit host
+switches documents containing an 8 KiB paragraph to a horizontally scrolling layout;
+ordinary documents stay wrapped, and replacing or splitting the long paragraph restores
+wrapping. This changes only layout — `NSTextStorage.string` remains exactly the markdown
+source — and hosts that need wrapping at any cost can set
+`optimizesLongParagraphLayout` to `false`.
+
 Everything that decides *what a decoration means* — reveal resolution, paint ordering,
 conceal, widget substitution, the `moved`-does-not-repaint rule, hit testing — lives in
 `DecorationApplier`, which has no UIKit or AppKit in it and is shared verbatim. The two

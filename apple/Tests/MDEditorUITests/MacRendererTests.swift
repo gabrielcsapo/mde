@@ -87,6 +87,56 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(editor.markdown, source, "the storage must never diverge from the source")
     }
 
+    func testAPathologicalParagraphUsesTheResponsiveUnwrappedLayout() throws {
+        let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 850)
+
+        editor.setMarkdown(source)
+
+        XCTAssertEqual(editor.markdown, source, "the layout fast path must not rewrite source")
+        XCTAssertEqual(storage.string, source, "the backing store must remain the source")
+        XCTAssertFalse(try XCTUnwrap(editor.textContainer).widthTracksTextView)
+        XCTAssertTrue(editor.isHorizontallyResizable)
+        XCTAssertTrue(scroll.hasHorizontalScroller)
+    }
+
+    func testOrdinaryTextRestoresWrappingAfterAPathologicalParagraph() throws {
+        editor.setMarkdown(String(repeating: "word ", count: 2_000))
+        XCTAssertFalse(try XCTUnwrap(editor.textContainer).widthTracksTextView)
+
+        editor.setMarkdown("ordinary wrapped text")
+
+        XCTAssertTrue(try XCTUnwrap(editor.textContainer).widthTracksTextView)
+        XCTAssertFalse(editor.isHorizontallyResizable)
+        XCTAssertFalse(scroll.hasHorizontalScroller)
+    }
+
+    func testLongParagraphOptimizationCanBeDisabled() throws {
+        editor.optimizesLongParagraphLayout = false
+        let source = String(repeating: "word ", count: 2_000)
+
+        editor.setMarkdown(source)
+
+        XCTAssertEqual(storage.string, source)
+        XCTAssertTrue(try XCTUnwrap(editor.textContainer).widthTracksTextView)
+        XCTAssertFalse(editor.isHorizontallyResizable)
+        XCTAssertFalse(scroll.hasHorizontalScroller)
+    }
+
+    func testEditingCanEnterAndLeaveTheLongParagraphFastPath() throws {
+        let source = String(repeating: "word ", count: 2_000)
+        editor.setMarkdown("short")
+        storage.replaceCharacters(in: NSRange(location: 5, length: 0), with: source)
+        drainMainQueue()
+        XCTAssertFalse(try XCTUnwrap(editor.textContainer).widthTracksTextView)
+
+        let middle = storage.length / 2
+        storage.replaceCharacters(in: NSRange(location: middle, length: 1), with: "\n")
+        drainMainQueue()
+
+        XCTAssertTrue(try XCTUnwrap(editor.textContainer).widthTracksTextView)
+        XCTAssertEqual(editor.markdown, storage.string)
+    }
+
     func testReplacingAWidgetDocumentWithShortTextDropsStalePresentationRanges() {
         editor.setMarkdown("| A | B |\n| --- | --- |\n| one | [two](https://example.dev) |\n")
         forceLayout()
