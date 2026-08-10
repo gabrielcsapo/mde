@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import MDEditorUI
 
 #if os(macOS)
@@ -27,9 +28,19 @@ public final class DiskResourceResolver: ResourceResolver {
     ) -> ResourceState {
         let url = root.appendingPathComponent(request.reference)
         let width = request.fittingWidth
+        #if os(macOS)
+        let displayScale = NSScreen.main?.backingScaleFactor ?? 2
+        #else
+        let displayScale = UIScreen.main.scale
+        #endif
 
         queue.async {
-            let state = Self.load(url: url, reference: request.reference, width: width)
+            let state = Self.load(
+                url: url,
+                reference: request.reference,
+                width: width,
+                displayScale: displayScale
+            )
             DispatchQueue.main.async { deliver(state) }
         }
         // Loading is genuinely off the main thread — the editor reserves space and
@@ -41,33 +52,57 @@ public final class DiskResourceResolver: ResourceResolver {
         // A real host would read dimensions from a sidecar or the filename. Reserving
         // *something* plausible is what stops the document jumping on load.
         let width = min(request.fittingWidth, 320)
-        return isImage(request.reference)
+        return Self.isImage(request.reference)
             ? CGSize(width: width, height: width * 0.6)
             : CGSize(width: width, height: 56)
     }
 
-    private func isImage(_ reference: String) -> Bool {
+    private static func isImage(_ reference: String) -> Bool {
         ["png", "jpg", "jpeg", "gif", "heic"].contains((reference as NSString).pathExtension.lowercased())
     }
 
-    private static func load(url: URL, reference: String, width: CGFloat) -> ResourceState {
-        guard let data = try? Data(contentsOf: url) else {
+    private static func load(
+        url: URL,
+        reference: String,
+        width: CGFloat,
+        displayScale: CGFloat
+    ) -> ResourceState {
+        guard FileManager.default.fileExists(atPath: url.path) else {
             return .failed("missing \((reference as NSString).lastPathComponent)")
         }
 
-        #if os(macOS)
-        if let image = NSImage(data: data) {
-            return .ready(ImageResourceView(image: image, maxWidth: width))
+        if isImage(reference),
+           let source = CGImageSourceCreateWithURL(
+               url as CFURL,
+               [kCGImageSourceShouldCache: false] as CFDictionary
+           ) {
+            let maximumPixels = max(1, width * displayScale)
+            let options = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maximumPixels,
+                kCGImageSourceShouldCacheImmediately: true,
+            ] as CFDictionary
+            if let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options) {
+                #if os(macOS)
+                let image = NSImage(
+                    cgImage: thumbnail,
+                    size: NSSize(
+                        width: CGFloat(thumbnail.width) / displayScale,
+                        height: CGFloat(thumbnail.height) / displayScale
+                    )
+                )
+                #else
+                let image = UIImage(cgImage: thumbnail, scale: displayScale, orientation: .up)
+                #endif
+                return .ready(ImageResourceView(image: image, maxWidth: width))
+            }
         }
-        #else
-        if let image = UIImage(data: data) {
-            return .ready(ImageResourceView(image: image, maxWidth: width))
-        }
-        #endif
 
         // Not an image: show what we know about it rather than pretending to render.
         let name = (reference as NSString).lastPathComponent
-        let size = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
+        let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
         return .ready(CardView(text: "📄 \(name) · \(size)", tone: .info))
     }
 }
@@ -80,8 +115,21 @@ public final class DiskResourceResolver: ResourceResolver {
 /// blank gap with no error anywhere.
 final class ImageResourceView: PlatformView {
     private let target: CGSize
+    let decodedPixelSize: CGSize
 
     init(image: PlatformImage, maxWidth: CGFloat) {
+        #if os(macOS)
+        let representation = image.representations.first
+        decodedPixelSize = CGSize(
+            width: representation?.pixelsWide ?? Int(image.size.width),
+            height: representation?.pixelsHigh ?? Int(image.size.height)
+        )
+        #else
+        decodedPixelSize = CGSize(
+            width: image.cgImage?.width ?? Int(image.size.width * image.scale),
+            height: image.cgImage?.height ?? Int(image.size.height * image.scale)
+        )
+        #endif
         let cap = maxWidth > 0 ? maxWidth : 320
         let scale = min(1, cap / max(image.size.width, 1))
         target = CGSize(

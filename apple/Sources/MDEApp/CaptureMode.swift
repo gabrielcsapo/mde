@@ -34,6 +34,15 @@ enum CaptureMode {
             return
         }
 
+        // Choose matrix content synchronously on the first visible frame. Waiting to
+        // swap the document made a busy simulator occasionally photograph the sample
+        // document before this closure reached the main queue. The capture runner's
+        // settling delay is now entirely available for layout and resource resolution.
+        if shot.hasPrefix("matrix-") {
+            showMatrixFixture(String(shot.dropFirst("matrix-".count)), editor: editor)
+            return
+        }
+
         after(1.2) {
             switch shot {
             case "cross-platform": showCrossPlatformFixture(editor)
@@ -55,6 +64,21 @@ enum CaptureMode {
         else { return }
         editor.setMarkdown(source)
         scroll(editor, to: top(of: editor))
+    }
+
+    private static func showMatrixFixture(_ scenario: String, editor: MarkdownTextView) {
+        guard let url = Bundle.main.url(
+            forResource: "capture-\(scenario)",
+            withExtension: "md"
+        ), let source = try? String(contentsOf: url, encoding: .utf8)
+        else { return }
+        editor.setMarkdown(source)
+        scroll(editor, to: top(of: editor))
+        guard scenario == "editing" else { return }
+        let range = (source as NSString).range(of: "revealed syntax")
+        guard range.location != NSNotFound else { return }
+        editor.selectedRange = NSRange(location: range.location + 4, length: 0)
+        _ = editor.becomeFirstResponder()
     }
 
     /// Two spaced revisions, then the history sheet — the state a hand would reach by

@@ -4,11 +4,12 @@
 //! `Built` entries carrying enough context (node range, enclosing block range) for
 //! `reveal` to be resolved later against the selection, without reparsing.
 
-use crate::decoration::{node_key, Kind, Reveal, RoleId};
+use crate::decoration::{node_identity, node_key, Kind, Reveal, RoleId};
 use crate::registry::{role, BlockSyntax, Matcher, Registry};
 use crate::text::Text;
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// A decoration before selection is applied. All offsets are UTF-8 bytes; conversion
 /// to UTF-16 happens once, at emit (DESIGN §3.2).
@@ -22,12 +23,15 @@ pub struct Built {
     pub role: RoleId,
     pub reveal: Reveal,
     pub depth: u8,
+    /// Position-free fingerprint of `(kind, role, node source)`. Regional rebuilds use
+    /// it to retain the identities of unchanged nodes without rescanning the document.
+    pub identity: u64,
     pub key: u64,
     /// Extra text the parser already knew and the renderer would otherwise have to
     /// re-derive: an image or link destination, table alignments, a fence info string,
     /// or the inside of a delimited token. Renderers must never re-parse markdown to
     /// find these — that is duplicated, divergent work in three languages.
-    pub payload: Option<String>,
+    pub payload: Option<Arc<str>>,
 }
 
 pub fn options() -> Options {
@@ -44,6 +48,8 @@ struct Builder<'a> {
     /// paragraphs, so its decorations inside them are discarded.
     directives: Vec<(usize, usize)>,
 }
+
+type InlineMatch = (usize, usize, RoleId, Kind, Reveal, Option<Arc<str>>);
 
 impl<'a> Builder<'a> {
     /// The enclosing block, or the node itself when there is none.
@@ -77,12 +83,13 @@ impl<'a> Builder<'a> {
         kind: Kind,
         role: RoleId,
         reveal: Reveal,
-        payload: Option<String>,
+        payload: Option<Arc<str>>,
     ) {
         if start >= end {
             return;
         }
         let block = self.block(node);
+        let source = &self.src[node.0.min(self.src.len())..node.1.min(self.src.len())];
         self.out.push(Built {
             start,
             end,
@@ -92,6 +99,7 @@ impl<'a> Builder<'a> {
             role,
             reveal,
             depth: self.quote_depth,
+            identity: node_identity(kind, role, source),
             // Assigned by `assign_keys` once the list is in document order. Doing it
             // here would make a key depend on the order the builder happened to emit
             // in, which differs between a full parse and a region reparse.
@@ -153,7 +161,15 @@ impl<'a> Builder<'a> {
                             .collect::<String>()
                             .trim()
                             .to_string();
-                        self.push_with(start, end, (start, end), kind, role, reveal, Some(body));
+                        self.push_with(
+                            start,
+                            end,
+                            (start, end),
+                            kind,
+                            role,
+                            reveal,
+                            Some(Arc::from(body)),
+                        );
                         self.block_stack.pop();
                         open = None;
                     }
@@ -176,7 +192,7 @@ impl<'a> Builder<'a> {
         // Payload travels in the tuple rather than a parallel vector: the two would
         // only stay aligned if every delimited rule happened to be declared after every
         // pattern rule.
-        let mut found: Vec<(usize, usize, RoleId, Kind, Reveal, Option<String>)> = Vec::new();
+        let mut found: Vec<InlineMatch> = Vec::new();
         for rule in &self.reg.inlines {
             // Skip the rule entirely when the run cannot contain a match. This is the
             // single biggest cost in `build` on ordinary prose, because a regex with no
@@ -207,7 +223,7 @@ impl<'a> Builder<'a> {
                         let Some(c) = slice[after..].find(close.as_str()) else { break };
                         let end = after + c + close.len();
                         // `[[the roadmap]]` hands the host "the roadmap".
-                        let payload = slice[after..after + c].to_string();
+                        let payload: Arc<str> = slice[after..after + c].into();
                         found.push((
                             base + o,
                             base + end,
@@ -461,7 +477,7 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                         Kind::Style,
                         role::LINK_TEXT,
                         Reveal::Never,
-                        Some(dest_url.to_string()),
+                        Some(Arc::from(dest_url.as_ref())),
                     );
                     b.push(r.start, r.start + ts, node, Kind::Conceal, role::MARKER, Reveal::CaretInNode);
                     b.push(r.start + te, r.end, node, Kind::Conceal, role::LINK, Reveal::CaretInNode);
@@ -485,7 +501,7 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                     Kind::InlineWidget,
                     role::IMAGE,
                     Reveal::CaretInNode,
-                    Some(dest_url.to_string()),
+                    Some(Arc::from(dest_url.as_ref())),
                 );
             }
             Event::End(TagEnd::Image) => {
@@ -505,7 +521,15 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                         // Everything after the fence name, so `\`\`\`callout warning`
                         // hands the host "warning" without re-parsing the fence.
                         let arg = info.split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
-                        b.push_with(r.start, r.end, (r.start, r.end), k, role_id, rev, Some(arg));
+                        b.push_with(
+                            r.start,
+                            r.end,
+                            (r.start, r.end),
+                            k,
+                            role_id,
+                            rev,
+                            Some(Arc::from(arg)),
+                        );
                     }
                     None => {
                         b.push(r.start, r.end, (r.start, r.end), Kind::Style, role::CODE_BLOCK, Reveal::Never);
@@ -521,7 +545,7 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                 b.block_stack.push((r.start, r.end));
                 // A table is a native/semantic block view until the caret enters it,
                 // then the exact pipe source returns for editing on every renderer.
-                let alignment_payload = alignments
+                let alignment_payload: String = alignments
                     .iter()
                     .map(|alignment| match alignment {
                         Alignment::Left => 'l',
@@ -537,7 +561,7 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                     Kind::BlockWidget,
                     role::TABLE,
                     Reveal::CaretInBlock,
-                    Some(alignment_payload),
+                    Some(Arc::from(alignment_payload)),
                 );
                 let mut lines = src[r.start..r.end].split_inclusive('\n');
                 let first_len = lines.next().map_or(0, str::len);
@@ -628,6 +652,7 @@ pub fn build_region(src: &str, reg: &Registry, base: usize) -> Vec<Built> {
         d.end += base;
         d.node = (d.node.0 + base, d.node.1 + base);
         d.block = (d.block.0 + base, d.block.1 + base);
+        d.key = 0;
     }
     out
 }
@@ -641,6 +666,7 @@ pub fn assign_keys(out: &mut [Built], src: &str) {
     let mut seen: HashMap<(u8, RoleId, &str), u32> = HashMap::new();
     for d in out.iter_mut() {
         let source = &src[d.node.0.min(src.len())..d.node.1.min(src.len())];
+        d.identity = node_identity(d.kind, d.role, source);
         let counter = seen.entry((d.kind as u8, d.role, source)).or_insert(0);
         let nth = *counter;
         *counter += 1;
@@ -979,7 +1005,7 @@ mod tests {
         assert_eq!(widgets[0].role, role::IMAGE);
     }
 
-    fn payload_of(d: &[Built], role: RoleId) -> Option<String> {
+    fn payload_of(d: &[Built], role: RoleId) -> Option<Arc<str>> {
         d.iter().find(|x| x.role == role).and_then(|x| x.payload.clone())
     }
 

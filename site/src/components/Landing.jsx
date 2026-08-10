@@ -1,4 +1,5 @@
 import Hero from './Hero.jsx';
+import CaptureMatrix from './CaptureMatrix.jsx';
 import { Link } from '../lib/router.jsx';
 
 const PRINCIPLES = [
@@ -52,18 +53,10 @@ export default function Landing() {
             wikilinks, and a host-rendered callout.
           </p>
         </div>
-        <div className="landing-web-captures">
-          <figure>
-            <img src="/assets/web-js.png" alt="The JS editor rendering CommonMark and custom syntax." />
-            <figcaption><strong>JS</strong> · <code>@mde/web</code></figcaption>
-          </figure>
-          <figure>
-            <img src="/assets/web-react.png" alt="The React editor rendering the same CommonMark and custom syntax." />
-            <figcaption><strong>React</strong> · <code>@mde/react</code></figcaption>
-          </figure>
-        </div>
+        <CaptureMatrix scenario="core" />
         <p className="landing-capture-command">
-          Regenerate both with <code>pnpm capture:web</code>.
+          Regenerate the complete 4 × 4 renderer matrix with{' '}
+          <code>pnpm capture:cross-platform</code>.
         </p>
       </section>
 

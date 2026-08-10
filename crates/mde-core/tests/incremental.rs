@@ -6,12 +6,15 @@
 //! That is an optimization with a silent failure mode: a wrong region boundary produces
 //! subtly wrong decorations that no unit test would notice. So rather than testing the
 //! boundary rules directly, this compares the *whole observable result* — ranges, kinds,
-//! roles, reveal, depth, and keys — against an engine that reparsed from scratch, over
+//! roles, reveal, and depth — against an engine that reparsed from scratch, over
 //! thousands of edits at every position in a document built to be hostile.
+//! Keys are intentionally temporal identity: a regional rebuild preserves an unchanged
+//! sibling's existing key, while a stateless full parse assigns occurrence ordinals.
 //!
 //! A deterministic PRNG is used so a failure is reproducible from the seed alone.
 
-use mde_core::{Edit, Engine, Selection};
+use mde_core::{Decoration, Edit, Engine, Patch, Selection};
+use std::collections::HashMap;
 
 const MANIFEST: &str = r#"
     [[block]]
@@ -113,14 +116,13 @@ fn snapshot(e: &Engine) -> String {
     let mut out = String::new();
     for d in e.decorations() {
         out.push_str(&format!(
-            "{:?} {} {}..{} r{} d{} k{:x} p{:?}\n",
+            "{:?} {} {}..{} r{} d{} p{:?}\n",
             d.kind,
             d.role,
             d.start,
             d.end,
             d.reveal as u8,
             d.depth,
-            d.key,
             e.payload(d.key),
         ));
     }
@@ -147,6 +149,30 @@ fn first_difference(a: &str, b: &str) -> String {
     }
 }
 
+fn assert_patch_reconstructs(before: &[Decoration], patch: &Patch, after: &[Decoration]) {
+    let mut live: HashMap<_, _> = before.iter().map(|decoration| (decoration.key, *decoration)).collect();
+    for key in &patch.removed {
+        live.remove(key);
+    }
+    for shift in &patch.shifted {
+        for decoration in live.values_mut().filter(|decoration| decoration.start >= shift.start) {
+            decoration.start = decoration.start.checked_add_signed(shift.delta).unwrap();
+            decoration.end = decoration.end.checked_add_signed(shift.delta).unwrap();
+        }
+    }
+    for &(key, start, end) in &patch.moved {
+        let decoration = live.get_mut(&key).expect("a move names a surviving decoration");
+        decoration.start = start;
+        decoration.end = end;
+    }
+    for decoration in &patch.added {
+        live.insert(decoration.key, *decoration);
+    }
+    let expected: HashMap<_, _> =
+        after.iter().map(|decoration| (decoration.key, *decoration)).collect();
+    assert_eq!(live, expected, "patch must reconstruct the engine's emitted state");
+}
+
 /// Apply one edit incrementally, and the same edit to a fresh engine, and compare.
 fn assert_matches(text: &str, start: u32, end: u32, insert: &str, label: &str) {
     let mut incremental = engine();
@@ -155,7 +181,9 @@ fn assert_matches(text: &str, start: u32, end: u32, insert: &str, label: &str) {
     incremental.set_selection(Some(Selection::caret(start)));
 
     let edit = Edit { start, end, text: insert.to_string() };
-    incremental.edit(&[edit], None, 0).expect("edit");
+    let before = incremental.decorations().to_vec();
+    let patch = incremental.edit(&[edit], None, 0).expect("edit");
+    assert_patch_reconstructs(&before, &patch, incremental.decorations());
 
     let mut full = engine();
     full.reset(incremental.text());
@@ -234,9 +262,11 @@ fn a_long_random_edit_session_never_diverges() {
         e.set_selection(Some(Selection::caret(start)));
         // Offsets that land inside a surrogate pair are clamped by the core, so an edit
         // it rejects is simply skipped rather than treated as a failure.
-        if e.edit(&[Edit { start, end, text: insert.clone() }], None, step).is_err() {
+        let before = e.decorations().to_vec();
+        let Ok(patch) = e.edit(&[Edit { start, end, text: insert.clone() }], None, step) else {
             continue;
-        }
+        };
+        assert_patch_reconstructs(&before, &patch, e.decorations());
 
         let mut full = engine();
         full.reset(e.text());

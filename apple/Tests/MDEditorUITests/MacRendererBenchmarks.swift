@@ -100,6 +100,12 @@ final class MacRendererBenchmarks: XCTestCase {
         }
     }
 
+    private func percentile(_ samples: [Double], _ quantile: Double) -> Double {
+        let sorted = samples.sorted()
+        let index = Int(ceil(Double(sorted.count - 1) * quantile))
+        return sorted[index]
+    }
+
     private func enforceBudget(_ value: Double, environment key: String, metric: String) {
         guard ProcessInfo.processInfo.environment["MDE_BENCH_ENFORCE"] == "1",
               let raw = ProcessInfo.processInfo.environment[key],
@@ -139,7 +145,10 @@ final class MacRendererBenchmarks: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        window.contentView?.addSubview(editor)
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
+        scroll.hasVerticalScroller = true
+        scroll.documentView = editor
+        window.contentView?.addSubview(scroll)
         return (window, editor)
     }
 
@@ -166,6 +175,18 @@ final class MacRendererBenchmarks: XCTestCase {
                 editor = fresh
             }
 
+            // TextKit 2's viewport controller is the shipping path: opening a document
+            // must lay out what is visible without eagerly visiting every paragraph.
+            let viewport = timed {
+                editor.layoutSubtreeIfNeeded()
+                editor.contentStorage.textLayoutManagers.first?
+                    .textViewportLayoutController.layoutViewport()
+                // Large documents paint attributes on the next main-queue turn after
+                // viewport layout. Include that work rather than timing an unpainted
+                // viewport and calling it a renderer improvement.
+                drainMainQueue()
+            }
+
             // TextKit lays out lazily, so `setMarkdown` returning is not the same as the
             // document being on screen. A real editor only ever lays out the viewport,
             // but the full-document number is what a "jump to the end" costs, and it is
@@ -176,9 +197,26 @@ final class MacRendererBenchmarks: XCTestCase {
             }
 
             print(String(
-                format: "%-6@ setMarkdown %8.2f   full TextKit layout %9.2f   decorations %d",
-                c.label as NSString, load, layout, decorations
+                format: "%-6@ setMarkdown %8.2f   viewport %8.2f   full layout %9.2f   decorations %d",
+                c.label as NSString, load, viewport, layout, decorations
             ))
+            if c.label == "1MB" {
+                enforceBudget(
+                    load,
+                    environment: "MDE_APPLE_1MB_LOAD_BUDGET_MS",
+                    metric: "1 MB native cold load"
+                )
+                enforceBudget(
+                    viewport,
+                    environment: "MDE_APPLE_1MB_VIEWPORT_BUDGET_MS",
+                    metric: "1 MB initial viewport layout"
+                )
+                enforceBudget(
+                    load + viewport,
+                    environment: "MDE_APPLE_1MB_FIRST_PAINT_BUDGET_MS",
+                    metric: "1 MB load through painted first viewport"
+                )
+            }
             windows.removeAll()
         }
     }
@@ -224,6 +262,61 @@ final class MacRendererBenchmarks: XCTestCase {
             )
             _ = window
         }
+    }
+
+    func testBenchmarkPositionAndTailLatency() throws {
+        let all = try corpora()
+        guard let large = all.first(where: { $0.label == "1MB" }),
+              let endurance = all.first(where: { $0.label == "100KB" })
+        else { throw XCTSkip("position workloads require the 100KB and 1MB corpora") }
+
+        print("\n=== positional and sustained native edits (ms) ===")
+        for (label, fraction) in [("near start", 0.01), ("middle", 0.50), ("near end", 0.99)] {
+            let (window, editor) = makeEditor()
+            editor.setMarkdown(large.text)
+            XCTAssertTrue(window.makeFirstResponder(editor))
+            drainMainQueue()
+            let storage = try XCTUnwrap(editor.textStorage)
+            var at = Int(Double(storage.length) * fraction)
+            var samples: [Double] = []
+            for _ in 0..<7 {
+                samples.append(timed {
+                    storage.replaceCharacters(in: NSRange(location: at, length: 0), with: "x")
+                    drainMainQueue()
+                })
+                at += 1
+            }
+            print(String(
+                format: "1MB %-10@ p50 %8.2f   p95 %8.2f   max %8.2f",
+                label as NSString,
+                percentile(samples, 0.50),
+                percentile(samples, 0.95),
+                samples.max() ?? 0
+            ))
+            _ = window
+        }
+
+        let (window, editor) = makeEditor()
+        editor.setMarkdown(endurance.text)
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        drainMainQueue()
+        let storage = try XCTUnwrap(editor.textStorage)
+        var at = storage.length / 2
+        var sustained: [Double] = []
+        for _ in 0..<200 {
+            sustained.append(timed {
+                storage.replaceCharacters(in: NSRange(location: at, length: 0), with: "x")
+                drainMainQueue()
+            })
+            at += 1
+        }
+        print(String(
+            format: "100KB sustained 200 edits p50 %8.2f   p95 %8.2f   max %8.2f",
+            percentile(sustained, 0.50),
+            percentile(sustained, 0.95),
+            sustained.max() ?? 0
+        ))
+        _ = window
     }
 
     // MARK: - Repaint scope

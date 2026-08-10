@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 @testable import MDECore
-import MDEHost
+@testable import MDEHost
 import XCTest
 @testable import MDEditorUI
 
@@ -12,6 +12,7 @@ import XCTest
 /// both hosts, and they run headlessly rather than needing a screenshot.
 final class MacRendererTests: XCTestCase {
     private var window: NSWindow!
+    private var scroll: NSScrollView!
     private var editor: MarkdownTextView!
 
     override func setUp() {
@@ -28,11 +29,15 @@ final class MacRendererTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        window.contentView?.addSubview(editor)
+        scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
+        scroll.hasVerticalScroller = true
+        scroll.documentView = editor
+        window.contentView?.addSubview(scroll)
     }
 
     override func tearDown() {
         window = nil
+        scroll = nil
         editor = nil
         super.tearDown()
     }
@@ -98,6 +103,36 @@ final class MacRendererTests: XCTestCase {
         let headingSize = fontSize(at: 2) // inside "Title"
         let bodySize = fontSize(at: 10) // inside "body"
         XCTAssertGreaterThan(headingSize, bodySize)
+    }
+
+    func testLargeDocumentsPaintTheViewportBeforeTheDistantTail() {
+        let source = "# visible heading\n\n"
+            + String(repeating: "ordinary body text\n", count: 16_000)
+            + "\n# distant heading\n"
+        let tail = (source as NSString).range(of: "# distant", options: .backwards).location
+        editor.setMarkdown(source)
+        editor.layoutSubtreeIfNeeded()
+        editor.contentStorage.textLayoutManagers.first?
+            .textViewportLayoutController.layoutViewport()
+        drainMainQueue()
+
+        XCTAssertGreaterThan(fontSize(at: 2), fontSize(at: 18))
+        XCTAssertEqual(
+            fontSize(at: tail + 2),
+            fontSize(at: 18),
+            accuracy: 0.01,
+            "offscreen attributes were eagerly painted across the full document"
+        )
+
+        editor.scrollRangeToVisible(NSRange(location: tail, length: 1))
+        editor.layoutSubtreeIfNeeded()
+        editor.contentStorage.textLayoutManagers.first?
+            .textViewportLayoutController.layoutViewport()
+        drainMainQueue()
+        XCTAssertGreaterThan(
+            fontSize(at: tail + 2), fontSize(at: 18),
+            "scrolling did not paint the newly visible heading"
+        )
     }
 
     func testRequestingALinkUsesTheCoreDestinationWithoutChangingSource() {
@@ -278,10 +313,13 @@ final class MacRendererTests: XCTestCase {
         func descendants(_ root: NSView) -> [NSView] {
             root.subviews.flatMap { [$0] + descendants($0) }
         }
-        let labels = descendants(table).compactMap { $0 as? NSTextView }
-        let inlineAttachments = labels.reduce(0) { count, label in
+        let labels = descendants(table).compactMap { view -> NSAttributedString? in
+            if let textView = view as? NSTextView { return textView.attributedString() }
+            if let label = view as? NSTextField { return label.attributedStringValue }
+            return nil
+        }
+        let inlineAttachments = labels.reduce(0) { count, value in
             var found = 0
-            let value = label.attributedString()
             value.enumerateAttribute(
                 .attachment,
                 in: NSRange(location: 0, length: value.length)
@@ -646,6 +684,34 @@ final class MacRendererTests: XCTestCase {
 
         XCTAssertTrue(applier.ranges(referencing: old).isEmpty)
         XCTAssertEqual(applier.ranges(referencing: replacement).count, 1)
+    }
+
+    func testDiskImagesDecodeToTheDisplayedPixelBudget() throws {
+        let resolver = DiskResourceResolver(root: SampleAssets.install())
+        let request = ResourceRequest(
+            reference: "chart.png",
+            roleName: "image",
+            source: "![chart](chart.png)",
+            fittingWidth: 100
+        )
+        let delivered = expectation(description: "downsampled image delivered")
+        var view: ImageResourceView?
+        let immediate = resolver.resolve(request) { state in
+            if case .ready(let resolved) = state {
+                view = resolved as? ImageResourceView
+            }
+            delivered.fulfill()
+        }
+        if case .ready(let resolved) = immediate {
+            view = resolved as? ImageResourceView
+            delivered.fulfill()
+        }
+        wait(for: [delivered], timeout: 2)
+
+        let image = try XCTUnwrap(view)
+        let displayScale = NSScreen.main?.backingScaleFactor ?? 2
+        XCTAssertLessThanOrEqual(image.decodedPixelSize.width, ceil(100 * displayScale))
+        XCTAssertLessThanOrEqual(image.intrinsicContentSize.width, 100)
     }
 
     func testCompactSuffixShiftUpdatesLiveDecorationRanges() throws {

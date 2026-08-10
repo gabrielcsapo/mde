@@ -918,10 +918,16 @@ export class MarkdownEditor extends EventTarget {
     // WebKit can otherwise accept the DOM range but place subsequent native input at
     // the start of a content-visibility subtree.
     this.activateChunk(range.start);
-    const nodes = textNodes(this.root);
     /** @param {number} target */
     const locate = (target) => {
-      let offset = 0;
+      // The line model already maps absolute offsets to one bounded DOM subtree.
+      // Walking every text node made restoring the caret O(document) — over 200,000
+      // nodes in the 1 MB fixture — even though a normal edit rebuilds one line.
+      const line = this.lineIndexAt(target, this.lineStarts);
+      const element = this.lineEls[line];
+      if (!element) return null;
+      const nodes = textNodes(element);
+      let offset = this.lineStarts[line] ?? 0;
       for (const node of nodes) {
         const next = offset + node.data.length;
         if (target <= next) return { node, offset: Math.max(0, target - offset) };

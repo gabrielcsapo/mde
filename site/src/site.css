@@ -2105,3 +2105,36 @@
 .mde-editor .mde-task-checkbox {
   font-family: var(--font-mono);
 }
+.capture-matrix { display: grid; gap: 2rem; margin-top: 2rem; }
+.capture-matrix-scenario > h3 {
+  margin: 0 0 0.8rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.capture-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+.capture-matrix figure {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-rule);
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+.capture-matrix img { display: block; width: 100%; height: auto; }
+.capture-matrix figcaption {
+  padding: 0.65rem 0.8rem;
+  border-top: 1px solid var(--color-rule);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+@media (max-width: 900px) {
+  .capture-matrix-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .capture-matrix-grid { grid-template-columns: 1fr; }
+}

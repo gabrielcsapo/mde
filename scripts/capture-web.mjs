@@ -7,7 +7,7 @@
 
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { access, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,15 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DIST = join(ROOT, 'site/dist');
 const ASSETS = join(ROOT, 'site/assets');
-const CAPTURE_MARKDOWN = await readFile(join(ROOT, 'fixtures/cross-platform.md'), 'utf8');
+const CAPTURE_MANIFEST = JSON.parse(
+  await readFile(join(ROOT, 'fixtures/captures/manifest.json'), 'utf8')
+);
+const CAPTURE_SCENARIOS = await Promise.all(
+  CAPTURE_MANIFEST.scenarios.map(async (scenario) => ({
+    ...scenario,
+    markdown: await readFile(join(ROOT, 'fixtures/captures', scenario.fixture), 'utf8'),
+  }))
+);
 
 const CHROME_CANDIDATES = [
   process.env.CHROME,
@@ -77,10 +85,14 @@ async function findChrome() {
   throw new Error(`no Chrome found; set CHROME=/path/to/chrome`);
 }
 
-async function debuggerUrl(port) {
-  const deadline = Date.now() + 20_000;
+async function debuggerUrl(profile) {
+  // Port 0 lets Chrome reserve an actually free endpoint. A fixed port can collide
+  // with another local browser/test run and presents exactly like a slow startup.
+  // Chrome publishes the chosen port only after DevTools is ready.
+  const deadline = Date.now() + 45_000;
   while (Date.now() < deadline) {
     try {
+      const [port] = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n');
       const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       const page = targets.find((target) => target.type === 'page' && target.webSocketDebuggerUrl);
       if (page) return page.webSocketDebuggerUrl;
@@ -135,7 +147,7 @@ async function waitFor(cdp, expression, message) {
   throw new Error(message);
 }
 
-async function capture(cdp, origin, variant) {
+async function capture(cdp, origin, variant, scenario) {
   await cdp.send('Page.navigate', { url: `${origin}/try` });
   await waitFor(cdp, 'window.__mde?.editor', 'the JS editor did not become ready');
 
@@ -157,8 +169,13 @@ async function capture(cdp, origin, variant) {
         'button[aria-controls="revision-history"][aria-pressed="true"]'
       );
       openHistory?.click();
-      window.__mde.editor.setMarkdown(${JSON.stringify(CAPTURE_MARKDOWN)});
+      window.__mde.editor.setMarkdown(${JSON.stringify(scenario.markdown)});
       document.querySelector('#editor')?.scrollTo({top: 0, behavior: 'instant'});
+      ${scenario.reveal ? `
+      window.__mde.editor.root.focus();
+      const revealAt = window.__mde.editor.markdown.indexOf(${JSON.stringify(scenario.reveal)});
+      window.__mde.editor.setSelectionRange({start: revealAt + 4, end: revealAt + 4});
+      window.__mde.editor.onSelectionChange();` : ''}
       return true;
     })()`
   );
@@ -185,8 +202,11 @@ async function capture(cdp, origin, variant) {
     fromSurface: true,
     clip,
   });
-  const file = join(ASSETS, `web-${variant}.png`);
+  const file = join(ASSETS, `capture-${scenario.id}-${variant}.png`);
   await writeFile(file, Buffer.from(data, 'base64'));
+  if (scenario.id === 'core') {
+    await copyFile(file, join(ASSETS, `web-${variant}.png`));
+  }
   console.log(`${file.slice(ROOT.length)} (${Math.round(Buffer.byteLength(data, 'base64') / 1024)} KB)`);
 }
 
@@ -197,7 +217,6 @@ async function main() {
   const chrome = await findChrome();
   const { server, port } = await serve();
   const profile = await mkdtemp(join(tmpdir(), 'mde-capture-'));
-  const cdpPort = 9500 + (process.pid % 400);
   const child = spawn(
     chrome,
     [
@@ -209,7 +228,7 @@ async function main() {
       '--no-default-browser-check',
       '--no-first-run',
       '--window-size=1440,1000',
-      `--remote-debugging-port=${cdpPort}`,
+      '--remote-debugging-port=0',
       `--user-data-dir=${profile}`,
       'about:blank',
     ],
@@ -218,7 +237,7 @@ async function main() {
 
   let cdp;
   try {
-    cdp = await connect(await debuggerUrl(cdpPort));
+    cdp = await connect(await debuggerUrl(profile));
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width: 1440,
       height: 1000,
@@ -226,11 +245,16 @@ async function main() {
       mobile: false,
     });
     const origin = `http://127.0.0.1:${port}`;
-    await capture(cdp, origin, 'js');
-    await capture(cdp, origin, 'react');
+    for (const scenario of CAPTURE_SCENARIOS) {
+      await capture(cdp, origin, 'js', scenario);
+      await capture(cdp, origin, 'react', scenario);
+    }
   } finally {
     cdp?.close();
-    child.kill();
+    // This is a disposable, isolated headless process. Under heavy local Xcode load,
+    // Chrome has occasionally ignored SIGTERM and kept Node alive after every image
+    // was written, so make teardown deterministic.
+    child.kill('SIGKILL');
     server.close();
     await rm(profile, { recursive: true, force: true }).catch(() => {});
   }

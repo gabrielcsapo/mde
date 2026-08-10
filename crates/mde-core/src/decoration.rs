@@ -130,6 +130,16 @@ pub fn node_key(kind: Kind, role: RoleId, source: &str, nth: u32) -> u64 {
     h.finish()
 }
 
+/// Position-free identity shared by byte-identical decorations.
+///
+/// The full-build key adds an occurrence ordinal to disambiguate siblings. Regional
+/// rebuilds use this fingerprint to pair new decorations with the old identities in
+/// the replaced region, so editing one repeated node does not renumber every identical
+/// sibling after it.
+pub fn node_identity(kind: Kind, role: RoleId, source: &str) -> u64 {
+    node_key(kind, role, source, 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

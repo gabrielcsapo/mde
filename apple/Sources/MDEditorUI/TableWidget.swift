@@ -369,6 +369,37 @@ final class TableTextCellView: UITextView, UITextViewDelegate {
 }
 #endif
 
+/// Lightweight cells avoid constructing a complete TextKit stack per table value.
+/// A 100×10 table used to allocate one text view, text storage, layout manager, and
+/// text container for every plain cell even though only cells with links need native
+/// text interaction.
+final class TableLabelCellView: PlatformLabel {
+    init(content: NSAttributedString, alignment: NSTextAlignment) {
+        #if os(macOS)
+        super.init(frame: .zero)
+        attributedStringValue = content
+        isEditable = false
+        isSelectable = false
+        isBezeled = false
+        drawsBackground = false
+        lineBreakMode = .byWordWrapping
+        maximumNumberOfLines = 0
+        self.alignment = alignment
+        identifier = NSUserInterfaceItemIdentifier("mde.table-cell")
+        #else
+        super.init(frame: .zero)
+        attributedText = content
+        numberOfLines = 0
+        lineBreakMode = .byWordWrapping
+        textAlignment = alignment
+        accessibilityIdentifier = "mde.table-cell"
+        #endif
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
+}
+
 struct TableImageSpec {
     let alt: String
     let reference: String
@@ -539,11 +570,28 @@ final class TableWidgetView: PlatformView {
                     header: rowIndex == 0,
                     resources: resources
                 )
-                cells.append(TableTextCellView(
-                    content: content,
-                    alignment: model.alignments[column],
-                    onOpenLink: onOpenLink
-                ))
+                let hasLink = {
+                    var found = false
+                    content.enumerateAttribute(
+                        .link,
+                        in: NSRange(location: 0, length: content.length)
+                    ) { value, _, stop in
+                        if value != nil { found = true; stop.pointee = true }
+                    }
+                    return found
+                }()
+                if hasLink {
+                    cells.append(TableTextCellView(
+                        content: content,
+                        alignment: model.alignments[column],
+                        onOpenLink: onOpenLink
+                    ))
+                } else {
+                    cells.append(TableLabelCellView(
+                        content: content,
+                        alignment: model.alignments[column]
+                    ))
+                }
             }
         }
         self.cells = cells

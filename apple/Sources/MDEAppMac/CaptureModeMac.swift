@@ -42,7 +42,7 @@ enum CaptureMode {
         guard let shot else { return }
         after(0.3) {
             guard let window = editor.window else { return }
-            if shot == "cross-platform" {
+            if shot == "cross-platform" || shot.hasPrefix("matrix-") {
                 // Match the fixed light appearance used by the browser captures and
                 // the default iOS simulator, independent of the developer's desktop.
                 window.appearance = NSAppearance(named: .aqua)
@@ -63,6 +63,11 @@ enum CaptureMode {
         // References resolve asynchronously; wait for the document to settle so a cold
         // run and a warm run compose the same frame.
         after(1.2) {
+            if shot.hasPrefix("matrix-") {
+                showMatrixFixture(String(shot.dropFirst("matrix-".count)), editor: editor)
+                after(0.5) { writeWindow(editor) }
+                return
+            }
             if shot == "cross-platform" {
                 showCrossPlatformFixture(editor)
             }
@@ -112,6 +117,26 @@ enum CaptureMode {
         }).first else { return }
         editor.setMarkdown(source)
         scroll(editor, to: 0)
+    }
+
+    private static func showMatrixFixture(_ scenario: String, editor: MarkdownTextView) {
+        let name = "capture-\(scenario).md"
+        let indexed = Bundle.main.url(
+            forResource: "capture-\(scenario)",
+            withExtension: "md"
+        )
+        let bundled = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/\(name)")
+        guard let source = [indexed, bundled].compactMap({ $0 }).lazy.compactMap({
+            try? String(contentsOf: $0, encoding: .utf8)
+        }).first else { return }
+        editor.setMarkdown(source)
+        scroll(editor, to: 0)
+        guard scenario == "editing", let storage = editor.textStorage else { return }
+        let range = (storage.string as NSString).range(of: "revealed syntax")
+        guard range.location != NSNotFound else { return }
+        editor.window?.makeFirstResponder(editor)
+        editor.setSelectedRange(NSRange(location: range.location + 4, length: 0))
     }
 
     /// Moves the window into the top-left corner for the screencast.

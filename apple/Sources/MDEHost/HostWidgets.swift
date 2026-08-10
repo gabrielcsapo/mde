@@ -60,17 +60,11 @@ public final class CardView: PlatformView {
     private let label: PlatformLabel
 
     public init(text: String, tone: Tone) {
-        // A wrapping label is its own kind of NSTextField, not a configured one.
-        //
-        // Setting `maximumNumberOfLines = 0`, `lineBreakMode`, `wraps` and
-        // `isScrollable` on a plain `NSTextField()` is not enough: AppKit still routes
-        // it through its single-line fast path (`NSTextFieldSimpleLabel`), which measures
-        // as multi-line — `intrinsicContentSize` reports two lines — but *draws* one line
-        // and clips it. The measurements all look right while the callout renders cut
-        // off, which is what made this hard to see. This factory is the supported way to
-        // get a label that actually wraps.
+        // Use the inert label cell and opt it into wrapping. AppKit's dedicated
+        // `wrappingLabelWithString` field draws a raised editor-like backing when it is
+        // cached inside a TextKit attachment, even with its bezel and background off.
         #if os(macOS)
-        label = PlatformLabel(wrappingLabelWithString: text)
+        label = PlatformLabel(labelWithString: text)
         #else
         label = PlatformLabel()
         #endif
@@ -81,13 +75,27 @@ public final class CardView: PlatformView {
         // The factory makes it selectable, which would let it swallow clicks meant for
         // the caret (DESIGN §4).
         label.isSelectable = false
+        label.isBezeled = false
+        label.isBordered = false
+        label.drawsBackground = false
+        label.focusRingType = .none
         label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.cell?.wraps = true
+        label.cell?.isScrollable = false
         label.font = Self.font
         label.textColor = .platformLabel
         wantsLayer = true
         layer?.cornerRadius = 10
         layer?.borderWidth = 1
-        layer?.backgroundColor = accent.withAlphaComponent(0.12).cgColor
+        // The card sits over TextKit's attachment presentation. A translucent fill
+        // lets the default paper-shaped attachment backing show through as a raised
+        // rectangle in cached/offscreen rendering, so compose the same tint into an
+        // opaque platform background first.
+        layer?.backgroundColor = accent.blended(
+            withFraction: 0.88,
+            of: .platformBackground
+        )?.cgColor ?? PlatformColor.platformBackground.cgColor
         layer?.borderColor = accent.withAlphaComponent(0.4).cgColor
         #else
         label.text = text
@@ -150,9 +158,12 @@ public final class CardView: PlatformView {
     /// Measures with the same cell that draws, kept warm because sizing runs on every
     /// layout pass. Main-thread only, which is where text layout already lives.
     private static let sizer: NSTextField = {
-        let label = NSTextField(wrappingLabelWithString: "")
+        let label = NSTextField(labelWithString: "")
         label.isSelectable = false
         label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.cell?.wraps = true
+        label.cell?.isScrollable = false
         label.font = font
         return label
     }()

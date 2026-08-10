@@ -238,17 +238,29 @@ fn main() {
 
     let check = args.iter().any(|arg| arg == "--check");
     for &(label, bytes) in SIZES {
-        let edit_median = run(label, bytes);
+        let result = run(label, bytes);
         if check {
-            let key = format!("MDE_CORE_{}_EDIT_BUDGET_MS", label.replace(' ', ""));
-            if let Ok(raw) = std::env::var(&key) {
-                let budget: f64 = raw.parse().unwrap_or_else(|_| panic!("invalid {key}={raw}"));
-                assert!(
-                    edit_median <= budget,
-                    "{label} edit median {edit_median:.3} ms exceeds {budget:.3} ms budget"
+            for (metric, value) in [("EDIT", result.edit_ms), ("SELECTION", result.selection_ms)] {
+                let key = format!(
+                    "MDE_CORE_{}_{}_BUDGET_MS",
+                    label.replace(' ', ""),
+                    metric
                 );
-                println!("   budget: {edit_median:.3} <= {budget:.3} ms\n");
+                if let Ok(raw) = std::env::var(&key) {
+                    let budget: f64 =
+                        raw.parse().unwrap_or_else(|_| panic!("invalid {key}={raw}"));
+                    assert!(
+                        value <= budget,
+                        "{label} {} median {value:.3} ms exceeds {budget:.3} ms budget",
+                        metric.to_ascii_lowercase()
+                    );
+                    println!(
+                        "   {} budget: {value:.3} <= {budget:.3} ms",
+                        metric.to_ascii_lowercase()
+                    );
+                }
             }
+            println!();
         }
     }
 
@@ -278,7 +290,12 @@ fn dump(dir: &str) {
     println!("{dir}/manifest.toml");
 }
 
-fn run(label: &str, bytes: usize) -> f64 {
+struct RunResult {
+    edit_ms: f64,
+    selection_ms: f64,
+}
+
+fn run(label: &str, bytes: usize) -> RunResult {
     let doc = document(bytes);
     let n = iters_for(doc.len());
     let reg = || Registry::from_toml(MANIFEST).expect("manifest parses");
@@ -348,8 +365,9 @@ fn run(label: &str, bytes: usize) -> f64 {
     });
 
     // -- selection ------------------------------------------------------------------
-    // No reparse: reveal recompute + UTF-16 emit + diff. Alternating between a caret
-    // inside a node and one outside keeps the patch non-empty, as a real caret move is.
+    // No reparse: query the reveal interval index and patch only the decoration kinds
+    // whose reveal state changed. Alternating between a caret inside a node and one
+    // outside keeps the patch non-empty, as a real caret move is.
     let mut e = Engine::new(reg());
     e.reset(&doc);
     let mut flip = false;
@@ -360,11 +378,10 @@ fn run(label: &str, bytes: usize) -> f64 {
     });
 
     // -- breakdown ------------------------------------------------------------------
-    // `Engine::edit` is, in order: mirror apply, decorate::build, payload map rebuild,
-    // emit. Every one of those is reachable from outside — `set_selection` *is* emit,
-    // since it is the one entry point that skips the reparse — so nothing here has to
-    // be derived by subtraction. The sum is printed against the measured `edit` so any
-    // gap is visible rather than silently absorbed into whichever stage was derived.
+    // Independent diagnostics for the expensive operations surrounding `Engine::edit`.
+    // These deliberately are not summed: production edits use a regional build and an
+    // incremental payload update, while the isolated probes below exercise full builds
+    // to make parser and registry costs comparable across releases.
     let registry = reg();
     let base = Text::new(&doc);
     let mut scratch = base.clone();
@@ -382,7 +399,7 @@ fn run(label: &str, bytes: usize) -> f64 {
             built
                 .iter()
                 .filter_map(|b| b.payload.as_ref().map(|p| (b.key, p.clone())))
-                .collect::<HashMap<u64, String>>()
+                .collect::<HashMap<_, _>>()
         })
     });
 
@@ -420,12 +437,8 @@ fn run(label: &str, bytes: usize) -> f64 {
     let walk = bench(n, || timed(|| decorate::build(&flat, &plain)));
     let build_flat = bench(n, || timed(|| decorate::build(&flat, &registry)));
 
-    // The breakdown reports minima, not medians. Each stage is measured in a separate
-    // loop, so the medians carry each loop's own share of allocator state and scheduler
-    // interference and do not add up to anything; the minimum is the closest each stage
-    // gets to its own cost. The measured `edit` minimum is printed next to the sum so a
-    // bad decomposition cannot hide.
-    let sum = apply.min + build.min + payloads.min + sel.min;
+    // The diagnostics report minima, not medians. Each operation is measured in a
+    // separate loop; its minimum is the closest it gets to its own isolated cost.
 
     row("reset (cold parse)", &cold);
     row("edit (one keystroke)", &key);
@@ -434,14 +447,13 @@ fn run(label: &str, bytes: usize) -> f64 {
         "   patch for that keystroke: {n_add} added, {n_rem} removed, \
          {n_shift} suffix shifts, {n_mov} explicit moves"
     );
-    println!("   breakdown of edit (min):");
+    println!("   independent diagnostics (min):");
     sub("mirror apply + reindex", apply.min, key.min);
     sub("structural fallback scan", scan.min, key.min);
     sub("decorate::build", build.min, key.min);
-    sub("payload map rebuild", payloads.min, key.min);
-    sub("emit (reveal+UTF-16+diff)", sel.min, key.min);
+    sub("full payload map collect", payloads.min, key.min);
+    sub("selection interval patch", sel.min, key.min);
     sub("  of which diff::diff", dif.min, key.min);
-    println!("      {:<26} {:>9.3}  vs {:.3} measured", "sum of parts", ms(sum), ms(key.min));
     println!("   decorate::build by registry (min, share of full):");
     sub(&format!("built-ins only ({})", counts.0), build_plain.min, build.min);
     sub(&format!("+ inline rules ({})", counts.1), build_no_directive.min, build.min);
@@ -458,7 +470,7 @@ fn run(label: &str, bytes: usize) -> f64 {
         (ms(build.min) - ms(build_flat.min)) * 1e6 / decorations.max(1) as f64
     );
     println!();
-    ms(key.median)
+    RunResult { edit_ms: ms(key.median), selection_ms: ms(sel.median) }
 }
 
 /// The `:::chart` rule, split out so the benchmark can build a registry without it and

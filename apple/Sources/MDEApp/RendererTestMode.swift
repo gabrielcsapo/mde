@@ -31,7 +31,17 @@ enum RendererTestMode {
             let tableTextViews = views.compactMap { $0 as? UITextView }.filter {
                 $0.accessibilityIdentifier == "mde.table-cell"
             }
-            let labels = tableTextViews.compactMap(\.attributedText)
+            let labels = views.compactMap { view -> NSAttributedString? in
+                if let textView = view as? UITextView,
+                   textView.accessibilityIdentifier == "mde.table-cell" {
+                    return textView.attributedText
+                }
+                if let label = view as? UILabel,
+                   label.accessibilityIdentifier == "mde.table-cell" {
+                    return label.attributedText
+                }
+                return nil
+            }
 
             let bold = labels.contains { text in
                 guard text.string == "JS" || text.string == "UIKit" else { return false }

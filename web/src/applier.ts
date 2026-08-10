@@ -605,6 +605,24 @@ export class DomApplier {
       }
     }
 
+    let pendingClass = null;
+    let pendingText = '';
+    const flush = () => {
+      if (pendingText.length === 0) return;
+      // Plain source inherits everything it needs from the line. Keeping it as a bare
+      // text node avoids an otherwise meaningless element for every gap between
+      // markdown roles. Styled source retains `.mde-run` as the public theme hook.
+      if (pendingClass === null) {
+        parent.appendChild(document.createTextNode(pendingText));
+      } else {
+        const span = document.createElement('span');
+        span.className = pendingClass;
+        span.appendChild(document.createTextNode(pendingText));
+        parent.appendChild(span);
+      }
+      pendingText = '';
+    };
+
     for (let i = 0; i < points.length - 1; i++) {
       const segStart = points[i];
       const segEnd = points[i + 1];
@@ -627,11 +645,14 @@ export class DomApplier {
       }
       if (concealed) classes.push('mde-conceal');
 
-      const span = document.createElement('span');
-      span.className = classes.join(' ');
-      span.appendChild(document.createTextNode(text));
-      parent.appendChild(span);
+      const className = classes.length === 1 ? null : classes.join(' ');
+      if (className !== pendingClass) {
+        flush();
+        pendingClass = className;
+      }
+      pendingText += text;
     }
+    flush();
   }
 
   /**

@@ -8,6 +8,7 @@
 import { afterEach, beforeAll, expect, test } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import '../src/theme.css';
+import '../extensions/extensions.css';
 
 import {
   IGNORE_ATTR,
@@ -997,6 +998,14 @@ function makeEditor(options = {}) {
     assert(e.chunkEls[100] === distantChunk, 'a local edit rebuilt a distant layout group');
   });
 
+  test('plain source does not allocate redundant run wrappers', () => {
+    const e = makeEditor();
+    e.setMarkdown('plain source\nnext line');
+
+    assertEqual(e.root.querySelectorAll('.mde-run').length, 0);
+    assertEqual(domText(e.root), e.markdown);
+  });
+
   test('native typing stays at the caret inside a contained large document', async () => {
     const e = makeEditor();
     const source = 'line content\n'.repeat(1_000);
@@ -1277,15 +1286,10 @@ function makeEditor(options = {}) {
     const mode = new TypewriterMode(e);
     mode.enable();
 
-    const focus = e.decorations.filter((d) => d.role === mode.focusRole);
-    const dim = e.decorations.filter((d) => d.role === mode.dimRole);
-    assertEqual(focus.length, 1, 'exactly one focused paragraph');
-    assertEqual(
-      e.markdown.slice(focus[0].start, focus[0].end),
-      'second para',
-      'the focus band should be the paragraph holding the caret'
-    );
-    assert(dim.length > 0, 'everything else should be dimmed');
+    const focus = e.root.querySelectorAll('.mde-typewriter-focus');
+    assertEqual(focus.length, 1, 'exactly one focused paragraph line');
+    assertEqual(focus[0].textContent, 'second para\n');
+    assert(e.root.classList.contains('mde-typewriter-active'), 'the other lines should be dimmed');
     assertEqual(domText(e.root), e.markdown, 'the extension changed the document text');
   });
 
@@ -1299,13 +1303,9 @@ function makeEditor(options = {}) {
     const mode = new TypewriterMode(e);
     mode.enable();
 
-    const focus = e.decorations.filter((d) => d.role === mode.focusRole);
-    assertEqual(focus.length, 1, 'the multi-line paragraph should be one focus band');
-    assertEqual(
-      e.markdown.slice(focus[0].start, focus[0].end),
-      'first line\nsecond line',
-      'the scan should reach the start of the paragraph and terminate'
-    );
+    const focus = [...e.root.querySelectorAll('.mde-typewriter-focus')];
+    assertEqual(focus.length, 2, 'both lines in the paragraph should stay focused');
+    assertEqual(focus.map((line) => line.textContent).join(''), 'first line\nsecond line\n');
   });
 
   test('a layer outranks the parse so a dim can beat a heading', () => {
@@ -1314,10 +1314,9 @@ function makeEditor(options = {}) {
     e.root.focus();
     const at = e.markdown.indexOf('body');
     e.setSelectionRange({ start: at, end: at });
-    const mode = new TypewriterMode(e);
-    mode.enable();
-
-    const dim = e.decorations.find((d) => d.role === mode.dimRole);
+    const dimRole = e.internRole('test-dim');
+    e.setLayer('test-layer', [{ start: 0, end: 9, role: dimRole }]);
+    const dim = e.decorations.find((d) => d.role === dimRole);
     const heading = e.decorations.find((d) => d.layer === 0 && d.start === 0);
     assert(dim, 'no dim span');
     assert(dim.layer > 0, 'a host layer must sit above the parse');
@@ -1330,12 +1329,13 @@ function makeEditor(options = {}) {
     e.root.focus();
     e.setSelectionRange({ start: 0, end: 0 });
 
-    const before = e.decorations.length;
     const mode = new TypewriterMode(e);
     mode.enable();
-    assert(e.decorations.length > before, 'enabling should add decorations');
+    assert(e.root.classList.contains('mde-typewriter-active'));
+    assert(e.root.querySelector('.mde-typewriter-focus'));
     mode.disable();
-    assertEqual(e.decorations.length, before, 'disabling should leave no trace');
+    assert(!e.root.classList.contains('mde-typewriter-active'));
+    assert(!e.root.querySelector('.mde-typewriter-focus'));
     assertEqual(domText(e.root), e.markdown);
   });
 

@@ -59,13 +59,18 @@ public final class MarkdownTextView: UITextView {
         get { applier.theme }
         set {
             applier.theme = newValue
-            repaintAll()
+            refreshPainting()
         }
     }
 
     private let applier: DecorationApplier
     private let contentStorage: NSTextContentStorage
     private lazy var ownUndoManager = DisabledUndoManager()
+    private static let eagerPaintLimit = 256 * 1024
+    private var usesViewportPainting = false
+    private var paintedRanges: [NSRange] = []
+    private var viewportPaintScheduled = false
+    private var pendingPaintLocation: Int?
 
     /// Set while an undo is written into the storage, so it is not reported back to the
     /// core as a fresh edit.
@@ -145,6 +150,17 @@ public final class MarkdownTextView: UITextView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
 
+    override public func layoutSubviews() {
+        super.layoutSubviews()
+        scheduleViewportPaint()
+    }
+
+    override public func scrollRangeToVisible(_ range: NSRange) {
+        super.scrollRangeToVisible(range)
+        pendingPaintLocation = range.location
+        scheduleViewportPaint()
+    }
+
     /// The platform undo manager is deliberately inert: it sees keystrokes, not
     /// markdown structure, so undoing a bold-toggle would come back as two unrelated
     /// character deletions. History lives in the core instead (DESIGN §9).
@@ -171,7 +187,9 @@ public final class MarkdownTextView: UITextView {
         isRewinding = false
 
         applier.ingest(engine.reset(text))
-        repaintAll()
+        usesViewportPainting = textStorage.length > Self.eagerPaintLimit
+        paintedRanges.removeAll()
+        refreshPainting()
     }
 
     // MARK: - Undo
@@ -215,7 +233,7 @@ public final class MarkdownTextView: UITextView {
         isRewinding = false
 
         applier.ingest(rewind.patch)
-        repaintAll()
+        refreshPainting()
         if let sel = rewind.selection, sel.upperBound <= textStorage.length {
             selectedRange = sel
         }
@@ -319,11 +337,61 @@ public final class MarkdownTextView: UITextView {
         // Disjoint ranges, not a bounding box: see `dirtyRanges`.
         let dirty = applier.dirtyRanges(for: patch, alsoDirty: alsoDirty)
         applier.ingest(patch)
-        for range in dirty { applier.repaint(range, in: textStorage) }
+        if usesViewportPainting, alsoDirty != nil { paintedRanges.removeAll() }
+        for range in dirty {
+            applier.repaint(range, in: textStorage)
+            rememberPainted(range)
+        }
+        scheduleViewportPaint()
     }
 
     private func repaintAll() {
         applier.repaint(NSRange(location: 0, length: textStorage.length), in: textStorage)
+        paintedRanges = [NSRange(location: 0, length: textStorage.length)]
+    }
+
+    private func refreshPainting() {
+        paintedRanges.removeAll()
+        if usesViewportPainting { scheduleViewportPaint() } else { repaintAll() }
+    }
+
+    private func scheduleViewportPaint() {
+        guard usesViewportPainting, !viewportPaintScheduled else { return }
+        viewportPaintScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.viewportPaintScheduled = false
+            self.repaintViewport()
+        }
+    }
+
+    private func repaintViewport() {
+        guard usesViewportPainting, textStorage.length > 0 else { return }
+        let viewport = contentStorage.textLayoutManagers.first?
+            .textViewportLayoutController.viewportRange
+        let viewportTop = viewport.map {
+            contentStorage.offset(from: contentStorage.documentRange.location, to: $0.location)
+        } ?? 0
+        let viewportBottom = viewport.map {
+            contentStorage.offset(from: contentStorage.documentRange.location, to: $0.endLocation)
+        } ?? viewportTop
+        let target = pendingPaintLocation
+        pendingPaintLocation = nil
+        let top = target ?? viewportTop
+        let bottom = target ?? viewportBottom
+        let from = max(0, min(top, bottom) - 4096)
+        let to = min(textStorage.length, max(max(top, bottom) + 4096, from + 8192))
+        let range = NSRange(location: from, length: max(0, to - from))
+        guard !paintedRanges.contains(where: {
+            $0.location <= range.location && $0.upperBound >= range.upperBound
+        }) else { return }
+        applier.repaint(range, in: textStorage)
+        rememberPainted(range)
+    }
+
+    private func rememberPainted(_ range: NSRange) {
+        guard usesViewportPainting else { return }
+        paintedRanges = DecorationApplier.merged(paintedRanges + [range])
     }
 
     /// A resource finished loading. Repaint only the nodes that point at it, so one
@@ -404,7 +472,7 @@ extension MarkdownTextView: NSTextStorageDelegate {
                 guard let self else { return }
                 self.applier.reset()
                 self.applier.ingest(self.engine.reset(text))
-                self.repaintAll()
+                self.refreshPainting()
             }
         } catch {
             assertionFailure("unexpected engine error: \(error)")

@@ -19,7 +19,9 @@ pub use registry::{Registry, RegistryError};
 pub use text::{Edit, EditError};
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use decorate::Built;
 use history::History;
@@ -63,14 +65,31 @@ struct Layer {
     spans: Vec<(usize, usize, RoleId, Kind, u8)>,
 }
 
+/// One selection-sensitive decoration and the byte range that controls its reveal.
+/// Sorted by `start`; `reveal_prefix_max_end` makes interval queries logarithmic plus
+/// the number of nearby candidates, rather than a walk over the whole document.
+#[derive(Debug, Clone, Copy)]
+struct RevealScope {
+    start: usize,
+    end: usize,
+    built_index: usize,
+}
+
 pub struct Engine {
     text: Text,
     registry: Registry,
     built: Vec<Built>,
     emitted: Vec<Decoration>,
+    reveal_scopes: Vec<RevealScope>,
+    reveal_prefix_max_end: Vec<usize>,
     /// Parser-supplied extra text per decoration key — image and link destinations,
     /// table alignments, fence arguments, delimited inner text. Rebuilt on every reparse.
-    payloads: FastMap<u64, String>,
+    payloads: FastMap<u64, Arc<str>>,
+    /// Live decoration keys and a nonce for identities created by regional rebuilds.
+    /// Kept explicitly so a new local node can receive a collision-free key without a
+    /// whole-document occurrence-count pass.
+    keys: FastMap<u64, ()>,
+    key_nonce: u64,
     /// `None` means unfocused — no caret, so nothing reveals. A document opened but
     /// not yet edited must render fully collapsed; without this state a caret
     /// implicitly parked at offset 0 would reveal the first heading's `#` on load.
@@ -91,7 +110,11 @@ impl Engine {
             registry,
             built: Vec::new(),
             emitted: Vec::new(),
+            reveal_scopes: Vec::new(),
+            reveal_prefix_max_end: Vec::new(),
             payloads: FastMap::default(),
+            keys: FastMap::default(),
+            key_nonce: 0,
             selection: None,
             history: History::new(),
             layers: Vec::new(),
@@ -159,6 +182,7 @@ impl Engine {
         now_ms: u64,
     ) -> Result<Patch, EditError> {
         let sel_before = self.selection;
+        let utf16_len_before = self.text.len_utf16();
         // Byte span of the edit in the pre-edit document, captured before the mirror
         // moves; the incremental path needs both sides of the change.
         let span = single_edit_span(edits, &self.text);
@@ -171,9 +195,13 @@ impl Engine {
             _ => false,
         };
         let inverse = self.text.apply(edits, expected_len)?;
+        let utf16_delta = (edits.len() == 1).then(|| {
+            i32::try_from(i64::from(self.text.len_utf16()) - i64::from(utf16_len_before))
+                .expect("one edit cannot exceed the UTF-16 document limit")
+        });
         self.clamp_selection();
         self.history.record(edits, inverse, sel_before, self.selection, now_ms);
-        Ok(self.rebuild(span, reuse_regions))
+        Ok(self.rebuild(span, reuse_regions, utf16_delta))
     }
 
     /// Force the next edit to begin a new undo step. Call before a command that
@@ -228,7 +256,7 @@ impl Engine {
         if self.selection == before {
             return Patch::default();
         }
-        self.emit()
+        self.emit_selection_change(before)
     }
 
     fn clamp_selection(&mut self) {
@@ -361,7 +389,7 @@ impl Engine {
     /// `![a](b.png)` is a *reference*; resolving it to bytes is the host's job, and the
     /// document never carries the content itself.
     pub fn payload(&self, key: u64) -> Option<&str> {
-        self.payloads.get(&key).map(String::as_str)
+        self.payloads.get(&key).map(AsRef::as_ref)
     }
 
     /// Rebuild decorations after an edit, reparsing only what the edit could have
@@ -370,7 +398,12 @@ impl Engine {
     /// Falls back to a full reparse whenever the region scan cannot vouch for the
     /// document. The fallback is not a rare path to be embarrassed about — it is what
     /// makes the optimization safe to have at all.
-    fn rebuild(&mut self, span: Option<(usize, usize, isize)>, reuse_regions: bool) -> Patch {
+    fn rebuild(
+        &mut self,
+        span: Option<(usize, usize, isize)>,
+        reuse_regions: bool,
+        utf16_delta: Option<i32>,
+    ) -> Patch {
         self.rebase_layers(span);
         let trusted_before = self.regions.is_some();
         if reuse_regions {
@@ -402,38 +435,43 @@ impl Engine {
         // inside a block that used to be whole, and a decoration in that block then
         // belongs to neither the kept prefix nor the rebuilt region — it just
         // disappears. Widen until no surviving block straddles either edge.
-        loop {
-            let old_hi = (hi as isize - delta) as usize;
-            let mut widened = false;
+        // A reused index has exactly the old boundaries translated over a non-
+        // structural edit, so the old proof that no block straddles them still holds.
+        // Only a freshly scanned index can invent a boundary inside an old block.
+        if !reuse_regions {
+            loop {
+                let old_hi = (hi as isize - delta) as usize;
+                let mut widened = false;
 
-            if let Some(start) = self
-                .built
-                .iter()
-                .filter(|d| d.block.0 < lo && d.block.1 > lo)
-                .map(|d| d.block.0)
-                .min()
-            {
-                let next = regions.at_or_before(start);
-                if next < lo {
-                    lo = next;
-                    widened = true;
+                if let Some(start) = self
+                    .built
+                    .iter()
+                    .filter(|d| d.block.0 < lo && d.block.1 > lo)
+                    .map(|d| d.block.0)
+                    .min()
+                {
+                    let next = regions.at_or_before(start);
+                    if next < lo {
+                        lo = next;
+                        widened = true;
+                    }
                 }
-            }
-            if let Some(end) = self
-                .built
-                .iter()
-                .filter(|d| d.block.0 < old_hi && d.block.1 > old_hi)
-                .map(|d| d.block.1)
-                .max()
-            {
-                let next = regions.at_or_after((end as isize + delta) as usize, src.len());
-                if next > hi {
-                    hi = next;
-                    widened = true;
+                if let Some(end) = self
+                    .built
+                    .iter()
+                    .filter(|d| d.block.0 < old_hi && d.block.1 > old_hi)
+                    .map(|d| d.block.1)
+                    .max()
+                {
+                    let next = regions.at_or_after((end as isize + delta) as usize, src.len());
+                    if next > hi {
+                        hi = next;
+                        widened = true;
+                    }
                 }
-            }
-            if !widened {
-                break;
+                if !widened {
+                    break;
+                }
             }
         }
 
@@ -452,17 +490,63 @@ impl Engine {
         // an allocation per decoration with a payload, on every keystroke.
         let first = self.built.partition_point(|d| d.start < lo);
         let last = self.built.partition_point(|d| d.start < old_hi);
+        let regional_emission = self.layers.is_empty().then(|| self.emitted[first..last].to_vec());
+        let mut reusable: FastMap<u64, VecDeque<u64>> = FastMap::default();
+        for decoration in &self.built[first..last] {
+            reusable
+                .entry(decoration.identity)
+                .or_default()
+                .push_back(decoration.key);
+            self.keys.remove(&decoration.key);
+            if decoration.payload.is_some() {
+                self.payloads.remove(&decoration.key);
+            }
+        }
+        let mut region = region;
+        for decoration in &mut region {
+            decoration.key = reusable
+                .get_mut(&decoration.identity)
+                .and_then(VecDeque::pop_front)
+                .unwrap_or_else(|| {
+                    fresh_regional_key(
+                        &mut self.keys,
+                        &mut self.key_nonce,
+                        decoration.identity,
+                    )
+                });
+            self.keys.insert(decoration.key, ());
+            if let Some(payload) = &decoration.payload {
+                self.payloads.insert(decoration.key, Arc::clone(payload));
+            }
+        }
         for d in &mut self.built[last..] {
             shift(d, delta);
         }
+        let region_count = region.len();
         self.built.splice(first..last, region);
+        self.rebuild_reveal_index();
+        if let (Some(previous), Some(delta16)) = (regional_emission, utf16_delta) {
+            let selection = self.selection_bytes(self.selection);
+            let next: Vec<_> = self.built[first..first + region_count]
+                .iter()
+                .map(|built| self.emitted_for(built, selection))
+                .collect();
+            let mut patch = diff::diff_region(&previous, &next);
+            self.emitted.splice(first..last, next);
 
-        // Keys depend on how many byte-identical siblings precede a node, so they are
-        // reassigned over the whole list — cheap, and it is what keeps an incremental
-        // result identical to a full reparse.
-        decorate::assign_keys(&mut self.built, src);
-        self.rebuild_payloads();
-        self.emit()
+            let suffix = first + region_count;
+            if delta16 != 0 && suffix < self.emitted.len() {
+                let cutoff = self.emitted[suffix].start;
+                for decoration in &mut self.emitted[suffix..] {
+                    decoration.start = decoration.start.checked_add_signed(delta16).unwrap();
+                    decoration.end = decoration.end.checked_add_signed(delta16).unwrap();
+                }
+                patch.shifted.push(Shift { start: cutoff, delta: delta16 });
+            }
+            patch
+        } else {
+            self.emit()
+        }
     }
 
     fn reparse(&mut self) -> Patch {
@@ -472,7 +556,9 @@ impl Engine {
 
     fn full_rebuild(&mut self) -> Patch {
         self.built = decorate::build(&self.text, &self.registry);
+        self.keys = self.built.iter().map(|built| (built.key, ())).collect();
         self.rebuild_payloads();
+        self.rebuild_reveal_index();
         self.emit()
     }
 
@@ -519,6 +605,119 @@ impl Engine {
             .collect();
     }
 
+    fn rebuild_reveal_index(&mut self) {
+        self.reveal_scopes.clear();
+        self.reveal_scopes.reserve(self.built.len());
+        for (built_index, b) in self.built.iter().enumerate() {
+            let (start, end) = match b.reveal {
+                Reveal::Never => continue,
+                Reveal::CaretInNode => b.node,
+                Reveal::CaretInLine => {
+                    let start = self.text.line_range(b.node.0).0;
+                    let end = self
+                        .text
+                        .line_range(b.node.1.min(self.text.as_str().len()))
+                        .1;
+                    (start, end)
+                }
+                Reveal::CaretInBlock => b.block,
+            };
+            self.reveal_scopes.push(RevealScope { start, end, built_index });
+        }
+        self.reveal_scopes
+            .sort_unstable_by_key(|scope| (scope.start, scope.end, scope.built_index));
+        self.reveal_prefix_max_end.clear();
+        self.reveal_prefix_max_end.reserve(self.reveal_scopes.len());
+        let mut maximum = 0;
+        for scope in &self.reveal_scopes {
+            maximum = maximum.max(scope.end);
+            self.reveal_prefix_max_end.push(maximum);
+        }
+    }
+
+    fn selection_bytes(&self, selection: Option<Selection>) -> Option<(usize, usize)> {
+        selection.map(|selection| {
+            let (lo, hi) = selection.ordered();
+            (self.text.utf16_to_utf8(lo), self.text.utf16_to_utf8(hi))
+        })
+    }
+
+    fn reveal_candidates(&self, selection: Option<(usize, usize)>, out: &mut Vec<usize>) {
+        let Some((lo, hi)) = selection else { return };
+        let upper = self.reveal_scopes.partition_point(|scope| scope.start <= hi);
+        let lower = self.reveal_prefix_max_end[..upper].partition_point(|end| *end < lo);
+        out.extend(
+            self.reveal_scopes[lower..upper]
+                .iter()
+                .filter(|scope| scope.end >= lo)
+                .map(|scope| scope.built_index),
+        );
+    }
+
+    fn effective_kind(&self, b: &Built, selection: Option<(usize, usize)>) -> Kind {
+        let revealed = selection.is_some_and(|(lo, hi)| {
+            let (start, end) = match b.reveal {
+                Reveal::Never => return false,
+                Reveal::CaretInNode => b.node,
+                Reveal::CaretInLine => {
+                    let start = self.text.line_range(b.node.0).0;
+                    let end = self
+                        .text
+                        .line_range(b.node.1.min(self.text.as_str().len()))
+                        .1;
+                    (start, end)
+                }
+                Reveal::CaretInBlock => b.block,
+            };
+            intersects(lo, hi, start, end)
+        });
+        if revealed {
+            match b.kind {
+                Kind::Conceal | Kind::InlineWidget | Kind::BlockWidget => Kind::Style,
+                kind => kind,
+            }
+        } else {
+            b.kind
+        }
+    }
+
+    fn emitted_for(&self, b: &Built, selection: Option<(usize, usize)>) -> Decoration {
+        Decoration {
+            start: self.text.utf8_to_utf16(b.start),
+            end: self.text.utf8_to_utf16(b.end),
+            key: b.key,
+            role: b.role,
+            kind: self.effective_kind(b, selection),
+            reveal: b.reveal,
+            depth: b.depth,
+            layer: 0,
+        }
+    }
+
+    fn emit_selection_change(&mut self, before: Option<Selection>) -> Patch {
+        let old_selection = self.selection_bytes(before);
+        let new_selection = self.selection_bytes(self.selection);
+        let mut candidates = Vec::new();
+        self.reveal_candidates(old_selection, &mut candidates);
+        self.reveal_candidates(new_selection, &mut candidates);
+        candidates.sort_unstable();
+        candidates.dedup();
+
+        let mut patch = Patch::default();
+        for index in candidates {
+            let b = &self.built[index];
+            let kind = self.effective_kind(b, new_selection);
+            let emitted = &mut self.emitted[index];
+            if emitted.kind != kind {
+                patch.removed.push(emitted.key);
+                emitted.kind = kind;
+                patch.added.push(*emitted);
+            }
+        }
+        patch.removed.sort_unstable();
+        patch
+    }
+
     fn emit(&mut self) -> Patch {
         // Unfocused: no caret, so nothing reveals.
         let sel = self.selection.map(|s| {
@@ -527,42 +726,7 @@ impl Engine {
         });
 
         let mut next = Vec::with_capacity(self.built.len());
-        for b in &self.built {
-            let revealed = match (sel, b.reveal) {
-                (None, _) | (_, Reveal::Never) => false,
-                (Some((lo, hi)), Reveal::CaretInNode) => intersects(lo, hi, b.node.0, b.node.1),
-                (Some((lo, hi)), Reveal::CaretInLine) => {
-                    let s = self.text.line_range(b.node.0).0;
-                    let e = self.text.line_range(b.node.1.min(self.text.as_str().len())).1;
-                    intersects(lo, hi, s, e)
-                }
-                (Some((lo, hi)), Reveal::CaretInBlock) => {
-                    intersects(lo, hi, b.block.0, b.block.1)
-                }
-            };
-
-            // Revealing collapses a hiding primitive to plain styled source, keeping
-            // the same key and role so the renderer's theme still applies.
-            let kind = if revealed {
-                match b.kind {
-                    Kind::Conceal | Kind::InlineWidget | Kind::BlockWidget => Kind::Style,
-                    k => k,
-                }
-            } else {
-                b.kind
-            };
-
-            next.push(Decoration {
-                start: self.text.utf8_to_utf16(b.start),
-                end: self.text.utf8_to_utf16(b.end),
-                key: b.key,
-                role: b.role,
-                kind,
-                reveal: b.reveal,
-                depth: b.depth,
-                layer: 0,
-            });
-        }
+        next.extend(self.built.iter().map(|built| self.emitted_for(built, sel)));
 
         // Host layers last, so they paint over what the parse decided.
         for (index, layer) in self.layers.iter().enumerate() {
@@ -646,6 +810,20 @@ fn shift(d: &mut decorate::Built, delta: isize) {
     d.end = by(d.end);
     d.node = (by(d.node.0), by(d.node.1));
     d.block = (by(d.block.0), by(d.block.1));
+}
+
+fn fresh_regional_key(keys: &mut FastMap<u64, ()>, nonce: &mut u64, identity: u64) -> u64 {
+    loop {
+        *nonce = nonce.wrapping_add(1);
+        let mut hasher = DefaultHasher::new();
+        "mde-regional-key".hash(&mut hasher);
+        identity.hash(&mut hasher);
+        nonce.hash(&mut hasher);
+        let key = hasher.finish();
+        if !keys.contains_key(&key) {
+            return key;
+        }
+    }
 }
 
 /// Inclusive at the endpoints: a caret resting against a node's edge reveals it.

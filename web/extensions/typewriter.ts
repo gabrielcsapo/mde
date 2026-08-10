@@ -1,13 +1,10 @@
 // Typewriter (focus) mode — an extension, not a feature of the editor.
 //
-// Nothing in `web/src/` knows this file exists. It never touches the DOM, never asks
-// how a line is rendered, and never reaches into the applier. All it does is watch the
-// caret and push a decoration layer (DESIGN §5.3): the paragraph being worked on gets
-// one role, everything else gets another, and the theme decides what those look like.
-//
-// That is the whole point of the exercise. If the extension system were only the
-// declarative manifest — patterns and fences — this could not exist, because what to
-// decorate depends on where the caret is, which no parse can know.
+// Nothing in `web/src/` knows this file exists. The extension watches the editor's
+// public selection/line model and marks only the active paragraph. CSS dims the other
+// line containers in one compositing operation. A generic full-document decoration
+// layer was semantically elegant but forced every line's DOM to be rebuilt whenever
+// the caret moved — more than a second on an otherwise responsive 100 KB document.
 
 import type { MarkdownEditor } from '../src/editor.js';
 
@@ -43,12 +40,9 @@ function paragraphAround(text: string, offset: number): [number, number] {
 }
 
 export class TypewriterMode {
-  static LAYER = 'typewriter';
-
   editor: MarkdownEditor;
   enabled: boolean;
-  focusRole: number;
-  dimRole: number;
+  focusedLines: HTMLElement[];
   onChange: () => void;
   onSelection: () => void;
 
@@ -56,8 +50,7 @@ export class TypewriterMode {
   constructor(editor: MarkdownEditor) {
     this.editor = editor;
     this.enabled = false;
-    this.focusRole = editor.internRole('typewriter-focus');
-    this.dimRole = editor.internRole('typewriter-dim');
+    this.focusedLines = [];
 
     this.onChange = () => this.recompute();
     this.onSelection = () => this.recompute();
@@ -84,8 +77,7 @@ export class TypewriterMode {
     this.enabled = false;
     this.editor.removeEventListener('selectionchange', this.onSelection);
     this.editor.removeEventListener('change', this.onChange);
-    // `clearLayer`, not an empty push: the layer should stop occupying a paint slot.
-    this.editor.clearLayer(TypewriterMode.LAYER);
+    this.clearFocus();
   }
 
   recompute() {
@@ -94,17 +86,24 @@ export class TypewriterMode {
     const sel = this.editor.selectionRange();
 
     // No caret means no focus. Dimming the entire document because the editor lost
-    // focus would be a strange thing to look at, so the layer empties instead.
+    // focus would be a strange thing to look at, so the visual state empties instead.
     if (!sel) {
-      this.editor.setLayer(TypewriterMode.LAYER, []);
+      this.clearFocus();
       return;
     }
 
     const [start, end] = paragraphAround(text, sel.start);
-    const spans = [];
-    if (start > 0) spans.push({ start: 0, end: start, role: this.dimRole });
-    if (end < text.length) spans.push({ start: end, end: text.length, role: this.dimRole });
-    if (end > start) spans.push({ start, end, role: this.focusRole });
-    this.editor.setLayer(TypewriterMode.LAYER, spans);
+    this.clearFocus();
+    const first = this.editor.lineIndexAt(start, this.editor.lineStarts);
+    const last = this.editor.lineIndexAt(end, this.editor.lineStarts);
+    this.focusedLines = this.editor.lineEls.slice(first, last + 1);
+    this.editor.root.classList.add('mde-typewriter-active');
+    for (const line of this.focusedLines) line.classList.add('mde-typewriter-focus');
+  }
+
+  private clearFocus() {
+    for (const line of this.focusedLines) line.classList.remove('mde-typewriter-focus');
+    this.focusedLines = [];
+    this.editor.root.classList.remove('mde-typewriter-active');
   }
 }

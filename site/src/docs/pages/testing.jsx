@@ -1,14 +1,12 @@
 import { Aside, H2, Lede, Note, SeeAlso, TableFrame } from '../../components/Doc.jsx';
 import SourceFigure from '../../components/SourceFigure.jsx';
+import CaptureMatrix from '../../components/CaptureMatrix.jsx';
 import { Link } from '../../lib/router.jsx';
 import { tag } from '../../lib/highlight.js';
 
 const golden = tag('bash', `UPDATE_GOLDEN=1 cargo test -p mde-core --test golden`);
 const all = tag('bash', `./scripts/test.sh   # Rust, both Swift suites, and the browser suite`);
-const captures = tag(
-  'bash',
-  `pnpm capture:cross-platform   # JS, React, UIKit, and AppKit from one fixture`
-);
+const captures = tag('bash', `pnpm capture:cross-platform   # 4 scenarios × 4 renderers`);
 
 const SUITES = [
   [
@@ -109,12 +107,14 @@ export default function Testing() {
         Playwright’s Chromium build.
       </Note>
 
-      <H2 id="visual-captures">Reproduce all four platform screenshots</H2>
+      <H2 id="visual-captures">Reproduce the cross-platform screenshot matrix</H2>
       <p>
-        The JS, React, iOS, and macOS images are captures of the real renderers, not HTML mockups.
-        One command loads <code>fixtures/cross-platform.md</code> in all four hosts and writes the
-        resulting images to <code>site/assets/</code>.
+        These are captures of the real renderers, not HTML mockups. Four focused fixtures cover
+        CommonMark, rich tables and resources, host extensions, and live syntax reveal across JS,
+        React, iOS, and macOS. Keeping each scenario short makes every feature visible at phone
+        height and makes platform differences easy to spot.
       </p>
+      <CaptureMatrix />
       <SourceFigure className="mt-6" path="from the repository root" lang="bash" code={captures} />
       <Aside tone="note" title="Capture review is part of the renderer contract">
         When the shared fixture gains a new content case, its renderer assertions and all four

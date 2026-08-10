@@ -1,0 +1,8 @@
+{
+  "scenarios": [
+    { "id": "core", "title": "CommonMark essentials", "fixture": "capture-core.md" },
+    { "id": "tables", "title": "Rich tables and resources", "fixture": "capture-tables.md" },
+    { "id": "extensions", "title": "Host-defined syntax", "fixture": "capture-extensions.md" },
+    { "id": "editing", "title": "Live syntax reveal", "fixture": "capture-editing.md", "reveal": "revealed syntax" }
+  ]
+}

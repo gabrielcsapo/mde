@@ -19,6 +19,24 @@ fn needs_rebuild(a: &Decoration, b: &Decoration) -> bool {
 }
 
 pub fn diff(prev: &[Decoration], next: &[Decoration]) -> Patch {
+    let mut patch = diff_uncompacted(prev, next);
+    compact_suffix_shift(prev, next, &mut patch);
+    patch.moved.sort_unstable();
+    patch
+}
+
+/// Diff one already-bounded reparse region.
+///
+/// A regional caller appends the document suffix shift itself. Compacting local moves
+/// into another suffix shift here would affect decorations outside `next` when the host
+/// applies it, translating the untouched suffix twice.
+pub(crate) fn diff_region(prev: &[Decoration], next: &[Decoration]) -> Patch {
+    let mut patch = diff_uncompacted(prev, next);
+    patch.moved.sort_unstable();
+    patch
+}
+
+fn diff_uncompacted(prev: &[Decoration], next: &[Decoration]) -> Patch {
     let mut patch = Patch::default();
     let mut old: FastMap<u64, &Decoration> = FastMap::with_capacity_and_hasher(prev.len(), Default::default());
     for d in prev {
@@ -40,8 +58,6 @@ pub fn diff(prev: &[Decoration], next: &[Decoration]) -> Patch {
     }
     patch.removed.extend(old.into_keys());
     patch.removed.sort_unstable();
-    compact_suffix_shift(prev, next, &mut patch);
-    patch.moved.sort_unstable();
     patch
 }
 

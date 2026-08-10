@@ -56,7 +56,7 @@ public final class MarkdownTextView: NSTextView {
         get { applier.theme }
         set {
             applier.theme = newValue
-            repaintAll()
+            refreshPainting()
         }
     }
 
@@ -66,6 +66,11 @@ public final class MarkdownTextView: NSTextView {
     let contentStorage: NSTextContentStorage
     private lazy var ownUndoManager = DisabledUndoManager()
     private var isRewinding = false
+    private static let eagerPaintLimit = 256 * 1024
+    private var usesViewportPainting = false
+    private var paintedRanges: [NSRange] = []
+    private var viewportPaintScheduled = false
+    private var pendingPaintLocation: Int?
 
     // MARK: - Init
 
@@ -116,6 +121,17 @@ public final class MarkdownTextView: NSTextView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
 
+    override public func layout() {
+        super.layout()
+        scheduleViewportPaint()
+    }
+
+    override public func scrollRangeToVisible(_ range: NSRange) {
+        super.scrollRangeToVisible(range)
+        pendingPaintLocation = range.location
+        scheduleViewportPaint()
+    }
+
     /// Same reasoning as UIKit: `NSTextView`'s undo manager sees keystrokes, not
     /// markdown structure (DESIGN §9).
     override public var undoManager: UndoManager? { ownUndoManager }
@@ -142,7 +158,9 @@ public final class MarkdownTextView: NSTextView {
         isRewinding = false
 
         applier.ingest(engine.reset(text))
-        repaintAll()
+        usesViewportPainting = storage.length > Self.eagerPaintLimit
+        paintedRanges.removeAll()
+        refreshPainting()
     }
 
     // MARK: - Undo
@@ -184,7 +202,7 @@ public final class MarkdownTextView: NSTextView {
         isRewinding = false
 
         applier.ingest(rewind.patch)
-        repaintAll()
+        refreshPainting()
         if let sel = rewind.selection, sel.upperBound <= storage.length {
             setSelectedRange(sel)
         }
@@ -280,12 +298,62 @@ public final class MarkdownTextView: NSTextView {
         // Disjoint ranges, not a bounding box: see `dirtyRanges`.
         let dirty = applier.dirtyRanges(for: patch, alsoDirty: alsoDirty)
         applier.ingest(patch)
-        for range in dirty { applier.repaint(range, in: storage) }
+        if usesViewportPainting, alsoDirty != nil { paintedRanges.removeAll() }
+        for range in dirty {
+            applier.repaint(range, in: storage)
+            rememberPainted(range)
+        }
+        scheduleViewportPaint()
     }
 
     private func repaintAll() {
         guard let storage = textStorage else { return }
         applier.repaint(NSRange(location: 0, length: storage.length), in: storage)
+        paintedRanges = [NSRange(location: 0, length: storage.length)]
+    }
+
+    private func refreshPainting() {
+        paintedRanges.removeAll()
+        if usesViewportPainting { scheduleViewportPaint() } else { repaintAll() }
+    }
+
+    private func scheduleViewportPaint() {
+        guard usesViewportPainting, !viewportPaintScheduled else { return }
+        viewportPaintScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.viewportPaintScheduled = false
+            self.repaintViewport()
+        }
+    }
+
+    private func repaintViewport() {
+        guard usesViewportPainting, let storage = textStorage, storage.length > 0 else { return }
+        let viewport = contentStorage.textLayoutManagers.first?
+            .textViewportLayoutController.viewportRange
+        let viewportTop = viewport.map {
+            contentStorage.offset(from: contentStorage.documentRange.location, to: $0.location)
+        } ?? 0
+        let viewportBottom = viewport.map {
+            contentStorage.offset(from: contentStorage.documentRange.location, to: $0.endLocation)
+        } ?? viewportTop
+        let target = pendingPaintLocation
+        pendingPaintLocation = nil
+        let top = target ?? viewportTop
+        let bottom = target ?? viewportBottom
+        let from = max(0, min(top, bottom) - 4096)
+        let to = min(storage.length, max(max(top, bottom) + 4096, from + 8192))
+        let range = NSRange(location: from, length: max(0, to - from))
+        guard !paintedRanges.contains(where: {
+            $0.location <= range.location && $0.upperBound >= range.upperBound
+        }) else { return }
+        applier.repaint(range, in: storage)
+        rememberPainted(range)
+    }
+
+    private func rememberPainted(_ range: NSRange) {
+        guard usesViewportPainting else { return }
+        paintedRanges = DecorationApplier.merged(paintedRanges + [range])
     }
 
     private func repaintNodes(referencing reference: String) {
@@ -348,7 +416,7 @@ extension MarkdownTextView: NSTextStorageDelegate {
                 guard let self else { return }
                 self.applier.reset()
                 self.applier.ingest(self.engine.reset(text))
-                self.repaintAll()
+                self.refreshPainting()
             }
         } catch {
             assertionFailure("unexpected engine error: \(error)")

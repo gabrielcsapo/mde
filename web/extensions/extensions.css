@@ -15,34 +15,13 @@
 
 /* ---- typewriter mode ------------------------------------------------------ */
 
-.mde-ext-typewriter-dim {
-  color: var(--mde-muted, #a3a7b3);
-  transition: color 120ms ease-out;
+.mde-typewriter-active .mde-line {
+  opacity: 0.38;
+  transition: opacity 120ms ease-out;
 }
 
-/* Everything outside the focused paragraph loses its accent colour too, otherwise a
-   link or a heading stays bright and defeats the point. */
-.mde-ext-typewriter-dim.mde-link,
-.mde-ext-typewriter-dim.mde-link-text,
-.mde-ext-typewriter-dim.mde-heading,
-.mde-ext-typewriter-dim.mde-marker,
-.mde-ext-typewriter-dim.mde-quote,
-.mde-ext-typewriter-dim.mde-list-bullet,
-.mde-ext-typewriter-dim.mde-task-checkbox,
-.mde-ext-typewriter-dim.mde-code-inline,
-.mde-ext-typewriter-dim.mde-code-block {
-  color: var(--mde-muted, #a3a7b3);
-}
-
-/* `:not(.mde-heading)` on purpose. A segment can carry both this class and a heading's,
-   and they set the same property at the same specificity — so without the exclusion the
-   focused paragraph's headings would be *shrunk* to body size, which looks like a bug. */
-.mde-ext-typewriter-focus:not(.mde-heading) {
-  font-size: 1.06em;
-}
-
-.mde-ext-typewriter-focus {
-  color: var(--mde-text, #16181d);
+.mde-typewriter-active .mde-line.mde-typewriter-focus {
+  opacity: 1;
 }
 
 /* ---- parts of speech ------------------------------------------------------ */
@@ -60,5 +39,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mde-ext-typewriter-dim { transition: none; }
+  .mde-typewriter-active .mde-line { transition: none; }
 }
