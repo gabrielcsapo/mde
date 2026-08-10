@@ -1003,6 +1003,112 @@ final class MacRendererTests: XCTestCase {
     }
 }
 
+extension MacRendererTests {
+    func testPluginConvenienceInitializerComposesSyntaxBeforeInstallation() throws {
+        let plugin = ManifestPlugin()
+        let view = try MarkdownTextView(plugins: [plugin])
+        view.setMarkdown("Ping @plugin now")
+        XCTAssertTrue(view.installedPluginNames.contains(plugin.name))
+        XCTAssertTrue(view.decorations.contains { decoration in
+            view.engine.roleName(decoration.role) == "plugin-mention"
+        })
+    }
+
+    func testPluginLifecycleOwnsCallbacksAndCleansUpLayers() throws {
+        let plugin = CountingPlugin()
+        try editor.installPlugin(plugin)
+        XCTAssertEqual(editor.installedPluginNames, [plugin.name])
+        XCTAssertEqual(plugin.markdownChanges, 1, "install should publish the current document")
+        XCTAssertEqual(plugin.selectionChanges, 1, "install should publish the current selection")
+
+        editor.setMarkdown("hello plugin")
+        XCTAssertEqual(plugin.markdownChanges, 2)
+        XCTAssertTrue(editor.decorations.contains { $0.role == plugin.role })
+
+        XCTAssertThrowsError(try editor.installPlugin(plugin)) { error in
+            XCTAssertEqual(error as? MarkdownPluginError, .duplicateName(plugin.name))
+        }
+        XCTAssertTrue(editor.removePlugin(named: plugin.name))
+        XCTAssertEqual(plugin.uninstalls, 1)
+        XCTAssertFalse(editor.decorations.contains { $0.role == plugin.role })
+        XCTAssertFalse(editor.removePlugin(named: plugin.name))
+
+        editor.setMarkdown("after removal")
+        XCTAssertEqual(plugin.markdownChanges, 2, "a removed plugin still received callbacks")
+    }
+
+    func testFailedPluginInstallationRollsBackItsLayerAndName() throws {
+        editor.setMarkdown("hello")
+        let plugin = FailingPlugin()
+        XCTAssertThrowsError(try editor.installPlugin(plugin))
+        XCTAssertEqual(editor.installedPluginNames, [])
+        XCTAssertFalse(editor.decorations.contains { $0.role == plugin.role })
+
+        // The failed install did not leave the name reserved.
+        let replacement = CountingPlugin(name: plugin.name)
+        XCTAssertNoThrow(try editor.installPlugin(replacement))
+    }
+}
+
+private final class CountingPlugin: MarkdownPlugin {
+    let name: String
+    private var context: MarkdownPluginContext?
+    private(set) var role: UInt32 = .max
+    private(set) var markdownChanges = 0
+    private(set) var selectionChanges = 0
+    private(set) var uninstalls = 0
+
+    init(name: String = "test.counting") { self.name = name }
+
+    func install(in context: MarkdownPluginContext) throws {
+        self.context = context
+        role = context.internRole("test-plugin-mark")
+    }
+
+    func markdownDidChange() {
+        markdownChanges += 1
+        guard let length = context?.editor?.markdown.utf16.count, length > 0 else { return }
+        context?.setLayer("marks", [
+            LayerSpan(range: NSRange(location: 0, length: min(5, length)), role: role),
+        ])
+    }
+
+    func selectionDidChange() { selectionChanges += 1 }
+
+    func uninstall() {
+        uninstalls += 1
+        context = nil
+    }
+}
+
+private enum TestPluginFailure: Error { case expected }
+
+private final class ManifestPlugin: MarkdownPlugin {
+    let name = "test.manifest"
+    let manifest: String? = """
+    [[inline]]
+    name = "plugin-mention"
+    syntax = { kind = "pattern", regex = "@[a-z]+" }
+    render = "style"
+    reveal = "never"
+    """
+
+    func install(in _: MarkdownPluginContext) throws {}
+}
+
+private final class FailingPlugin: MarkdownPlugin {
+    let name = "test.failing"
+    private(set) var role: UInt32 = .max
+
+    func install(in context: MarkdownPluginContext) throws {
+        role = context.internRole("test-failed-mark")
+        context.setLayer("partial", [
+            LayerSpan(range: NSRange(location: 0, length: 5), role: role),
+        ])
+        throw TestPluginFailure.expected
+    }
+}
+
 /// A provider whose widgets handle their own clicks.
 /// Counts how many times the host was asked to draw a widget, and with what source.
 private final class CountingWidgets: WidgetProvider {

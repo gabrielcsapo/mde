@@ -42,5 +42,6 @@ DerivedData/
 /coverage/
 /web/.vitest-attachments/
 /web/test/__screenshots__/
+/web/react/test/__screenshots__/
 *.profraw
 *.profdata

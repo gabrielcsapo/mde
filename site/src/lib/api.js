@@ -74,6 +74,14 @@ export const WEB_API = [
           'Encode a manifest into the compact binary form the web build reads. Same fields as the TOML manifest, as a plain object.',
         note: 'Exported from `web/src/manifest.ts`. The web build drops the TOML parser entirely — it cost ~350 KB of wasm for a parse that happens once.',
       },
+      {
+        name: 'composeManifests',
+        kind: 'function',
+        signature: 'composeManifests(...specs: (ManifestSpec | null | undefined)[]): ManifestSpec',
+        summary:
+          'Combine independently authored syntax manifests without mutating them.',
+        note: 'Duplicate block or inline names are rejected before engine construction.',
+      },
     ],
   },
   {
@@ -326,6 +334,21 @@ export const WEB_API = [
           'Detach and stop listening. Required by any host that unmounts: the `selectionchange` listener is on `document` and outlives the element.',
       },
       {
+        name: 'MarkdownEditor.installPlugin',
+        kind: 'method',
+        signature: 'installPlugin(plugin: EditorPlugin): void',
+        summary:
+          'Install one named plugin with scoped listeners, roles and automatically namespaced layers.',
+        note: 'Duplicate or empty names throw. A setup that throws is rolled back completely.',
+      },
+      {
+        name: 'MarkdownEditor.removePlugin',
+        kind: 'method',
+        signature: 'removePlugin(name: string): boolean · get installedPlugins(): string[]',
+        summary:
+          'Uninstall a plugin and clear everything it registered through its context.',
+      },
+      {
         name: 'change',
         kind: 'event',
         signature: "addEventListener('change', () => …)",
@@ -372,6 +395,22 @@ export const WEB_API = [
     intro:
       'Two small objects, both optional. `WidgetProvider` draws content the markdown fully describes; `ResourceResolver` fetches what the markdown only points at.',
     symbols: [
+      {
+        name: 'EditorPlugin',
+        kind: 'type',
+        signature:
+          'type EditorPlugin = {name: string, manifest?: ManifestSpec, setup(context: EditorPluginContext): void | (() => void)}',
+        summary:
+          'A package-owned runtime extension. `definePlugin` checks it while preserving TypeScript inference.',
+      },
+      {
+        name: 'EditorPluginContext',
+        kind: 'type',
+        signature:
+          '{editor, signal, name, internRole(), setLayer(), clearLayer(), on()}',
+        summary:
+          'An editor-scoped capability object. Its listeners and layers are owned by the plugin lifecycle.',
+      },
       {
         name: 'WidgetProvider.makeWidget',
         kind: 'method',
@@ -858,6 +897,23 @@ export const SWIFT_API = [
         summary: 'The layer API, forwarded to the engine and repainted.',
       },
       {
+        name: 'MarkdownTextView.installPlugin',
+        kind: 'method',
+        signature:
+          'func installPlugin(_ plugin: any MarkdownPlugin) throws · func removePlugin(named: String) -> Bool · var installedPluginNames: [String]',
+        summary:
+          'Own a plugin lifecycle and forward document and selection changes on UIKit and AppKit.',
+        note: 'A failed installation rolls back its layers and does not reserve its name.',
+      },
+      {
+        name: 'MarkdownTextView.init(plugins:)',
+        kind: 'method',
+        signature:
+          'convenience init(plugins: [any MarkdownPlugin], manifest: String? = nil, theme: Theme = Theme()) throws',
+        summary:
+          'Compose every plugin TOML fragment into the engine, then install their runtime lifecycles.',
+      },
+      {
         name: 'MarkdownTextViewDelegate',
         kind: 'protocol',
         signature:
@@ -874,6 +930,22 @@ export const SWIFT_API = [
     intro:
       'The per-platform seam. The core resolves syntax, ranges, reveal state, identity and the reference; the host only draws.',
     symbols: [
+      {
+        name: 'MarkdownPlugin',
+        kind: 'protocol',
+        signature:
+          'var name: String { get } · var manifest: String? { get } · install(in:) throws · uninstall() · markdownDidChange() · selectionDidChange()',
+        summary:
+          'A host-side extension lifecycle. Every callback except `install` and `name` has a default.',
+      },
+      {
+        name: 'MarkdownPluginContext',
+        kind: 'class',
+        signature:
+          'editor · name · internRole(_:) · setLayer(_:_:) · clearLayer(_:)',
+        summary:
+          'The weak editor reference and automatically cleaned, plugin-namespaced layer surface.',
+      },
       {
         name: 'WidgetProvider',
         kind: 'protocol',

@@ -10,4 +10,12 @@ export { preloadCore, DEFAULT_WASM_URL, loadedCoreCount } from './core.js';
 // Re-exported so a host does not have to reach past this package for the vocabulary the
 // decoration protocol is written in (DESIGN §3): `Role.TaskCheckbox` in an `onHit`
 // handler, `Kind.Style` in a layer span.
-export { Kind, Reveal, Role, encodeManifest } from '@mde/web';
+export {
+  Kind,
+  Reveal,
+  Role,
+  composeManifests,
+  composePluginManifests,
+  definePlugin,
+  encodeManifest,
+} from '@mde/web';

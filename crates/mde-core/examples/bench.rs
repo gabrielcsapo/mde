@@ -25,7 +25,7 @@
 use mde_core::decorate::{self, Built};
 use mde_core::diff;
 use mde_core::text::{Edit, Text};
-use mde_core::{Engine, Registry, Selection};
+use mde_core::{Engine, Kind, LayerSpan, Registry, Selection};
 use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -240,7 +240,11 @@ fn main() {
     for &(label, bytes) in SIZES {
         let result = run(label, bytes);
         if check {
-            for (metric, value) in [("EDIT", result.edit_ms), ("SELECTION", result.selection_ms)] {
+            for (metric, value) in [
+                ("EDIT", result.edit_ms),
+                ("SELECTION", result.selection_ms),
+                ("LAYER", result.layer_ms),
+            ] {
                 let key = format!(
                     "MDE_CORE_{}_{}_BUDGET_MS",
                     label.replace(' ', ""),
@@ -293,6 +297,7 @@ fn dump(dir: &str) {
 struct RunResult {
     edit_ms: f64,
     selection_ms: f64,
+    layer_ms: f64,
 }
 
 fn run(label: &str, bytes: usize) -> RunResult {
@@ -377,6 +382,33 @@ fn run(label: &str, bytes: usize) -> RunResult {
         timed(|| e.set_selection(Some(caret)))
     });
 
+    // -- plugin layer ---------------------------------------------------------------
+    // Move one cursor-driven decoration without touching the parsed prefix. This is a
+    // common plugin operation (focus, diagnostics, collaborators) and must scale with
+    // the plugin output, not with every markdown decoration already in the document.
+    let mut e = Engine::new(reg());
+    e.reset(&doc);
+    let role = e.intern_role("benchmark-plugin");
+    let mut layer_at = mid_u16;
+    const LAYER_BATCH: u32 = 1_000;
+    let layer = bench(n, || {
+        timed(|| {
+            for _ in 0..LAYER_BATCH {
+                layer_at = if layer_at == mid_u16 { mid_u16 + 40 } else { mid_u16 };
+                e.set_layer(
+                    "benchmark-plugin",
+                    &[LayerSpan {
+                        start: layer_at,
+                        end: layer_at + 5,
+                        role,
+                        kind: Kind::Style,
+                        depth: 0,
+                    }],
+                );
+            }
+        }) / LAYER_BATCH
+    });
+
     // -- breakdown ------------------------------------------------------------------
     // Independent diagnostics for the expensive operations surrounding `Engine::edit`.
     // These deliberately are not summed: production edits use a regional build and an
@@ -443,6 +475,7 @@ fn run(label: &str, bytes: usize) -> RunResult {
     row("reset (cold parse)", &cold);
     row("edit (one keystroke)", &key);
     row("set_selection", &sel);
+    precise_row("set_layer (one span)", &layer);
     println!(
         "   patch for that keystroke: {n_add} added, {n_rem} removed, \
          {n_shift} suffix shifts, {n_mov} explicit moves"
@@ -470,7 +503,11 @@ fn run(label: &str, bytes: usize) -> RunResult {
         (ms(build.min) - ms(build_flat.min)) * 1e6 / decorations.max(1) as f64
     );
     println!();
-    RunResult { edit_ms: ms(key.median), selection_ms: ms(sel.median) }
+    RunResult {
+        edit_ms: ms(key.median),
+        selection_ms: ms(sel.median),
+        layer_ms: ms(layer.median),
+    }
 }
 
 /// The `:::chart` rule, split out so the benchmark can build a registry without it and
@@ -485,6 +522,15 @@ reveal = "caret_in_block"
 fn row(label: &str, s: &Stat) {
     println!(
         "   {label:<22} min {:>9.3}  med {:>9.3}  mean {:>9.3}",
+        ms(s.min),
+        ms(s.median),
+        ms(s.mean)
+    );
+}
+
+fn precise_row(label: &str, s: &Stat) {
+    println!(
+        "   {label:<22} min {:>9.6}  med {:>9.6}  mean {:>9.6}",
         ms(s.min),
         ms(s.median),
         ms(s.mean)

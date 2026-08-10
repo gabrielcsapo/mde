@@ -71,6 +71,9 @@ public final class MarkdownTextView: NSTextView {
     private var paintedRanges: [NSRange] = []
     private var viewportPaintScheduled = false
     private var pendingPaintLocation: Int?
+    var pluginInstallations: [MarkdownPluginInstallation] = []
+
+    deinit { uninstallAllPlugins() }
 
     // MARK: - Init
 
@@ -161,6 +164,7 @@ public final class MarkdownTextView: NSTextView {
         usesViewportPainting = storage.length > Self.eagerPaintLimit
         paintedRanges.removeAll()
         refreshPainting()
+        pluginsDidChangeMarkdown()
     }
 
     // MARK: - Undo
@@ -206,6 +210,7 @@ public final class MarkdownTextView: NSTextView {
         if let sel = rewind.selection, sel.upperBound <= storage.length {
             setSelectedRange(sel)
         }
+        pluginsDidChangeMarkdown()
         markdownDelegate?.markdownTextViewDidChange(self)
         return true
     }
@@ -215,6 +220,7 @@ public final class MarkdownTextView: NSTextView {
     private func reportSelection() {
         guard window?.firstResponder === self else { return }
         applyPatch(engine.setSelection(selectedRange()))
+        pluginsDidChangeSelection()
         markdownDelegate?.markdownTextViewDidChangeSelection(self)
     }
 
@@ -408,6 +414,7 @@ extension MarkdownTextView: NSTextStorageDelegate {
                 guard let self else { return }
                 self.applyPatch(patch, alsoDirty: editedRange)
                 self.reportSelection()
+                self.pluginsDidChangeMarkdown()
                 self.markdownDelegate?.markdownTextViewDidChange(self)
             }
         } catch EngineError.desync {
@@ -417,6 +424,7 @@ extension MarkdownTextView: NSTextStorageDelegate {
                 self.applier.reset()
                 self.applier.ingest(self.engine.reset(text))
                 self.refreshPainting()
+                self.pluginsDidChangeMarkdown()
             }
         } catch {
             assertionFailure("unexpected engine error: \(error)")

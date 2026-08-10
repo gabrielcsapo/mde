@@ -120,6 +120,15 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   const editEnd1MB = timedEdits(editor1MB, Math.floor(source1MB.length * 0.99), 5);
   const edit1MB = median(editEnd1MB);
 
+  const layerRole = editor1MB.internRole('strong');
+  const layer1MB = median(Array.from({ length: 15 }, (_, index) => {
+    const start = Math.floor(source1MB.length * (index % 2 === 0 ? 0.25 : 0.75));
+    return timed(() => editor1MB.setLayer('performance-plugin', [
+      { start, end: start + 5, role: layerRole },
+    ]));
+  }));
+  editor1MB.clearLayer('performance-plugin');
+
   const endurance = timedEdits(editor100KB, Math.floor(editor100KB.markdown.length * 0.50), 100);
   const giantSource = 'word **strong** @same résumé 日本語 🎉 '.repeat(850);
   const giantEditor = makeEditor();
@@ -134,7 +143,7 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   const usedHeap1MB = (/** @type {any} */ (performance)).memory?.usedJSHeapSize ?? null;
 
   const report = {
-    load100KB, load1MB, edit100KB, edit1MB, typewriter100KB, scroll1MB, domNodes1MB,
+    load100KB, load1MB, edit100KB, edit1MB, layer1MB, typewriter100KB, scroll1MB, domNodes1MB,
     chunks1MB: editor1MB.chunkEls.length,
     editTop1MB: { p50: median(editTop1MB), p95: percentile(editTop1MB, 0.95) },
     editMiddle1MB: { p50: median(editMiddle1MB), p95: percentile(editMiddle1MB, 0.95) },
@@ -154,6 +163,9 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(load1MB, '1 MB cold load').toBeLessThanOrEqual(__MDE_PERF_BUDGETS__.load1MB);
   expect(edit100KB, '100 KB local edit').toBeLessThanOrEqual(__MDE_PERF_BUDGETS__.edit100KB);
   expect(edit1MB, '1 MB local edit').toBeLessThanOrEqual(__MDE_PERF_BUDGETS__.edit1MB);
+  expect(layer1MB, '1 MB one-span plugin layer').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.layer1MB,
+  );
   expect(typewriter100KB, '100 KB typewriter enable').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.typewriter100KB,
   );

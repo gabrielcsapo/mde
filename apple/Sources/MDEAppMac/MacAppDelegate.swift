@@ -31,13 +31,17 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         theme.extensionRoles.merge(TypewriterMode.themeRoles(bodyFont: theme.bodyFont)) { a, _ in a }
         theme.extensionRoles.merge(PartsOfSpeech.themeRoles()) { a, _ in a }
 
-        editor = MarkdownTextView(manifest: HostExtensions.manifest, theme: theme)
+        typewriter = TypewriterMode()
+        partsOfSpeech = PartsOfSpeech()
+        editor = try! MarkdownTextView(
+            plugins: [typewriter, partsOfSpeech],
+            manifest: HostExtensions.manifest,
+            theme: theme
+        )
         editor.widgetProvider = HostWidgets()
         editor.resourceResolver = DiskResourceResolver(root: SampleAssets.install())
         editor.resourceSizes = ResourceSizeStore.load()
         editor.markdownDelegate = self
-        typewriter = TypewriterMode(editor: editor)
-        partsOfSpeech = PartsOfSpeech(editor: editor)
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -213,13 +217,5 @@ extension MacAppDelegate: MarkdownTextViewDelegate {
 
     func markdownTextViewDidChange(_ view: MarkdownTextView) {
         refreshButtons()
-        // Editing moves the paragraph under the caret and changes the words, so both
-        // extensions want to know. Neither is part of the editor; both are just told.
-        typewriter.recompute()
-        partsOfSpeech.scheduleRecompute()
-    }
-
-    func markdownTextViewDidChangeSelection(_ view: MarkdownTextView) {
-        typewriter.recompute()
     }
 }

@@ -419,6 +419,32 @@ appearance with it. The Apple build tags words with the system `NLTagger`; the w
 uses a small heuristic tagger, which is meaningfully worse and is labelled as such — the
 point being demonstrated is the plumbing, not the linguistics.
 
+Layer replacement has a dedicated emission path: parsed decorations are an immutable
+prefix for this operation, so only the host-layer suffix is rebuilt and diffed. A
+one-span update therefore scales with the plugin output, not the document. The browser
+also updates its sorted decoration index incrementally for tiny position-stable patches;
+bulk analysis layers keep the lazy full-index rebuild.
+
+### 5.4 Host plugin lifecycle
+
+Layers are the data plane; plugins are the host-side lifecycle around them. The parser
+still executes no host code. On the web an `EditorPlugin` receives an
+`EditorPluginContext`; on Apple a `MarkdownPlugin` receives a
+`MarkdownPluginContext`. Both contexts provide role interning and automatically
+namespaced layers. Web event listeners share an abort signal; Apple document and
+selection callbacks are forwarded by the text view itself.
+
+Plugin names are unique per editor and installation is transactional. If setup fails,
+the name, listeners, and any partial layers are rolled back. Removal and editor teardown
+run cleanup and clear every context-owned layer. This makes extensions composable
+without requiring each app delegate or React component to reproduce lifecycle wiring.
+
+Parser syntax remains startup state. Web plugins may contribute a plain manifest, which
+`composePluginManifests` validates and combines before engine construction. An encoded
+manifest cannot be combined afterward because its definitions are intentionally opaque.
+Swift plugins may contribute a TOML fragment; `MarkdownTextView(plugins:)` concatenates
+the fragments, constructs one engine, and only then installs the runtime objects.
+
 ## 6. FFI
 
 One C ABI, two consumers.

@@ -57,15 +57,27 @@ export default function Layers() {
 
       <H2 id="writing-one">Writing one</H2>
       <Lede>
-        An extension is an object that watches the editor and pushes spans. It never touches the
-        DOM, never asks how a line is laid out, and never reaches into the applier — the entire
-        surface it uses is the three calls above plus the editor’s events.
+        A plugin gets a scoped context that watches the editor and pushes spans. It never touches
+        the DOM, asks how a line is laid out, or reaches into the applier. Listeners and layers
+        registered through that context are cleaned up as one unit.
       </Lede>
-      <SourceFigure className="mt-6" path="web/extensions/typewriter.ts" lang="typescript" code={typewriterJs} />
+      <SourceFigure className="mt-6" path="search-plugin.ts" lang="typescript" code={typewriterJs} />
       <Note>
-        <code>internRole</code> is called once, in the constructor. Role ids are stable for the life
-        of an engine, so an extension holds onto its own rather than looking them up per keystroke.
+        Plugin names are unique per editor. Their local layer names are automatically qualified,
+        so two packages can both call a layer <code>results</code> without overwriting each other.
+        Duplicate names and partially failed installations are rejected and rolled back.
       </Note>
+
+      <H3 id="swift-lifecycle">The same lifecycle in Swift</H3>
+      <p>
+        Implement <code>MarkdownPlugin</code>, receive a <code>MarkdownPluginContext</code>, then call{' '}
+        <code>installPlugin</code> on either the UIKit or AppKit <code>MarkdownTextView</code>. The
+        editor forwards document and selection changes directly; the app delegate no longer has to
+        remember which callbacks every plugin needs. The context namespaces and removes layers in
+        exactly the same way as the web API. A plugin can also publish a TOML manifest;{' '}
+        <code>MarkdownTextView(plugins:)</code> composes that syntax before it installs the runtime
+        objects.
+      </p>
 
       <H3 id="bring-your-own-styling">An extension brings its own appearance</H3>
       <p>
@@ -88,11 +100,17 @@ export default function Layers() {
         coalesces its recompute to a short idle is invisible: the spans stay on their words in the
         meantime. The parts-of-speech extension waits 150 ms; nobody has ever seen it do so.
       </p>
+      <p>
+        Layer replacement also has its own fast path. Moving one span no longer re-emits the parsed
+        document: at 1 MB the core fell from 13.89 ms to 0.0014 ms, and at 5 MB from 99.62 ms to
+        0.0050 ms. The real 1 MB updates, including repaint, are 2.5 ms in Chromium and 3.1 ms in
+        AppKit.
+      </p>
 
       <Aside tone="note" title="What the layer API is not">
-        It is not a plugin runtime. Nothing host-supplied executes inside the parser or on the
-        per-keystroke path — the host computes spans on its own time, in its own language, and hands
-        over a list. That is why the same API is safe on iOS, where a JIT is forbidden.
+        The lifecycle is host-side, not executable code inside the parser. A plugin computes spans
+        on its own time, in the platform’s own language, and hands over data. That keeps parser
+        behaviour identical and remains safe on iOS, where a JIT is forbidden.
       </Aside>
 
       <SeeAlso

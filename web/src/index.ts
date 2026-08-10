@@ -3,7 +3,8 @@
 
 export { Core, Engine, EngineError, Kind, Reveal, Role, DEFAULT_WASM_URL, loadCore } from './core.js';
 export { MarkdownEditor, diffText } from './editor.js';
-export { encodeManifest } from './manifest.js';
+export { composeManifests, encodeManifest } from './manifest.js';
+export { composePluginManifests, definePlugin, pluginLayerName } from './plugins.js';
 export { ResourceCache } from './resources.js';
 export { IGNORE_ATTR, mergeRanges } from './applier.js';
 export type {
@@ -27,5 +28,6 @@ export type {
   RenderSpec,
   RevealSpec,
 } from './manifest.js';
+export type { EditorEventMap, EditorPlugin, EditorPluginContext, PluginCleanup } from './plugins.js';
 export type { ResourceRequest, ResourceResolver, ResourceState } from './resources.js';
 export type { WidgetProvider, WidgetRequest } from './widgets.js';

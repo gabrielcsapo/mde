@@ -105,6 +105,15 @@ enum RendererTestMode {
             editor.selectedRange = NSRange(location: 0, length: 0)
             let restored = editor.decorations.first { $0.role == Role.table }?.kind == .blockWidget
 
+            let plugin = RendererPluginProbe()
+            let pluginInstalled = (try? editor.installPlugin(plugin)) != nil
+                && editor.installedPluginNames.contains(plugin.name)
+            let pluginLayer = editor.decorations.contains { $0.role == plugin.role }
+            let pluginRemoved = editor.removePlugin(named: plugin.name)
+            let pluginCleanup = pluginRemoved
+                && plugin.uninstalls == 1
+                && !editor.decorations.contains { $0.role == plugin.role }
+
             finish([
                 "fixture": true,
                 "sourcePreserved": editor.markdown == source,
@@ -121,6 +130,9 @@ enum RendererTestMode {
                 "mentionAligned": mentionAligned,
                 "revealed": revealed,
                 "restored": restored,
+                "pluginInstalled": pluginInstalled,
+                "pluginLayer": pluginLayer,
+                "pluginCleanup": pluginCleanup,
             ])
         }
     }
@@ -176,5 +188,29 @@ enum RendererTestMode {
         let file = directory.appendingPathComponent("mde-renderer-tests.json")
         try? data.write(to: file, options: .atomic)
         print("MDE_RENDERER_TESTS \(String(data: data, encoding: .utf8) ?? "invalid")")
+    }
+}
+
+private final class RendererPluginProbe: MarkdownPlugin {
+    let name = "test.uikit-renderer"
+    private var context: MarkdownPluginContext?
+    private(set) var role: UInt32 = .max
+    private(set) var uninstalls = 0
+
+    func install(in context: MarkdownPluginContext) throws {
+        self.context = context
+        role = context.internRole("uikit-plugin-probe")
+    }
+
+    func markdownDidChange() {
+        guard let length = context?.editor?.markdown.utf16.count, length > 0 else { return }
+        context?.setLayer("probe", [
+            LayerSpan(range: NSRange(location: 0, length: min(5, length)), role: role),
+        ])
+    }
+
+    func uninstall() {
+        uninstalls += 1
+        context = nil
     }
 }

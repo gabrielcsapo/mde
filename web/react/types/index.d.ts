@@ -2,6 +2,8 @@ import type { CSSProperties, ForwardRefExoticComponent, HTMLAttributes, RefAttri
 import type {
   Core,
   Decoration,
+  EditorPlugin,
+  EditorPluginContext,
   Engine,
   LayerSpan as CoreLayerSpan,
   ManifestSpec,
@@ -12,9 +14,19 @@ import type {
   WidgetProvider,
 } from '@mde/web';
 
-export { Kind, Reveal, Role, encodeManifest } from '@mde/web';
+export {
+  Kind,
+  Reveal,
+  Role,
+  composeManifests,
+  composePluginManifests,
+  definePlugin,
+  encodeManifest,
+} from '@mde/web';
 export type {
   Decoration,
+  EditorPlugin,
+  EditorPluginContext,
   ManifestSpec,
   ResourceRequest,
   ResourceResolver,
@@ -95,6 +107,9 @@ export interface MarkdownEditorHandle {
   internRole(name: string): number;
   setLayer(name: string, spans: LayerSpan[]): void;
   clearLayer(name: string): void;
+  installPlugin(plugin: EditorPlugin): void;
+  removePlugin(name: string): boolean;
+  getInstalledPlugins(): string[];
 
   /** Live decorations. These carry `BigInt` keys — do not put the result in state. */
   getDecorations(): Decoration[];
@@ -152,6 +167,9 @@ export interface MarkdownEditorProps
 
   /** Declarative host decoration layers. Diffed by content, not by identity. */
   layers?: Layers;
+
+  /** Runtime plugins. Syntax contributed by `plugin.manifest` is composed at startup. */
+  plugins?: readonly EditorPlugin[];
 
   /** Toggle `- [ ]` checkboxes when one is clicked. Default true. */
   toggleTasksOnClick?: boolean;

@@ -22,6 +22,49 @@ React adapter. Optional extensions are separate imports:
 import { TypewriterMode } from '@mde/web/extensions/typewriter';
 ```
 
+## Plugins
+
+Runtime extensions have a scoped lifecycle. Listeners registered with `context.on` and
+layers created with `context.setLayer` are removed automatically when the plugin is
+removed, its setup fails, or the editor is destroyed. Local layer names are qualified by
+plugin name, so packages cannot overwrite each other accidentally.
+
+```ts
+import {
+  MarkdownEditor,
+  composePluginManifests,
+  definePlugin,
+  encodeManifest,
+} from '@mde/web';
+
+const comments = definePlugin({
+  name: 'com.example.comments',
+  manifest: {
+    inlines: [{
+      name: 'comment-anchor',
+      syntax: { kind: 'pattern', regex: '\\[\\^comment-[0-9]+\\]' },
+      render: 'hit',
+    }],
+  },
+  setup(context) {
+    const role = context.internRole('active-comment');
+    context.on('selectionchange', () => {
+      context.setLayer('active', activeCommentSpans(context.editor, role));
+    });
+    return () => disconnectCommentSession();
+  },
+});
+
+const manifest = composePluginManifests(null, [comments]);
+const engine = core.newEngine(encodeManifest(manifest));
+const editor = new MarkdownEditor(host, engine);
+editor.installPlugin(comments);
+```
+
+`composeManifests` also combines plain manifest objects and rejects duplicate block or
+inline names before engine construction. A pre-encoded manifest cannot be combined with
+plugin syntax because its definitions are no longer inspectable.
+
 Build with `pnpm run build`. Vite emits the ESM library and Wasm asset; TypeScript emits
 declarations from the same source.
 

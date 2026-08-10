@@ -133,7 +133,22 @@ final class DecorationApplier {
     }
 
     func ingest(_ patch: Patch) {
+        // Cursor-style plugins replace one or two spans while the parsed document is
+        // unchanged. Re-sorting tens of thousands of decorations for that tiny patch
+        // made the renderer, not the now-constant-time core, the dominant cost. Keep
+        // the materialised index in place only for small patches with no position
+        // mutations; edits and bulk analysis layers retain the lazy rebuild path.
+        let changed = patch.removed.count + patch.added.count
+        let incrementalIndex = !indexStale
+            && changed <= 16
+            && patch.shifted.isEmpty
+            && patch.moved.isEmpty
+        let removedKeys = incrementalIndex ? Set(patch.removed) : []
+        var removedLongest = false
         for key in patch.removed {
+            if incrementalIndex, let removed = live[key], removed.range.length >= maxLength {
+                removedLongest = true
+            }
             unindexReference(key)
             live.removeValue(forKey: key)
             // A removed key can never come back: it encodes the node's own source, so
@@ -141,6 +156,9 @@ final class DecorationApplier {
             if widgetViews.removeValue(forKey: key) != nil {
                 widgetOrder.removeAll { $0 == key }
             }
+        }
+        if incrementalIndex, !removedKeys.isEmpty {
+            index.removeAll { removedKeys.contains($0.key) }
         }
         for shift in patch.shifted {
             for key in Array(live.keys) {
@@ -161,6 +179,22 @@ final class DecorationApplier {
             guard d.role != Role.table, let reference = engine.payload(for: d.key) else { continue }
             referenceByKey[d.key] = reference
             references[reference, default: []].insert(d.key)
+        }
+        if incrementalIndex {
+            for decoration in patch.added {
+                let insertion = index.partitionPoint { existing in
+                    if existing.range.location != decoration.range.location {
+                        return existing.range.location < decoration.range.location
+                    }
+                    return existing.range.length <= decoration.range.length
+                }
+                index.insert(decoration, at: insertion)
+                maxLength = max(maxLength, decoration.range.length)
+            }
+            if removedLongest { maxLength = index.map(\.range.length).max() ?? 0 }
+            // `live`'s didSet conservatively dirtied the index for each dictionary
+            // mutation above; the small-patch update has now brought it back in sync.
+            indexStale = false
         }
     }
 

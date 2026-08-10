@@ -71,10 +71,13 @@ public final class MarkdownTextView: UITextView {
     private var paintedRanges: [NSRange] = []
     private var viewportPaintScheduled = false
     private var pendingPaintLocation: Int?
+    var pluginInstallations: [MarkdownPluginInstallation] = []
 
     /// Set while an undo is written into the storage, so it is not reported back to the
     /// core as a fresh edit.
     private var isRewinding = false
+
+    deinit { uninstallAllPlugins() }
 
     // MARK: - Init
 
@@ -190,6 +193,7 @@ public final class MarkdownTextView: UITextView {
         usesViewportPainting = textStorage.length > Self.eagerPaintLimit
         paintedRanges.removeAll()
         refreshPainting()
+        pluginsDidChangeMarkdown()
     }
 
     // MARK: - Undo
@@ -237,6 +241,7 @@ public final class MarkdownTextView: UITextView {
         if let sel = rewind.selection, sel.upperBound <= textStorage.length {
             selectedRange = sel
         }
+        pluginsDidChangeMarkdown()
         markdownDelegate?.markdownTextViewDidChange(self)
         return true
     }
@@ -251,6 +256,7 @@ public final class MarkdownTextView: UITextView {
     private func reportSelection() {
         guard isFirstResponder else { return }
         applyPatch(engine.setSelection(selectedRange))
+        pluginsDidChangeSelection()
         markdownDelegate?.markdownTextViewDidChangeSelection(self)
     }
 
@@ -462,6 +468,7 @@ extension MarkdownTextView: NSTextStorageDelegate {
                 guard let self else { return }
                 self.applyPatch(patch, alsoDirty: editedRange)
                 self.reportSelection()
+                self.pluginsDidChangeMarkdown()
                 self.markdownDelegate?.markdownTextViewDidChange(self)
             }
         } catch EngineError.desync {
@@ -473,6 +480,7 @@ extension MarkdownTextView: NSTextStorageDelegate {
                 self.applier.reset()
                 self.applier.ingest(self.engine.reset(text))
                 self.refreshPainting()
+                self.pluginsDidChangeMarkdown()
             }
         } catch {
             assertionFailure("unexpected engine error: \(error)")

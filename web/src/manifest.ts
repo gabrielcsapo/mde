@@ -30,6 +30,34 @@ export interface InlineDef {
 export interface ManifestSpec { blocks?: BlockDef[]; inlines?: InlineDef[] }
 export type Manifest = Uint8Array;
 
+/** Combine independently-authored syntax manifests and reject ambiguous names early. */
+export function composeManifests(...specs: Array<ManifestSpec | null | undefined>): ManifestSpec {
+  const blocks: BlockDef[] = [];
+  const inlines: InlineDef[] = [];
+  const blockNames = new Set<string>();
+  const inlineNames = new Set<string>();
+
+  for (const spec of specs) {
+    if (!spec) continue;
+    for (const block of spec.blocks ?? []) {
+      if (blockNames.has(block.name)) {
+        throw new Error(`Duplicate block extension name "${block.name}"`);
+      }
+      blockNames.add(block.name);
+      blocks.push({ ...block, syntax: { ...block.syntax } });
+    }
+    for (const inline of spec.inlines ?? []) {
+      if (inlineNames.has(inline.name)) {
+        throw new Error(`Duplicate inline extension name "${inline.name}"`);
+      }
+      inlineNames.add(inline.name);
+      inlines.push({ ...inline, syntax: { ...inline.syntax } });
+    }
+  }
+
+  return { blocks, inlines };
+}
+
 const RENDER = { style: 0, inline_widget: 1, block_widget: 2, hit: 3 };
 const REVEAL = { never: 0, caret_in_node: 1, caret_in_line: 2, caret_in_block: 3 };
 const MAGIC = [0x4d, 0x44, 0x45, 0x4d]; // "MDEM"

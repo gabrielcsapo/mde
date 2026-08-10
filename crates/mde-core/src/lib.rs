@@ -315,14 +315,14 @@ impl Engine {
             Some(existing) => existing.spans = resolved,
             None => self.layers.push(Layer { name: name.to_string(), spans: resolved }),
         }
-        self.emit()
+        self.emit_layers()
     }
 
     /// Remove a layer entirely. Turning a feature off is not the same as pushing no
     /// spans — an empty layer still occupies a paint slot.
     pub fn clear_layer(&mut self, name: &str) -> Patch {
         self.layers.retain(|l| l.name != name);
-        self.emit()
+        self.emit_layers()
     }
 
     pub fn layer_count(&self) -> usize {
@@ -727,8 +727,34 @@ impl Engine {
 
         let mut next = Vec::with_capacity(self.built.len());
         next.extend(self.built.iter().map(|built| self.emitted_for(built, sel)));
+        self.append_emitted_layers(&mut next);
 
+        let patch = diff::diff(&self.emitted, &next);
+        self.emitted = next;
+        patch
+    }
+
+    /// Re-emit only the host-owned suffix of `emitted`.
+    ///
+    /// Parsed decorations always occupy the first `built.len()` entries and a layer
+    /// update cannot change them. Re-running `emit` here used to convert every parsed
+    /// UTF-8 range back to UTF-16 and hash/diff the whole document whenever a cursor-
+    /// driven plugin moved one span. On a large document that made plugin latency scale
+    /// with markdown complexity rather than with the plugin's own output.
+    fn emit_layers(&mut self) -> Patch {
+        debug_assert!(self.emitted.len() >= self.built.len());
+        let parsed_len = self.built.len().min(self.emitted.len());
+        let mut next = Vec::new();
+        self.append_emitted_layers(&mut next);
+        let patch = diff::diff(&self.emitted[parsed_len..], &next);
+        self.emitted.truncate(parsed_len);
+        self.emitted.extend(next);
+        patch
+    }
+
+    fn append_emitted_layers(&self, out: &mut Vec<Decoration>) {
         // Host layers last, so they paint over what the parse decided.
+        out.reserve(self.layers.iter().map(|layer| layer.spans.len()).sum());
         for (index, layer) in self.layers.iter().enumerate() {
             let ordinal = (index as u8).saturating_add(1);
             for &(start, end, role, kind, depth) in &layer.spans {
@@ -738,7 +764,7 @@ impl Engine {
                 role.hash(&mut hasher);
                 s16.hash(&mut hasher);
                 e16.hash(&mut hasher);
-                next.push(Decoration {
+                out.push(Decoration {
                     start: s16,
                     end: e16,
                     key: hasher.finish(),
@@ -750,10 +776,6 @@ impl Engine {
                 });
             }
         }
-
-        let patch = diff::diff(&self.emitted, &next);
-        self.emitted = next;
-        patch
     }
 }
 

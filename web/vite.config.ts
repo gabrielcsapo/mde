@@ -14,6 +14,29 @@ const browserInstances = requestedBrowsers.map((name) => {
 });
 
 export default defineConfig({
+  // This workspace contains the `web/react/` package. Without exact aliases Vite's
+  // dependency optimiser can mistake that directory for the bare `react` package when
+  // a browser test lives beneath it, producing two runtimes (or bundling the adapter as
+  // React itself). Keep the integration test on the peer runtime a consumer receives.
+  resolve: {
+    alias: [
+      {
+        find: /^react$/,
+        replacement: fileURLToPath(new URL('./node_modules/react/index.js', import.meta.url)),
+      },
+      {
+        find: /^react-dom$/,
+        replacement: fileURLToPath(new URL('./node_modules/react-dom/index.js', import.meta.url)),
+      },
+      {
+        find: /^react-dom\/client$/,
+        replacement: fileURLToPath(new URL('./node_modules/react-dom/client.js', import.meta.url)),
+      },
+    ],
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-dom/client'],
+  },
   define: {
     __MDE_PERF__: JSON.stringify(process.env.MDE_PERF === '1'),
     __MDE_PERF_BUDGETS__: JSON.stringify({
@@ -21,6 +44,7 @@ export default defineConfig({
       load1MB: Number(process.env.MDE_WEB_1MB_LOAD_BUDGET_MS ?? 750),
       edit100KB: Number(process.env.MDE_WEB_100KB_EDIT_BUDGET_MS ?? 75),
       edit1MB: Number(process.env.MDE_WEB_1MB_EDIT_BUDGET_MS ?? 450),
+      layer1MB: Number(process.env.MDE_WEB_1MB_LAYER_BUDGET_MS ?? 25),
       typewriter100KB: Number(process.env.MDE_WEB_100KB_TYPEWRITER_BUDGET_MS ?? 50),
       scroll1MB: Number(process.env.MDE_WEB_1MB_SCROLL_BUDGET_MS ?? 50),
       maxDomNodes1MB: Number(process.env.MDE_WEB_1MB_DOM_NODE_BUDGET ?? 210000),
@@ -74,7 +98,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['test/**/*.browser.test.js'],
+    include: ['test/**/*.browser.test.js', 'react/test/**/*.browser.test.js'],
     testTimeout: 20_000,
     hookTimeout: 20_000,
     browser: {

@@ -319,6 +319,40 @@ final class MacRendererBenchmarks: XCTestCase {
         _ = window
     }
 
+    func testBenchmarkPluginLayerUpdate() throws {
+        let all = try corpora()
+        guard let large = all.first(where: { $0.label == "1MB" }) else {
+            throw XCTSkip("plugin-layer workload requires the 1MB corpus")
+        }
+
+        let (window, editor) = makeEditor()
+        var theme = editor.theme
+        theme.extensionRoles["benchmark-plugin"] = [.backgroundColor: NSColor.systemYellow]
+        editor.theme = theme
+        editor.setMarkdown(large.text)
+        drainMainQueue()
+        let role = editor.internRole("benchmark-plugin")
+        let first = large.text.utf16.count / 4
+        let second = first * 3
+        var flip = false
+        let update = best(20) {
+            flip.toggle()
+            let start = flip ? first : second
+            editor.setLayer(
+                "benchmark-plugin",
+                [LayerSpan(range: NSRange(location: start, length: 5), role: role)]
+            )
+            drainMainQueue()
+        }
+        print(String(format: "1MB one-span plugin layer %8.3f ms", update))
+        enforceBudget(
+            update,
+            environment: "MDE_APPLE_1MB_LAYER_BUDGET_MS",
+            metric: "1 MB native one-span plugin layer"
+        )
+        _ = window
+    }
+
     // MARK: - Repaint scope
 
     /// DESIGN §7 claims a keystroke repaints a paragraph, not the document, because

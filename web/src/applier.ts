@@ -96,6 +96,10 @@ function lowerBound(index, offset) {
   return lo;
 }
 
+function compareDecorations(a, b) {
+  return a.start - b.start || a.end - b.end;
+}
+
 export class DomApplier {
   engine: Engine;
   text: string;
@@ -210,8 +214,24 @@ export class DomApplier {
 
   /** @param {import('./core.js').Patch} patch */
   ingest(patch) {
-    this.indexStale = true;
+    // A cursor-style plugin commonly replaces one layer span while the document keeps
+    // tens of thousands of parsed decorations. Re-sorting the entire index for that
+    // two-entry patch dominated the otherwise sub-microsecond core update. Keep the
+    // already-materialised index incrementally only for genuinely tiny, position-stable
+    // patches; edits and bulk analysis layers retain the cheaper lazy rebuild path.
+    const changed = patch.removed.length + patch.added.length;
+    const incrementalIndex =
+      !this.indexStale &&
+      changed <= 16 &&
+      patch.shifted.length === 0 &&
+      patch.moved.length === 0;
+    const removedKeys = incrementalIndex ? new Set(patch.removed) : null;
+    let removedLongest = false;
     for (const key of patch.removed) {
+      const removed = this.live.get(key);
+      if (incrementalIndex && removed && removed.end - removed.start >= this.maxLength) {
+        removedLongest = true;
+      }
       this.unindexReference(key);
       this.live.delete(key);
       // A removed key can never come back: it encodes the node's own source, so its
@@ -220,6 +240,9 @@ export class DomApplier {
         const at = this.widgetOrder.indexOf(key);
         if (at >= 0) this.widgetOrder.splice(at, 1);
       }
+    }
+    if (incrementalIndex && removedKeys.size > 0) {
+      this.sorted = this.sorted.filter((decoration) => !removedKeys.has(decoration.key));
     }
     for (const shift of patch.shifted) {
       for (const d of this.live.values()) {
@@ -245,6 +268,27 @@ export class DomApplier {
       const keys = this.references.get(reference) ?? new Set();
       keys.add(d.key);
       this.references.set(reference, keys);
+    }
+    if (incrementalIndex) {
+      for (const decoration of patch.added) {
+        let lo = 0;
+        let hi = this.sorted.length;
+        while (lo < hi) {
+          const middle = (lo + hi) >> 1;
+          if (compareDecorations(this.sorted[middle], decoration) <= 0) lo = middle + 1;
+          else hi = middle;
+        }
+        this.sorted.splice(lo, 0, decoration);
+        this.maxLength = Math.max(this.maxLength, decoration.end - decoration.start);
+      }
+      if (removedLongest) {
+        this.maxLength = this.sorted.reduce(
+          (maximum, decoration) => Math.max(maximum, decoration.end - decoration.start),
+          0,
+        );
+      }
+    } else {
+      this.indexStale = true;
     }
   }
 

@@ -14,11 +14,12 @@ import NaturalLanguage
 /// will. The core supplies ranges and identity; what a range *means* is entirely the
 /// host's business, which is what makes a feature like this possible without touching
 /// the editor.
-public final class PartsOfSpeech {
-    public static let layer = "parts-of-speech"
+public final class PartsOfSpeech: MarkdownPlugin {
+    public let name = "mde.parts-of-speech"
+    private static let layer = "words"
 
-    private unowned let editor: MarkdownTextView
-    private let roles: [NLTag: UInt32]
+    private var context: MarkdownPluginContext?
+    private var roles: [NLTag: UInt32] = [:]
     private var pending: DispatchWorkItem?
     public private(set) var isEnabled = false
 
@@ -32,15 +33,27 @@ public final class PartsOfSpeech {
         ]
     }
 
-    public init(editor: MarkdownTextView) {
-        self.editor = editor
-        self.roles = [
-            .noun: editor.internRole("pos-noun"),
-            .verb: editor.internRole("pos-verb"),
-            .adjective: editor.internRole("pos-adjective"),
-            .adverb: editor.internRole("pos-adverb"),
+    public init() {}
+
+    public func install(in context: MarkdownPluginContext) throws {
+        self.context = context
+        roles = [
+            .noun: context.internRole("pos-noun"),
+            .verb: context.internRole("pos-verb"),
+            .adjective: context.internRole("pos-adjective"),
+            .adverb: context.internRole("pos-adverb"),
         ]
     }
+
+    public func uninstall() {
+        isEnabled = false
+        pending?.cancel()
+        pending = nil
+        context = nil
+        roles.removeAll()
+    }
+
+    public func markdownDidChange() { scheduleRecompute() }
 
     @discardableResult
     public func toggle() -> Bool {
@@ -58,11 +71,9 @@ public final class PartsOfSpeech {
         guard isEnabled else { return }
         isEnabled = false
         pending?.cancel()
-        editor.clearLayer(Self.layer)
+        context?.clearLayer(Self.layer)
     }
 
-    /// Call from `markdownTextViewDidChange`.
-    ///
     /// Tagging the whole document on every keystroke would be wasteful, and the core
     /// already slides existing spans over an edit so they stay on their words in the
     /// meantime (DESIGN §5.3) — so coalescing to a short idle is invisible.
@@ -75,10 +86,10 @@ public final class PartsOfSpeech {
     }
 
     public func recompute() {
-        guard isEnabled else { return }
+        guard isEnabled, let context, let editor = context.editor else { return }
         let text = editor.markdown
         guard !text.isEmpty else {
-            editor.setLayer(Self.layer, [])
+            context.setLayer(Self.layer, [])
             return
         }
 
@@ -98,6 +109,6 @@ public final class PartsOfSpeech {
             spans.append(LayerSpan(range: NSRange(range, in: text), role: role))
             return true
         }
-        editor.setLayer(Self.layer, spans)
+        context.setLayer(Self.layer, spans)
     }
 }

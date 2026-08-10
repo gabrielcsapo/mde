@@ -12,12 +12,13 @@ import MDEditorUI
 /// That is the point of the exercise. The declarative manifest — patterns and fences —
 /// could never express this, because what to decorate depends on where the caret is,
 /// which no parse can know. The layer API is what makes it possible from outside.
-public final class TypewriterMode {
-    public static let layer = "typewriter"
+public final class TypewriterMode: MarkdownPlugin {
+    public let name = "mde.typewriter"
+    private static let layer = "focus"
 
-    private unowned let editor: MarkdownTextView
-    private let focusRole: UInt32
-    private let dimRole: UInt32
+    private var context: MarkdownPluginContext?
+    private var focusRole: UInt32 = 0
+    private var dimRole: UInt32 = 0
     public private(set) var isEnabled = false
 
     /// The attributes this extension's roles need.
@@ -35,11 +36,21 @@ public final class TypewriterMode {
         ]
     }
 
-    public init(editor: MarkdownTextView) {
-        self.editor = editor
-        self.focusRole = editor.internRole("typewriter-focus")
-        self.dimRole = editor.internRole("typewriter-dim")
+    public init() {}
+
+    public func install(in context: MarkdownPluginContext) throws {
+        self.context = context
+        focusRole = context.internRole("typewriter-focus")
+        dimRole = context.internRole("typewriter-dim")
     }
+
+    public func uninstall() {
+        isEnabled = false
+        context = nil
+    }
+
+    public func markdownDidChange() { recompute() }
+    public func selectionDidChange() { recompute() }
 
     @discardableResult
     public func toggle() -> Bool {
@@ -57,13 +68,11 @@ public final class TypewriterMode {
         guard isEnabled else { return }
         isEnabled = false
         // `clearLayer`, not an empty push: the layer should give up its paint slot.
-        editor.clearLayer(Self.layer)
+        context?.clearLayer(Self.layer)
     }
 
-    /// Call from `markdownTextViewDidChangeSelection` and `markdownTextViewDidChange` —
-    /// the caret moving and the text changing both move the paragraph under the caret.
     public func recompute() {
-        guard isEnabled else { return }
+        guard isEnabled, let context, let editor = context.editor else { return }
         let text = editor.markdown as NSString
         // `selectedRange` is a property on UITextView and a method on NSTextView — one
         // of the few places the two AppKits genuinely differ in shape rather than name.
@@ -76,7 +85,7 @@ public final class TypewriterMode {
         // No caret is not the same as a caret at 0. Dimming an entire document because
         // the editor lost focus would be a strange thing to look at.
         guard caret != NSNotFound, text.length > 0 else {
-            editor.setLayer(Self.layer, [])
+            context.setLayer(Self.layer, [])
             return
         }
 
@@ -90,7 +99,7 @@ public final class TypewriterMode {
             spans.append(LayerSpan(range: NSRange(location: tail, length: text.length - tail), role: dimRole))
         }
         spans.append(contentsOf: focusSpans(over: focus))
-        editor.setLayer(Self.layer, spans)
+        context.setLayer(Self.layer, spans)
     }
 
     /// The focused paragraph, split around any heading it contains.
@@ -101,6 +110,7 @@ public final class TypewriterMode {
     /// range leaves it alone. The extension can do this because the editor already
     /// publishes what it decorated, and roles are just names.
     private func focusSpans(over range: NSRange) -> [LayerSpan] {
+        guard let editor = context?.editor else { return [] }
         let headings = editor.decorations
             .filter { $0.role == Role.heading && NSIntersectionRange($0.range, range).length > 0 }
             .map { NSIntersectionRange($0.range, range) }

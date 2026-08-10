@@ -13,6 +13,8 @@ import type { Decoration, Engine, LayerSpan, Patch, Rewind, Revision, SelectionR
 import { ResourceCache } from './resources.js';
 import type { ResourceResolver } from './resources.js';
 import type { WidgetProvider } from './widgets.js';
+import { pluginLayerName } from './plugins.js';
+import type { EditorPlugin, EditorPluginContext, InstalledPlugin } from './plugins.js';
 
 /**
  * Walk the document text, skipping presentation-only subtrees.
@@ -109,6 +111,7 @@ export class MarkdownEditor extends EventTarget {
   events: AbortController;
   onDocumentSelectionChange: () => void;
   destroyed: boolean;
+  private plugins: Map<string, InstalledPlugin>;
 
   /**
    * @param {HTMLElement} host
@@ -193,6 +196,7 @@ export class MarkdownEditor extends EventTarget {
       if (document.activeElement === this.root) this.onSelectionChange();
     };
     document.addEventListener('selectionchange', this.onDocumentSelectionChange, listener);
+    this.plugins = new Map();
     this.destroyed = false;
   }
 
@@ -210,6 +214,14 @@ export class MarkdownEditor extends EventTarget {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    for (const name of [...this.plugins.keys()].reverse()) {
+      try {
+        this.removePlugin(name);
+      } catch (error) {
+        // Teardown must continue so listeners, layers, and the DOM are never leaked.
+        console.error(`Plugin "${name}" failed during cleanup`, error);
+      }
+    }
     this.events.abort();
     this.applier.reset();
     if (this.previousContentEditable === null) this.root.removeAttribute('contenteditable');
@@ -250,6 +262,80 @@ export class MarkdownEditor extends EventTarget {
   }
 
   // MARK: - Host decoration layers (DESIGN §5.3)
+
+  /** Install a plugin once for this editor. Duplicate names are rejected. */
+  installPlugin(plugin: EditorPlugin): void {
+    if (this.destroyed) throw new Error('Cannot install a plugin on a destroyed editor');
+    const name = plugin.name.trim();
+    if (!name) throw new Error('A plugin name must not be empty');
+    if (this.plugins.has(name)) throw new Error(`Plugin "${name}" is already installed`);
+
+    const controller = new AbortController();
+    const installed: InstalledPlugin = { plugin, controller, layers: new Set() };
+    const context: EditorPluginContext = {
+      editor: this,
+      signal: controller.signal,
+      name,
+      internRole: (role) => controller.signal.aborted ? -1 : this.internRole(role),
+      setLayer: (local, spans) => {
+        if (controller.signal.aborted) return;
+        const layer = pluginLayerName(name, local);
+        installed.layers.add(layer);
+        this.setLayer(layer, spans);
+      },
+      clearLayer: (local) => {
+        if (controller.signal.aborted) return;
+        const layer = pluginLayerName(name, local);
+        installed.layers.delete(layer);
+        this.clearLayer(layer);
+      },
+      on: (type, listener) => this.addEventListener(
+        type,
+        listener as EventListener,
+        { signal: controller.signal },
+      ),
+    };
+
+    // Reserve the name before setup, so a re-entrant install cannot create two owners.
+    this.plugins.set(name, installed);
+    try {
+      const cleanup = plugin.setup(context);
+      if (cleanup !== undefined && typeof cleanup !== 'function') {
+        throw new TypeError(`Plugin "${name}" setup must return a function or undefined`);
+      }
+      if (typeof cleanup === 'function') installed.cleanup = cleanup;
+    } catch (error) {
+      this.plugins.delete(name);
+      controller.abort();
+      for (const layer of installed.layers) this.clearLayer(layer);
+      throw error;
+    }
+  }
+
+  /** Remove a plugin and every listener/layer it registered through its context. */
+  removePlugin(name: string): boolean {
+    const installed = this.plugins.get(name);
+    if (!installed) return false;
+    this.plugins.delete(name);
+    installed.controller.abort();
+
+    let cleanupError: unknown;
+    try {
+      installed.cleanup?.();
+    } catch (error) {
+      cleanupError = error;
+    } finally {
+      for (const layer of installed.layers) this.clearLayer(layer);
+      installed.layers.clear();
+    }
+    if (cleanupError !== undefined) throw cleanupError;
+    return true;
+  }
+
+  /** Installed plugin names, in installation order. */
+  get installedPlugins(): string[] {
+    return [...this.plugins.keys()];
+  }
 
   /**
    * Replace a named layer's decorations and repaint what changed.

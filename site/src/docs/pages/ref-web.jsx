@@ -6,10 +6,9 @@ export default function RefWeb() {
   return (
     <>
       <Note className="ref-preamble">
-        Plain ES modules with JSDoc types rather than TypeScript: the wasm boundary is a
-        hand-written flat struct layout, so a compiler would add a build step without adding safety
-        where it matters. Editors still get full type information from the JSDoc. Every offset below
-        is a UTF-16 code unit.
+        TypeScript compiled to plain ES modules. The wasm boundary remains a hand-written flat
+        struct layout, while plugin, manifest, editor, resource and widget contracts ship as
+        declarations from the same source. Every offset below is a UTF-16 code unit.
       </Note>
 
       <Api groups={WEB_API} />

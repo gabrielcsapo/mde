@@ -81,12 +81,13 @@ of the document.
 | `resourceResolver` | `ResourceResolver` | Turns a reference into something displayable (DESIGN §5.1). |
 | `resourceSizes` | `Record<string, {width, height}>` | Sizes remembered from a previous session, seeded at mount. |
 | `layers` | `Record<string, LayerSpan[]>` | Declarative host decoration layers; see below. |
+| `plugins` | `readonly EditorPlugin[]` | Runtime plugins. Optional plugin manifests are composed before engine creation. |
 | `toggleTasksOnClick` | `boolean` | Toggle `- [ ]` checkboxes when clicked. Default `true`. |
 | `autoFocus` | `boolean` | Default `false`. |
 | `className`, `style`, `id`, `data-*`, … | | Spread onto the editor element. `mde-editor` is always in the class list. |
 
 Changing `wasm` or the *content* of `manifest` rebuilds the editor. Everything else —
-callbacks, providers, `layers` — is read through a ref, so a parent that re-renders with
+callbacks, providers, `layers`, runtime plugins — is read through a ref, so a parent that re-renders with
 fresh closures costs nothing.
 
 Whether a `widgetProvider` or `resourceResolver` is present is fixed at mount (the editor
@@ -114,16 +115,26 @@ canUndo()  canRedo()  undo()  redo()  closeUndoGroup()
 getRevisions()  getHistoryPosition()  jumpTo(n)      // browsable history, DESIGN §9
 
 internRole(name)  setLayer(name, spans)  clearLayer(name)     // DESIGN §5.3
+installPlugin(plugin)  removePlugin(name)  getInstalledPlugins()
 
 getDecorations()  getResourceSizes()  setResourceSizes(sizes)
 ```
 
-`getEditor()` is the escape hatch to the framework-free editor underneath. The two
-extensions in `web/extensions/` — typewriter mode and parts-of-speech highlighting — were
-written years before this package and are constructed with it directly:
+`getEditor()` is the escape hatch to the framework-free editor underneath. Existing
+class-style extensions can still be constructed with it directly:
 
 ```jsx
 <MarkdownEditor onReady={(handle) => new TypewriterMode(handle.getEditor())} />
+```
+
+New packages should export an `EditorPlugin` and pass it declaratively. React installs,
+replaces, and removes runtime plugins by name without remounting the editor. If a
+plugin’s `manifest` content changes, the engine is rebuilt because parser syntax is
+startup state:
+
+```jsx
+const plugins = useMemo(() => [commentsPlugin], []);
+<MarkdownEditor plugins={plugins} defaultValue={note} />
 ```
 
 ### History

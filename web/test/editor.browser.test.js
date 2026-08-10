@@ -16,6 +16,8 @@ import {
   MarkdownEditor,
   ResourceCache,
   Role,
+  composeManifests,
+  definePlugin,
   diffText,
   encodeManifest,
   loadCore,
@@ -144,6 +146,23 @@ function makeEditor(options = {}) {
       threw = true;
     }
     assert(threw, 'unknown syntax kind should throw');
+  });
+
+  test('independent manifests compose without mutating their packages', () => {
+    const first = { inlines: [manifestSpec.inlines[0]] };
+    const second = { blocks: [manifestSpec.blocks[0]] };
+    const combined = composeManifests(first, second);
+    assertEqual(combined.inlines.length, 1);
+    assertEqual(combined.blocks.length, 1);
+    combined.inlines[0].name = 'changed';
+    assertEqual(first.inlines[0].name, 'mention', 'composition mutated a plugin manifest');
+  });
+
+  test('manifest composition rejects ambiguous extension names', () => {
+    expect(() => composeManifests(
+      { inlines: [manifestSpec.inlines[0]] },
+      { inlines: [manifestSpec.inlines[0]] },
+    )).toThrow(/Duplicate inline extension name "mention"/);
   });
 
   // ---- decorations --------------------------------------------------------
@@ -1275,6 +1294,71 @@ function makeEditor(options = {}) {
   });
 
   // ---- extensions (DESIGN §5.3) -------------------------------------------
+
+  test('a plugin receives events and owns an automatically namespaced layer', () => {
+    const e = makeEditor();
+    let changes = 0;
+    let cleaned = 0;
+    let retainedContext;
+    const plugin = definePlugin({
+      name: 'test.marker',
+      setup(context) {
+        retainedContext = context;
+        const role = context.internRole('plugin-marker');
+        const update = () => {
+          changes++;
+          context.setLayer('marks', [{ start: 0, end: 5, role }]);
+        };
+        context.on('change', update);
+        return () => { cleaned++; };
+      },
+    });
+
+    e.installPlugin(plugin);
+    e.setMarkdown('hello plugin');
+    assertEqual(changes, 1);
+    assertEqual(e.installedPlugins, ['test.marker']);
+    assert(e.decorations.some((d) => d.role === e.internRole('plugin-marker')));
+
+    assert(e.removePlugin('test.marker'));
+    assertEqual(cleaned, 1);
+    assert(!e.decorations.some((d) => d.role === e.internRole('plugin-marker')));
+    retainedContext.setLayer('late', [{ start: 0, end: 5, role: e.internRole('plugin-marker') }]);
+    assert(!e.decorations.some((d) => d.layer > 0), 'a stale plugin context stayed active');
+    e.setMarkdown('hello again');
+    assertEqual(changes, 1, 'the removed plugin still received editor events');
+  });
+
+  test('a failed plugin setup rolls back listeners, layers, and its reserved name', () => {
+    const e = makeEditor();
+    e.setMarkdown('hello');
+    let changes = 0;
+    const broken = definePlugin({
+      name: 'test.broken',
+      setup(context) {
+        const role = context.internRole('broken-marker');
+        context.on('change', () => { changes++; });
+        context.setLayer('partial', [{ start: 0, end: 5, role }]);
+        throw new Error('setup failed');
+      },
+    });
+    expect(() => e.installPlugin(broken)).toThrow(/setup failed/);
+    assertEqual(e.installedPlugins, []);
+    assert(!e.decorations.some((d) => d.role === e.internRole('broken-marker')));
+    e.setMarkdown('again');
+    assertEqual(changes, 0);
+  });
+
+  test('destroy cleans up plugins exactly once and duplicate names are rejected', () => {
+    const e = makeEditor();
+    let cleaned = 0;
+    const plugin = definePlugin({ name: 'test.lifecycle', setup: () => () => { cleaned++; } });
+    e.installPlugin(plugin);
+    expect(() => e.installPlugin(plugin)).toThrow(/already installed/);
+    e.destroy();
+    e.destroy();
+    assertEqual(cleaned, 1);
+  });
 
   test('typewriter mode focuses the caret\'s paragraph and dims the rest', () => {
     const e = makeEditor();

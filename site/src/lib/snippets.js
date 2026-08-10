@@ -177,23 +177,29 @@ clear_layer(name)`
 );
 
 export const typewriterJs = tag(
-  'javascript',
-  `// web/extensions/typewriter.ts — the whole of what it does to the editor.
-recompute() {
-  const text = this.editor.markdown;
-  const sel = this.editor.selectionRange();
+  'typescript',
+  `import { definePlugin } from '@mde/web';
 
-  // No caret means no focus: dimming an entire document because the editor lost
-  // focus would be a strange thing to look at.
-  if (!sel) return this.editor.setLayer(TypewriterMode.LAYER, []);
+export const searchPlugin = definePlugin({
+  name: 'com.example.search',
+  setup(context) {
+    const role = context.internRole('search-hit');
 
-  const [start, end] = paragraphAround(text, sel.start);
-  const spans = [];
-  if (start > 0) spans.push({ start: 0, end: start, role: this.dimRole });
-  if (end < text.length) spans.push({ start: end, end: text.length, role: this.dimRole });
-  if (end > start) spans.push({ start, end, role: this.focusRole });
-  this.editor.setLayer(TypewriterMode.LAYER, spans);
-}`
+    // The listener and the namespaced layer belong to this installation.
+    // Both disappear automatically on remove, setup failure, or editor.destroy().
+    const update = () => context.setLayer('results', findHits(
+      context.editor.markdown,
+      role,
+    ));
+    context.on('change', update);
+    update();
+
+    // Return cleanup only for resources outside the editor context.
+    return () => searchWorker.terminate();
+  },
+});
+
+editor.installPlugin(searchPlugin);`
 );
 
 export const posSwift = tag(

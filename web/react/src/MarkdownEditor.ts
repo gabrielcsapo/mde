@@ -31,7 +31,13 @@ import {
   useState,
 } from 'react';
 
-import { MarkdownEditor as CoreEditor, Role, diffText, encodeManifest } from '@mde/web';
+import {
+  MarkdownEditor as CoreEditor,
+  Role,
+  composePluginManifests,
+  diffText,
+  encodeManifest,
+} from '@mde/web';
 import { DEFAULT_WASM_URL, sharedCore, wasmKey } from './core.js';
 
 /**
@@ -47,21 +53,32 @@ export function activeEditorCount() {
   return alive.size;
 }
 
-/** @param {unknown} manifest */
-function manifestSignature(manifest) {
-  if (!manifest) return 'none';
-  if (manifest instanceof Uint8Array) return `bytes:${manifest.length}`;
-  return `spec:${JSON.stringify(manifest)}`;
+/** @param {unknown} manifest @param {readonly import('@mde/web').EditorPlugin[]} plugins */
+function manifestSignature(manifest, plugins) {
+  const contributed = plugins.map((plugin) => plugin.manifest ?? null);
+  if (!manifest && contributed.every((item) => item === null)) return 'none';
+  if (manifest instanceof Uint8Array) {
+    if (contributed.some((item) => item !== null)) return 'encoded-with-plugin-manifest';
+    return `bytes:${manifest.length}:${Array.from(manifest).join(',')}`;
+  }
+  return `spec:${JSON.stringify([manifest, contributed])}`;
 }
 
-/** @param {unknown} manifest */
-function manifestBytes(manifest) {
-  if (!manifest) return null;
-  if (manifest instanceof Uint8Array) return manifest;
-  return encodeManifest(/** @type {any} */ (manifest));
+/** @param {unknown} manifest @param {readonly import('@mde/web').EditorPlugin[]} plugins */
+function manifestBytes(manifest, plugins) {
+  const hasPluginManifest = plugins.some((plugin) => plugin.manifest);
+  if (manifest instanceof Uint8Array) {
+    if (hasPluginManifest) {
+      throw new Error('Plugin manifests cannot be composed with pre-encoded manifest bytes');
+    }
+    return manifest;
+  }
+  if (!manifest && !hasPluginManifest) return null;
+  return encodeManifest(composePluginManifests(/** @type {any} */ (manifest), plugins));
 }
 
 const NO_HISTORY = { canUndo: false, canRedo: false, position: 0, count: 0 };
+const NO_PLUGINS = Object.freeze([]);
 
 /** @param {typeof NO_HISTORY} a @param {typeof NO_HISTORY} b */
 function sameHistory(a, b) {
@@ -99,6 +116,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
     resourceResolver,
     resourceSizes,
     layers,
+    plugins = NO_PLUGINS,
     toggleTasksOnClick,
     autoFocus,
     /* eslint-enable no-unused-vars */
@@ -123,6 +141,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
   const history = useRef(NO_HISTORY);
   /** Layer signatures and interned role ids, reset whenever the engine is replaced. */
   const layerState = useRef({ /** @type {Record<string,string>} */ sigs: {}, roles: new Map() });
+  const pluginState = useRef(/** @type {Map<string, import('@mde/web').EditorPlugin>} */ (new Map()));
 
   const [status, setStatus] = useState(/** @type {'loading'|'ready'|'error'} */ ('loading'));
   // Bumped when an editor instance is created. Effects that need an editor depend on it;
@@ -139,7 +158,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
   useImperativeHandle(forwardedRef, () => api, [api]);
 
   const key = wasmKey(wasm);
-  const signature = useMemo(() => manifestSignature(manifest), [manifest]);
+  const signature = useMemo(() => manifestSignature(manifest, plugins), [manifest, plugins]);
 
   // MARK: - Mount
   useEffect(() => {
@@ -196,7 +215,8 @@ function MarkdownEditorImpl(props, forwardedRef) {
         if (cancelled) return;
         const props0 = latest.current;
 
-        engine = core.newEngine(manifestBytes(props0.manifest));
+        const plugins0 = props0.plugins ?? [];
+        engine = core.newEngine(manifestBytes(props0.manifest, plugins0));
         engineRef.current = engine;
         coreRef.current = core;
 
@@ -246,6 +266,14 @@ function MarkdownEditorImpl(props, forwardedRef) {
           quiet.current = false;
         }
 
+        // Setup sees the actual initial document. A plugin can compute its first layer
+        // immediately instead of depending on a synthetic mount-time change event.
+        pluginState.current.clear();
+        for (const plugin of plugins0) {
+          editor.installPlugin(plugin);
+          pluginState.current.set(plugin.name.trim(), plugin);
+        }
+
         setStatus('ready');
         setGeneration((g) => g + 1);
         latest.current.onReady?.(api);
@@ -254,6 +282,15 @@ function MarkdownEditorImpl(props, forwardedRef) {
       })
       .catch((error) => {
         if (cancelled) return;
+        editor?.destroy();
+        if (editor) alive.delete(editor);
+        engine?.free();
+        editor = null;
+        engine = null;
+        editorRef.current = null;
+        engineRef.current = null;
+        coreRef.current = null;
+        pluginState.current.clear();
         setStatus('error');
         if (latest.current.onError) latest.current.onError(error);
         else console.error('@mde/react: failed to load the editor core', error);
@@ -279,6 +316,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
       coreRef.current = null;
       history.current = NO_HISTORY;
       layerState.current = { sigs: {}, roles: new Map() };
+      pluginState.current.clear();
     };
     // `key` and `signature` are content-derived strings, so an inline manifest object or
     // a freshly constructed URL does not rebuild the editor on every render.
@@ -328,6 +366,67 @@ function MarkdownEditorImpl(props, forwardedRef) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, generation]);
+
+  // Runtime-only plugin changes do not rebuild the engine. A plugin manifest changing
+  // updates `signature` above and remounts because parser syntax is startup state.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const installed = pluginState.current;
+    const wanted = new Map();
+    try {
+      for (const plugin of plugins) {
+        const name = plugin.name.trim();
+        if (wanted.has(name)) throw new Error(`Duplicate plugin "${name}"`);
+        wanted.set(name, plugin);
+      }
+      const currentOrder = [...installed.keys()];
+      const wantedOrder = [...wanted.keys()];
+      const orderChanged =
+        currentOrder.length === wantedOrder.length &&
+        currentOrder.some((name, index) => name !== wantedOrder[index]) &&
+        currentOrder.every((name) => wanted.has(name));
+      const errors = [];
+      if (orderChanged) {
+        for (const name of currentOrder.reverse()) {
+          try {
+            editor.removePlugin(name);
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+        installed.clear();
+      }
+      for (const [name, plugin] of installed) {
+        if (wanted.get(name) !== plugin) {
+          try {
+            editor.removePlugin(name);
+          } catch (error) {
+            errors.push(error);
+          } finally {
+            installed.delete(name);
+          }
+        }
+      }
+      for (const [name, plugin] of wanted) {
+        if (installed.has(name)) continue;
+        try {
+          editor.installPlugin(plugin);
+          installed.set(name, plugin);
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      if (errors.length > 0) {
+        throw errors.length === 1
+          ? errors[0]
+          : new AggregateError(errors, 'Multiple plugin lifecycle operations failed');
+      }
+    } catch (error) {
+      if (latest.current.onError) latest.current.onError(error);
+      else console.error('@mde/react: failed to update plugins', error);
+    }
+  }, [plugins, generation]);
 
   return createElement('div', {
     ...rest,
@@ -439,6 +538,9 @@ function makeHandle({ editorRef, coreRef, engineRef, hostRef }) {
     internRole: (name) => ed()?.internRole(name) ?? -1,
     setLayer: (name, spans) => ed()?.setLayer(name, spans),
     clearLayer: (name) => ed()?.clearLayer(name),
+    installPlugin: (plugin) => ed()?.installPlugin(plugin),
+    removePlugin: (name) => !!ed()?.removePlugin(name),
+    getInstalledPlugins: () => ed()?.installedPlugins ?? [],
 
     // ---- introspection
     /** Live decorations. These carry `BigInt` keys — never put the result in state. */
