@@ -142,6 +142,13 @@ final class DecorationApplier {
                 widgetOrder.removeAll { $0 == key }
             }
         }
+        for shift in patch.shifted {
+            for key in Array(live.keys) {
+                guard var d = live[key], d.range.location >= shift.start else { continue }
+                d.range.location += shift.delta
+                live[key] = d
+            }
+        }
         for move in patch.moved {
             if var d = live[move.key] {
                 d.range = move.range
@@ -165,8 +172,8 @@ final class DecorationApplier {
 
     /// The range a patch requires repainting.
     ///
-    /// `moved` entries are deliberately excluded. A move means identity and attributes
-    /// are unchanged and only the offset shifted — and `NSTextStorage` already carried
+    /// `shifted` and `moved` entries are deliberately excluded. Both preserve identity
+    /// and attributes while changing only offsets — and `NSTextStorage` already carried
     /// those attributes along with the characters. Including them would drag the dirty
     /// range to the end of the document on every keystroke, making each character
     /// O(document) instead of O(paragraph).

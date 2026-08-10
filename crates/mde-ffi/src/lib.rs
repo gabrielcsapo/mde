@@ -40,6 +40,8 @@ pub struct MdePatch {
     /// Triples of (key_lo, key_hi, start, end) are avoided: moves are a packed struct.
     pub moved: *const MdeMove,
     pub moved_len: usize,
+    pub shifted: *const MdeShift,
+    pub shifted_len: usize,
 }
 
 #[repr(C)]
@@ -48,6 +50,13 @@ pub struct MdeMove {
     pub key: u64,
     pub start: u32,
     pub end: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MdeShift {
+    pub start: u32,
+    pub delta: i32,
 }
 
 /// One edit the host must apply to its own buffer. `text_off`/`text_len` index into
@@ -81,6 +90,7 @@ pub struct MdeEngine {
     removed: Vec<u64>,
     added: Vec<Decoration>,
     moved: Vec<MdeMove>,
+    shifted: Vec<MdeShift>,
     patch: MdePatch,
     rewind_edits: Vec<MdeAppliedEdit>,
     rewind_text: Vec<u8>,
@@ -95,6 +105,7 @@ impl MdeEngine {
         self.removed = p.removed;
         self.added = p.added;
         self.moved = p.moved.into_iter().map(|(key, start, end)| MdeMove { key, start, end }).collect();
+        self.shifted = p.shifted.into_iter().map(|s| MdeShift { start: s.start, delta: s.delta }).collect();
         self.patch = MdePatch {
             status,
             removed: self.removed.as_ptr(),
@@ -103,6 +114,8 @@ impl MdeEngine {
             added_len: self.added.len(),
             moved: self.moved.as_ptr(),
             moved_len: self.moved.len(),
+            shifted: self.shifted.as_ptr(),
+            shifted_len: self.shifted.len(),
         };
         &self.patch
     }
@@ -134,6 +147,8 @@ impl MdeEngine {
                 added_len: self.added.len(),
                 moved: self.moved.as_ptr(),
                 moved_len: self.moved.len(),
+                shifted: self.shifted.as_ptr(),
+                shifted_len: self.shifted.len(),
             },
             edits: self.rewind_edits.as_ptr(),
             edits_len: self.rewind_edits.len(),
@@ -156,6 +171,8 @@ fn empty_patch() -> MdePatch {
         added_len: 0,
         moved: std::ptr::null(),
         moved_len: 0,
+        shifted: std::ptr::null(),
+        shifted_len: 0,
     }
 }
 
@@ -178,6 +195,7 @@ pub unsafe extern "C" fn mde_engine_new(manifest: *const c_char) -> *mut MdeEngi
         removed: Vec::new(),
         added: Vec::new(),
         moved: Vec::new(),
+        shifted: Vec::new(),
         patch: empty_patch(),
         rewind_edits: Vec::new(),
         rewind_text: Vec::new(),

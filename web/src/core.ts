@@ -25,6 +25,7 @@ export interface Decoration {
 export interface Patch {
   removed: bigint[];
   added: Decoration[];
+  shifted: Array<{ start: number; delta: number }>;
   moved: Array<{ key: bigint; start: number; end: number }>;
 }
 export interface TextEdit { start: number; end: number; text: string }
@@ -140,11 +141,12 @@ export class EngineError extends Error {
  * @typedef {object} Patch
  * @property {bigint[]} removed
  * @property {Decoration[]} added
+ * @property {{start: number, delta: number}[]} shifted
  * @property {{key: bigint, start: number, end: number}[]} moved
  */
 
 /** @returns {Patch} */
-const emptyPatch = () => ({ removed: [], added: [], moved: [] });
+const emptyPatch = () => ({ removed: [], added: [], shifted: [], moved: [] });
 
 /**
  * Load the wasm core.
@@ -463,6 +465,7 @@ export class Engine {
     const removedLen = view.getUint32(0, true);
     const addedLen = view.getUint32(4, true);
     const movedLen = view.getUint32(8, true);
+    const shiftedLen = view.getUint32(12, true);
 
     let off = 16;
     /** @type {bigint[]} */
@@ -493,7 +496,14 @@ export class Engine {
         end: view.getUint32(off + 12, true),
       });
     }
-    return { removed, added, moved };
+    const shifted = [];
+    for (let i = 0; i < shiftedLen; i++, off += 8) {
+      shifted.push({
+        start: view.getUint32(off, true),
+        delta: view.getInt32(off + 4, true),
+      });
+    }
+    return { removed, added, shifted, moved };
   }
 
   readRewind(): Rewind {

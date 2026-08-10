@@ -1,6 +1,6 @@
 #if os(macOS)
 import AppKit
-import MDECore
+@testable import MDECore
 import MDEHost
 import XCTest
 @testable import MDEditorUI
@@ -632,6 +632,46 @@ final class MacRendererTests: XCTestCase {
 
         XCTAssertTrue(applier.ranges(referencing: old).isEmpty)
         XCTAssertEqual(applier.ranges(referencing: replacement).count, 1)
+    }
+
+    func testCompactSuffixShiftUpdatesLiveDecorationRanges() throws {
+        let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
+        let applier = DecorationApplier(engine: engine, theme: Theme())
+        let source = (0..<100).map { "**item \($0)**\n\n" }.joined()
+        let initial = engine.reset(source)
+        applier.ingest(initial)
+        let last = try XCTUnwrap(initial.added.filter { $0.role == Role.strong }.max {
+            $0.range.location < $1.range.location
+        })
+
+        let patch = try engine.apply(
+            [TextEdit(range: NSRange(location: 0, length: 0), text: "x")],
+            documentLength: source.utf16.count + 1
+        )
+        XCTAssertEqual(patch.shifted.count, 1)
+        applier.ingest(patch)
+
+        XCTAssertEqual(applier.live[last.key]?.range.location, last.range.location + 1)
+    }
+
+    func testExplicitMoveOverridesACompactSuffixShift() throws {
+        let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
+        let applier = DecorationApplier(engine: engine, theme: Theme())
+        let initial = engine.reset("**first**\n\n**second**\n")
+        applier.ingest(initial)
+        let strong = initial.added.filter { $0.role == Role.strong }
+        let first = try XCTUnwrap(strong.first)
+        let second = try XCTUnwrap(strong.last)
+
+        applier.ingest(Patch(
+            removed: [],
+            added: [],
+            shifted: [(first.range.location, 3)],
+            moved: [(second.key, second.range)]
+        ))
+
+        XCTAssertEqual(applier.live[first.key]?.range.location, first.range.location + 3)
+        XCTAssertEqual(applier.live[second.key]?.range, second.range)
     }
 
     func testTheEditorExposesRememberedSizesToTheHost() {

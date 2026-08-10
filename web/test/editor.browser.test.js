@@ -914,6 +914,66 @@ function makeEditor(options = {}) {
     assertEqual(domText(e.root), e.markdown);
   });
 
+  test('a large suffix crosses wasm as one compact shift', () => {
+    const e = makeEditor();
+    const source = Array.from({ length: 500 }, (_, i) => `**item ${i}**\n\n`).join('');
+    e.setMarkdown(source);
+    const edit = e.engine.edit.bind(e.engine);
+    let observed;
+    e.engine.edit = (...args) => {
+      observed = edit(...args);
+      return observed;
+    };
+
+    e.replaceRange(0, 0, 'x');
+
+    assertEqual(observed.shifted.length, 1);
+    assertEqual(observed.shifted[0].delta, 1);
+    assert(observed.moved.length < 8, 'the suffix expanded back into individual moves');
+    assertEqual(domText(e.root), e.markdown);
+  });
+
+  test('a large deletion crosses wasm as a negative compact shift', () => {
+    const e = makeEditor();
+    const source = `x${Array.from({ length: 500 }, (_, i) => `**item ${i}**\n\n`).join('')}`;
+    e.setMarkdown(source);
+    const edit = e.engine.edit.bind(e.engine);
+    let observed;
+    e.engine.edit = (...args) => {
+      observed = edit(...args);
+      return observed;
+    };
+
+    e.replaceRange(0, 1, '');
+
+    assertEqual(observed.shifted.length, 1);
+    assertEqual(observed.shifted[0].delta, -1);
+    assert(observed.moved.length < 8, 'the deletion expanded back into individual moves');
+    assertEqual(domText(e.root), e.markdown);
+  });
+
+  test('an explicit move overrides a compact suffix shift', () => {
+    const e = makeEditor();
+    e.setMarkdown('**first**\n\n**second**\n');
+    const decorations = e.decorations.filter((d) => d.role === Role.Strong);
+    const first = decorations[0];
+    const second = decorations[1];
+    const firstStart = first.start;
+    const secondStart = second.start;
+    const secondEnd = second.end;
+
+    e.applier.ingest({
+      removed: [],
+      added: [],
+      shifted: [{ start: firstStart, delta: 3 }],
+      moved: [{ key: second.key, start: secondStart, end: secondEnd }],
+    });
+
+    assertEqual(e.applier.live.get(first.key).start, firstStart + 3);
+    assertEqual(e.applier.live.get(second.key).start, secondStart);
+    assertEqual(e.applier.live.get(second.key).end, secondEnd);
+  });
+
   test('large documents are grouped into viewport-contained layout regions', () => {
     const e = makeEditor();
     const source = 'line with **formatting**\n'.repeat(10_000);

@@ -89,6 +89,9 @@ impl Decoration {
 pub struct Patch {
     pub removed: Vec<u64>,
     pub added: Vec<Decoration>,
+    /// Apply one translation to every surviving decoration whose old start is at or
+    /// after `start`. Removals happen first, additions after; explicit moves override.
+    pub shifted: Vec<Shift>,
     /// (key, new start, new end) — position changed, no rebuild required. This is
     /// what keeps an image from reloading while you type elsewhere.
     pub moved: Vec<(u64, u32, u32)>,
@@ -96,8 +99,17 @@ pub struct Patch {
 
 impl Patch {
     pub fn is_empty(&self) -> bool {
-        self.removed.is_empty() && self.added.is_empty() && self.moved.is_empty()
+        self.removed.is_empty()
+            && self.added.is_empty()
+            && self.shifted.is_empty()
+            && self.moved.is_empty()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shift {
+    pub start: u32,
+    pub delta: i32,
 }
 
 /// Stable node identity (DESIGN §3.3).

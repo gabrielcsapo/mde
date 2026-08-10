@@ -1,8 +1,8 @@
 // Decorations -> DOM. The web counterpart of
 // `apple/Sources/MDEditorUI/DecorationApplier.swift`, and deliberately the same shape:
-// the same `live` map, the same paint ordering, the same rule that `moved` entries
-// never cause a repaint. Where the Apple side writes NSAttributedString attributes,
-// this writes spans.
+// the same `live` map, the same paint ordering, the same rule that `shifted` and
+// `moved` entries never cause a repaint. Where the Apple side writes
+// NSAttributedString attributes, this writes spans.
 
 import { Kind, Role } from './core.js';
 import type { Decoration, Engine } from './core.js';
@@ -221,6 +221,13 @@ export class DomApplier {
         if (at >= 0) this.widgetOrder.splice(at, 1);
       }
     }
+    for (const shift of patch.shifted) {
+      for (const d of this.live.values()) {
+        if (d.start < shift.start) continue;
+        d.start += shift.delta;
+        d.end += shift.delta;
+      }
+    }
     for (const m of patch.moved) {
       const d = this.live.get(m.key);
       if (d) {
@@ -256,8 +263,8 @@ export class DomApplier {
    *
    * Two separate reasons, both measured:
    *
-   * `moved` entries are excluded because a move means identity and appearance are
-   * unchanged and only the offset shifted; the line is re-rendered from the model
+   * `shifted` and `moved` entries are excluded because both preserve identity and
+   * appearance while changing only offsets; the line is re-rendered from the model
    * anyway. Including them widens the range to the end of the document on every
    * keystroke.
    *

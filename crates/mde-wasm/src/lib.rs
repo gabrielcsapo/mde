@@ -165,10 +165,11 @@ pub unsafe extern "C" fn mde_clear_selection(e: *mut Engine) -> u32 {
 ///   u32 removed_len
 ///   u32 added_len
 ///   u32 moved_len
-///   u32 _reserved
+///   u32 shifted_len
 ///   u64 removed[removed_len]
 ///   Decoration added[added_len]      // 24 bytes each, matches the Swift layout
 ///   { u64 key; u32 start; u32 end } moved[moved_len]
+///   { u32 start; i32 delta } shifted[shifted_len]
 /// ```
 #[no_mangle]
 pub extern "C" fn mde_patch_ptr() -> *const u8 {
@@ -474,7 +475,7 @@ fn write_patch(p: &mde_core::Patch) {
     out.extend_from_slice(&(p.removed.len() as u32).to_le_bytes());
     out.extend_from_slice(&(p.added.len() as u32).to_le_bytes());
     out.extend_from_slice(&(p.moved.len() as u32).to_le_bytes());
-    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&(p.shifted.len() as u32).to_le_bytes());
     for k in &p.removed {
         out.extend_from_slice(&k.to_le_bytes());
     }
@@ -487,6 +488,10 @@ fn write_patch(p: &mde_core::Patch) {
         out.extend_from_slice(&k.to_le_bytes());
         out.extend_from_slice(&s.to_le_bytes());
         out.extend_from_slice(&e.to_le_bytes());
+    }
+    for shift in &p.shifted {
+        out.extend_from_slice(&shift.start.to_le_bytes());
+        out.extend_from_slice(&shift.delta.to_le_bytes());
     }
 }
 
@@ -528,11 +533,13 @@ mod tests {
             let removed = u32::from_le_bytes(buf[0..4].try_into().unwrap()) as usize;
             let added = u32::from_le_bytes(buf[4..8].try_into().unwrap()) as usize;
             let moved = u32::from_le_bytes(buf[8..12].try_into().unwrap()) as usize;
+            let shifted = u32::from_le_bytes(buf[12..16].try_into().unwrap()) as usize;
             assert_eq!(removed, 0);
             assert!(added > 0);
             assert_eq!(moved, 0);
+            assert_eq!(shifted, 0);
 
-            let expected = 16 + removed * 8 + added * 24 + moved * 16;
+            let expected = 16 + removed * 8 + added * 24 + moved * 16 + shifted * 8;
             assert_eq!(buf.len(), expected, "header and payload disagree");
 
             mde_engine_free(e);

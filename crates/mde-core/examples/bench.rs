@@ -329,7 +329,9 @@ fn run(label: &str, bytes: usize) -> f64 {
         .edit(&[Edit { start: mid_u16, end: mid_u16, text: "x".into() }], None, 1000)
         .expect("in-bounds edit");
     let after = e.decorations().to_vec();
-    let (n_add, n_rem, n_mov) = (patch.added.len(), patch.removed.len(), patch.moved.len());
+    let (n_add, n_rem, n_shift, n_mov) = (
+        patch.added.len(), patch.removed.len(), patch.shifted.len(), patch.moved.len()
+    );
 
     // -- structural fallback scan ----------------------------------------------------
     // Ordinary edits shift the trusted boundary index. Newlines, fences, directives,
@@ -428,7 +430,10 @@ fn run(label: &str, bytes: usize) -> f64 {
     row("reset (cold parse)", &cold);
     row("edit (one keystroke)", &key);
     row("set_selection", &sel);
-    println!("   patch for that keystroke: {n_add} added, {n_rem} removed, {n_mov} moved");
+    println!(
+        "   patch for that keystroke: {n_add} added, {n_rem} removed, \
+         {n_shift} suffix shifts, {n_mov} explicit moves"
+    );
     println!("   breakdown of edit (min):");
     sub("mirror apply + reindex", apply.min, key.min);
     sub("structural fallback scan", scan.min, key.min);

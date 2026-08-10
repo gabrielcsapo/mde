@@ -73,8 +73,12 @@ public struct Patch: Sendable {
     public let added: [Decoration]
     /// Position changed but identity did not — move the view, do not rebuild it.
     public let moved: [(key: UInt64, range: NSRange)]
+    /// Translate every surviving decoration beginning at or after `start`.
+    public let shifted: [(start: Int, delta: Int)]
 
-    public var isEmpty: Bool { removed.isEmpty && added.isEmpty && moved.isEmpty }
+    public var isEmpty: Bool {
+        removed.isEmpty && added.isEmpty && shifted.isEmpty && moved.isEmpty
+    }
 
     init(_ p: UnsafePointer<MdePatch>) {
         let v = p.pointee
@@ -89,12 +93,30 @@ public struct Patch: Sendable {
             : UnsafeBufferPointer(start: v.moved, count: v.moved_len).map {
                 ($0.key, NSRange(location: Int($0.start), length: Int($0.end - $0.start)))
             }
+        shifted = v.shifted_len == 0
+            ? []
+            : UnsafeBufferPointer(start: v.shifted, count: v.shifted_len).map {
+                (Int($0.start), Int($0.delta))
+            }
     }
 
     init() {
         removed = []
         added = []
         moved = []
+        shifted = []
+    }
+
+    init(
+        removed: [UInt64],
+        added: [Decoration],
+        shifted: [(start: Int, delta: Int)],
+        moved: [(key: UInt64, range: NSRange)]
+    ) {
+        self.removed = removed
+        self.added = added
+        self.shifted = shifted
+        self.moved = moved
     }
 }
 

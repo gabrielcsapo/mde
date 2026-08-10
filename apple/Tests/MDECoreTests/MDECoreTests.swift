@@ -42,6 +42,7 @@ final class MDECoreTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<MdeDecoration>.size, 24)
         XCTAssertEqual(MemoryLayout<MdeDecoration>.alignment, 8)
         XCTAssertEqual(MemoryLayout<MdeMove>.size, 16)
+        XCTAssertEqual(MemoryLayout<MdeShift>.size, 8)
         XCTAssertEqual(MemoryLayout<MdeAppliedEdit>.size, 16)
     }
 
@@ -230,6 +231,29 @@ final class MDECoreTests: XCTestCase {
             patch.removed.contains(widget.key),
             "typing at the end tore down a widget at the start"
         )
+    }
+
+    func testALargeSuffixCrossesTheABIAsOneShift() throws {
+        let e = try XCTUnwrap(MarkdownEngine())
+        let source = (0..<100).map { "**item \($0)**\n\n" }.joined()
+        e.reset(source)
+
+        let patch = try e.apply(
+            [TextEdit(range: NSRange(location: 0, length: 0), text: "x")],
+            documentLength: source.utf16.count + 1
+        )
+
+        XCTAssertEqual(patch.shifted.count, 1)
+        XCTAssertEqual(patch.shifted.first?.delta, 1)
+        XCTAssertLessThan(patch.moved.count, 8)
+
+        let deletion = try e.apply(
+            [TextEdit(range: NSRange(location: 0, length: 1), text: "")],
+            documentLength: source.utf16.count
+        )
+        XCTAssertEqual(deletion.shifted.count, 1)
+        XCTAssertEqual(deletion.shifted.first?.delta, -1)
+        XCTAssertLessThan(deletion.moved.count, 8)
     }
 
     // MARK: - Undo

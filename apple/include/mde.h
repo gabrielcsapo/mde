@@ -87,6 +87,11 @@ typedef struct {
 } MdeMove;
 
 typedef struct {
+    uint32_t start;
+    int32_t delta;
+} MdeShift;
+
+typedef struct {
     uint32_t status;
     const uint64_t *removed;
     size_t removed_len;
@@ -94,6 +99,8 @@ typedef struct {
     size_t added_len;
     const MdeMove *moved;
     size_t moved_len;
+    const MdeShift *shifted;
+    size_t shifted_len;
 } MdePatch;
 
 typedef struct {

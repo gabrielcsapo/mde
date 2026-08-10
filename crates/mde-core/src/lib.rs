@@ -13,7 +13,7 @@ pub mod region;
 pub mod registry;
 pub mod text;
 
-pub use decoration::{Decoration, Kind, Patch, Reveal, RoleId};
+pub use decoration::{Decoration, Kind, Patch, Reveal, RoleId, Shift};
 pub use history::{Rewind, RevisionInfo, RevisionKind, COALESCE_WINDOW_MS};
 pub use registry::{Registry, RegistryError};
 pub use text::{Edit, EditError};

@@ -42,7 +42,7 @@ macOS, web — running against it, each with a reference app.
                     │  rope mirror → parse → decorate      │
                     │            → key → diff              │
                     └──────────────────┬──────────────────┘
-                                       │  Patch { removed[], added[], moved[] }
+                                       │  Patch { removed[], added[], shifted[], moved[] }
                     ┌──────────────────▼──────────────────┐
                     │            RENDERER                 │
                     │  TextKit 2 attrs + attachments      │
@@ -225,9 +225,17 @@ source changes the key, which correctly rebuilds it.
 struct Patch {
     removed: Vec<u64>,          // keys
     added:   Vec<Decoration>,
+    shifted: Vec<(u32, i32)>,   // old-start cutoff, UTF-16 delta — no rebuild
     moved:   Vec<(u64, u32, u32)>,  // key, new start, new end — no rebuild
 }
 ```
+
+Large edits commonly translate every decoration after the caret by the same amount.
+`shifted` represents that suffix as one operation instead of sending tens of thousands
+of individual `moved` records across the native or WASM boundary. Renderers apply
+removals first, then shifts to surviving decorations whose old start is at or after the
+cutoff, then explicit moves, and finally additions. An explicit move therefore handles
+an overlapping node while the compact shift handles the uniform suffix.
 
 ---
 
@@ -466,10 +474,10 @@ heading. The cost: concealed characters remain selectable, which is exactly why 
 core snaps selection endpoints out of concealed ranges (§4).
 
 **Moves must not repaint.** `NSTextStorage` carries attributes along with characters,
-so a decoration that only shifted is already correct on screen. Including `moved` in
-the repaint region drags it to the end of the document on every keystroke — O(document)
-per character instead of O(paragraph). Only `added`, `removed`, and the edited range
-are dirty.
+so a decoration that only shifted is already correct on screen. Including `shifted` or
+`moved` in the repaint region drags it to the end of the document on every keystroke —
+O(document) per character instead of O(paragraph). Only `added`, `removed`, and the
+edited range are dirty.
 
 **Two UIKit traps, both silent.** A `UITapGestureRecognizer` added for `Hit` testing
 wins gesture arbitration and stops `UITextView`'s own text interaction from ever
@@ -482,7 +490,8 @@ keystroke. Refusing to *perform* undo is sufficient.
 
 Three things the renderers learned the hard way, all now pinned by tests:
 
-**Dirty ranges are a set, not a bounding box.** Excluding `moved` is only half the rule.
+**Dirty ranges are a set, not a bounding box.** Excluding `shifted` and `moved` is only
+half the rule.
 Editing a node changes how many byte-identical siblings precede its twin elsewhere,
 which changes that twin's key (§3.3) and puts a removal half a document from the caret.
 Unioning the two covered everything between: one keystroke measured at 1844 ms instead

@@ -279,10 +279,10 @@ final class MacRendererBenchmarks: XCTestCase {
             ))
             print(String(
                 format: "        keystroke repaints %d chars of %d across %d range(s);"
-                    + "  patch: %d added, %d removed, %d moved;"
+                    + "  patch: %d added, %d removed, %d shifted, %d moved;"
                     + " furthest add/remove %d chars from the caret",
                 dirtyChars, ns.length, dirty.count,
-                patch.added.count, patch.removed.count, patch.moved.count,
+                patch.added.count, patch.removed.count, patch.shifted.count, patch.moved.count,
                 furthest
             ))
             // When the dirty range is far wider than the paragraph the caret is in, the
