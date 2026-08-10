@@ -219,6 +219,44 @@ impl Text {
         u16_off
     }
 
+    /// Convert many UTF-8 offsets in one forward pass.
+    ///
+    /// The ordinary single-offset path is ideal for short lines, but a giant Unicode
+    /// paragraph with thousands of decorations otherwise rescans the same prefix for
+    /// every endpoint. Sorting the requests once makes that case O(text + n log n)
+    /// instead of O(text * n).
+    pub fn utf8_offsets_to_utf16(&self, offsets: &[usize]) -> Vec<u32> {
+        let mut order: Vec<usize> = (0..offsets.len()).collect();
+        order.sort_unstable_by_key(|&index| offsets[index]);
+        let mut converted = vec![0; offsets.len()];
+        let mut byte = 0usize;
+        let mut utf16 = 0u32;
+
+        for index in order {
+            let target = offsets[index].min(self.s.len());
+            debug_assert!(self.s.is_char_boundary(target));
+            for ch in self.s[byte..target].chars() {
+                utf16 += ch.len_utf16() as u32;
+            }
+            byte = target;
+            converted[index] = utf16;
+        }
+        converted
+    }
+
+    /// Whether a full emission would repeatedly scan a pathologically long Unicode
+    /// line. Short and ASCII lines retain the lower-overhead point conversion path.
+    pub fn benefits_from_batched_utf16(&self, endpoint_count: usize) -> bool {
+        endpoint_count >= 64
+            && self.lines.iter().enumerate().any(|(index, line)| {
+                let end = self
+                    .lines
+                    .get(index + 1)
+                    .map_or(self.s.len(), |next| next.byte as usize);
+                !line.ascii && end.saturating_sub(line.byte as usize) >= 4 * 1024
+            })
+    }
+
     /// UTF-16 code unit offset -> UTF-8 byte offset. An offset landing inside a
     /// surrogate pair snaps to the start of that character.
     pub fn utf16_to_utf8(&self, off: u32) -> usize {
@@ -272,6 +310,31 @@ impl Text {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batched_utf16_conversion_matches_individual_offsets() {
+        let text = Text::new("ASCII résumé 日本語 🎉\nsecond line");
+        let offsets: Vec<_> = text
+            .as_str()
+            .char_indices()
+            .map(|(offset, _)| offset)
+            .chain(std::iter::once(text.as_str().len()))
+            .rev()
+            .collect();
+        let expected: Vec<_> = offsets
+            .iter()
+            .map(|&offset| text.utf8_to_utf16(offset))
+            .collect();
+        assert_eq!(text.utf8_offsets_to_utf16(&offsets), expected);
+    }
+
+    #[test]
+    fn only_large_unicode_lines_select_batched_conversion() {
+        assert!(!Text::new("résumé").benefits_from_batched_utf16(100));
+        assert!(!Text::new("x".repeat(8 * 1024)).benefits_from_batched_utf16(100));
+        assert!(!Text::new("é".repeat(4 * 1024)).benefits_from_batched_utf16(2));
+        assert!(Text::new("é".repeat(4 * 1024)).benefits_from_batched_utf16(100));
+    }
 
     fn assert_same_index(actual: &Text, expected: &Text) {
         assert_eq!(actual.s, expected.s);

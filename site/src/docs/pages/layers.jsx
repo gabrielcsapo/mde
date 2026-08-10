@@ -68,6 +68,21 @@ export default function Layers() {
         Duplicate names and partially failed installations are rejected and rolled back.
       </Note>
 
+      <H3 id="background-analysis">Background analysis without stale results</H3>
+      <p>
+        Use <code>context.scheduleAnalysis</code> for linters, language tagging, comments, or
+        anything else that scans the document. Tasks with the same local name coalesce. The web
+        callback receives an <code>AbortSignal</code> suitable for a Worker request; Swift receives
+        a cooperative cancellation token and runs analysis on a shared concurrent queue. Both
+        capture an immutable source snapshot and refuse late results after a newer edit or plugin
+        removal.
+      </p>
+      <p>
+        Published compatibility helpers—<code>@mde/web/plugin-testing</code> and{' '}
+        <code>MarkdownPluginCompatibility.check</code>—exercise installation, source preservation,
+        layer ownership, and teardown with no dependency on Vitest or XCTest.
+      </p>
+
       <H3 id="swift-lifecycle">The same lifecycle in Swift</H3>
       <p>
         Implement <code>MarkdownPlugin</code>, receive a <code>MarkdownPluginContext</code>, then call{' '}
@@ -98,7 +113,8 @@ export default function Layers() {
         A layer is replaced wholesale, not patched — the host says what the layer is now, and the
         core diffs it against what the layer was. Because edits rebase existing spans, a host that
         coalesces its recompute to a short idle is invisible: the spans stay on their words in the
-        meantime. The parts-of-speech extension waits 150 ms; nobody has ever seen it do so.
+        meantime. The parts-of-speech extension uses the shared scheduler and waits 150 ms; nobody
+        has ever seen it do so.
       </p>
       <p>
         Layer replacement also has its own fast path. Moving one span no longer re-emits the parsed

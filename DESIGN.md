@@ -439,11 +439,20 @@ the name, listeners, and any partial layers are rolled back. Removal and editor 
 run cleanup and clear every context-owned layer. This makes extensions composable
 without requiring each app delegate or React component to reproduce lifecycle wiring.
 
+Both contexts also own a latest-wins analysis scheduler. Each request captures an
+immutable markdown snapshot; scheduling the same task again cancels the old token, and
+a stale result is refused even when third-party work ignores cooperative cancellation.
+Web analyzers can await a Worker response behind an `AbortSignal`; Apple analyzers run
+on a shared concurrent queue and publish back on the main queue. Plugin removal cancels
+every pending task before it can repaint.
+
 Parser syntax remains startup state. Web plugins may contribute a plain manifest, which
 `composePluginManifests` validates and combines before engine construction. An encoded
 manifest cannot be combined afterward because its definitions are intentionally opaque.
 Swift plugins may contribute a TOML fragment; `MarkdownTextView(plugins:)` concatenates
 the fragments, constructs one engine, and only then installs the runtime objects.
+Framework-neutral compatibility helpers exercise installation, source preservation,
+layer ownership and teardown without pulling Vitest or XCTest into the runtime bundle.
 
 ## 6. FFI
 

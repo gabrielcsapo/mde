@@ -5,6 +5,20 @@ import { composeManifests } from './manifest.js';
 
 export type PluginCleanup = () => void;
 
+export interface PluginAnalysisInput {
+  /** Immutable source snapshot captured when the analysis was scheduled. */
+  readonly markdown: string;
+  /** Aborted when superseded, cancelled, or the plugin is removed. */
+  readonly signal: AbortSignal;
+  /** Monotonic id within this plugin, useful for worker request correlation. */
+  readonly sequence: number;
+}
+
+export interface PluginAnalysisOptions {
+  /** Debounce before starting work. Defaults to zero. */
+  delayMs?: number;
+}
+
 /** A runtime extension with an editor-scoped lifecycle. */
 export interface EditorPlugin {
   /** Stable, package-qualified identity, for example `acme.comments`. */
@@ -23,6 +37,18 @@ export interface EditorPluginContext {
   internRole(name: string): number;
   setLayer(name: string, spans: LayerSpan[]): void;
   clearLayer(name: string): void;
+  /**
+   * Run latest-wins analysis against a source snapshot. A replacement with the same
+   * name aborts the previous signal; results from stale work are never applied.
+   * Expensive analyzers should use a Worker and resolve the returned promise.
+   */
+  scheduleAnalysis<T>(
+    name: string,
+    analyze: (input: PluginAnalysisInput) => T | Promise<T>,
+    apply: (result: T) => void,
+    options?: PluginAnalysisOptions,
+  ): void;
+  cancelAnalysis(name: string): void;
   on<K extends keyof EditorEventMap>(
     type: K,
     listener: (event: EditorEventMap[K]) => void,
@@ -34,6 +60,7 @@ export interface EditorEventMap {
   selectionchange: CustomEvent<{ range: SelectionRange | null }>;
   hit: CustomEvent<{ decoration: Decoration; source: string }>;
   linkopen: CustomEvent<{ decoration: Decoration; destination: string }>;
+  pluginerror: CustomEvent<{ plugin: string; task: string; error: unknown }>;
 }
 
 /** Preserve inference while checking a plugin object at its declaration site. */
@@ -46,7 +73,15 @@ export interface InstalledPlugin {
   plugin: EditorPlugin;
   controller: AbortController;
   layers: Set<string>;
+  analyses: Map<string, PluginAnalysisRun>;
+  analysisSequence: number;
   cleanup?: PluginCleanup;
+}
+
+export interface PluginAnalysisRun {
+  controller: AbortController;
+  timer: number | null;
+  sequence: number;
 }
 
 export function pluginLayerName(plugin: string, local: string): string {

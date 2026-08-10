@@ -17,10 +17,10 @@ import NaturalLanguage
 public final class PartsOfSpeech: MarkdownPlugin {
     public let name = "mde.parts-of-speech"
     private static let layer = "words"
+    private static let analysis = "tag-document"
 
     private var context: MarkdownPluginContext?
     private var roles: [NLTag: UInt32] = [:]
-    private var pending: DispatchWorkItem?
     public private(set) var isEnabled = false
 
     /// The attributes this extension's roles need. See `TypewriterMode.themeRoles`.
@@ -47,8 +47,6 @@ public final class PartsOfSpeech: MarkdownPlugin {
 
     public func uninstall() {
         isEnabled = false
-        pending?.cancel()
-        pending = nil
         context = nil
         roles.removeAll()
     }
@@ -70,7 +68,7 @@ public final class PartsOfSpeech: MarkdownPlugin {
     public func disable() {
         guard isEnabled else { return }
         isEnabled = false
-        pending?.cancel()
+        context?.cancelAnalysis(Self.analysis)
         context?.clearLayer(Self.layer)
     }
 
@@ -78,20 +76,32 @@ public final class PartsOfSpeech: MarkdownPlugin {
     /// already slides existing spans over an edit so they stay on their words in the
     /// meantime (DESIGN §5.3) — so coalescing to a short idle is invisible.
     public func scheduleRecompute() {
-        guard isEnabled else { return }
-        pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.recompute() }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        scheduleRecompute(after: 0.15)
     }
 
     public func recompute() {
-        guard isEnabled, let context, let editor = context.editor else { return }
-        let text = editor.markdown
-        guard !text.isEmpty else {
-            context.setLayer(Self.layer, [])
-            return
-        }
+        scheduleRecompute(after: 0)
+    }
+
+    private func scheduleRecompute(after delay: TimeInterval) {
+        guard isEnabled, let context else { return }
+        let roles = roles
+        context.scheduleAnalysis(
+            Self.analysis,
+            delay: delay,
+            analyze: { text, cancellation in
+                Self.tag(text, roles: roles, cancellation: cancellation)
+            },
+            apply: { spans, context in context.setLayer(Self.layer, spans) }
+        )
+    }
+
+    private static func tag(
+        _ text: String,
+        roles: [NLTag: UInt32],
+        cancellation: MarkdownPluginAnalysisCancellation
+    ) -> [LayerSpan] {
+        guard !text.isEmpty else { return [] }
 
         let tagger = NLTagger(tagSchemes: [.lexicalClass])
         tagger.string = text
@@ -103,12 +113,13 @@ public final class PartsOfSpeech: MarkdownPlugin {
             scheme: .lexicalClass,
             options: [.omitWhitespace, .omitPunctuation, .omitOther]
         ) { tag, range in
+            guard !cancellation.isCancelled else { return false }
             guard let tag, let role = roles[tag] else { return true }
             // NSRange from String.Index, so the offsets are UTF-16 — which is what every
             // boundary in this API speaks (DESIGN §3.2).
             spans.append(LayerSpan(range: NSRange(range, in: text), role: role))
             return true
         }
-        context.setLayer(Self.layer, spans)
+        return spans
     }
 }

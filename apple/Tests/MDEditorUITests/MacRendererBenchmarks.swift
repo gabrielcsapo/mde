@@ -353,6 +353,31 @@ final class MacRendererBenchmarks: XCTestCase {
         _ = window
     }
 
+    func testBenchmarkGiantUnicodeParagraph() throws {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
+            throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
+        }
+        let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 850)
+        let (window, editor) = makeEditor()
+        editor.setMarkdown(source)
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        drainMainQueue()
+        let storage = try XCTUnwrap(editor.textStorage)
+        var at = storage.length / 2
+        let update = best(2) {
+            storage.replaceCharacters(in: NSRange(location: at, length: 0), with: "x")
+            drainMainQueue()
+            at += 1
+        }
+        print(String(format: "32KB giant Unicode paragraph %8.3f ms", update))
+        enforceBudget(
+            update,
+            environment: "MDE_APPLE_GIANT_PARAGRAPH_BUDGET_MS",
+            metric: "32 KB native giant Unicode paragraph edit"
+        )
+        _ = window
+    }
+
     // MARK: - Repaint scope
 
     /// DESIGN §7 claims a keystroke repaints a paragraph, not the document, because

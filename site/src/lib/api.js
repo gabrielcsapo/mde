@@ -407,9 +407,18 @@ export const WEB_API = [
         name: 'EditorPluginContext',
         kind: 'type',
         signature:
-          '{editor, signal, name, internRole(), setLayer(), clearLayer(), on()}',
+          '{editor, signal, name, internRole(), setLayer(), clearLayer(), scheduleAnalysis(), cancelAnalysis(), on()}',
         summary:
           'An editor-scoped capability object. Its listeners and layers are owned by the plugin lifecycle.',
+        note: 'Analysis is latest-wins: replacing a named task aborts its signal and stale results never apply.',
+      },
+      {
+        name: 'checkPluginCompatibility',
+        kind: 'function',
+        signature:
+          "import { checkPluginCompatibility } from '@mde/web/plugin-testing'",
+        summary:
+          'Framework-neutral installation, source-preservation, layer-ownership and teardown check for plugin package tests.',
       },
       {
         name: 'WidgetProvider.makeWidget',
@@ -942,9 +951,18 @@ export const SWIFT_API = [
         name: 'MarkdownPluginContext',
         kind: 'class',
         signature:
-          'editor · name · internRole(_:) · setLayer(_:_:) · clearLayer(_:)',
+          'editor · name · internRole(_:) · setLayer(_:_:) · clearLayer(_:) · scheduleAnalysis(_:delay:analyze:apply:) · cancelAnalysis(_:)',
         summary:
           'The weak editor reference and automatically cleaned, plugin-namespaced layer surface.',
+        note: 'Analysis runs on a shared concurrent queue and publishes only the latest result on the main queue.',
+      },
+      {
+        name: 'MarkdownPluginCompatibility.check',
+        kind: 'function',
+        signature:
+          'static func check(_ plugin: any MarkdownPlugin, in editor: MarkdownTextView, markdown: String = …) throws -> MarkdownPluginCompatibilityReport',
+        summary:
+          'Framework-neutral lifecycle and cleanup check for a Swift plugin package test suite.',
       },
       {
         name: 'WidgetProvider',

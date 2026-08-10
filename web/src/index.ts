@@ -28,6 +28,13 @@ export type {
   RenderSpec,
   RevealSpec,
 } from './manifest.js';
-export type { EditorEventMap, EditorPlugin, EditorPluginContext, PluginCleanup } from './plugins.js';
+export type {
+  EditorEventMap,
+  EditorPlugin,
+  EditorPluginContext,
+  PluginAnalysisInput,
+  PluginAnalysisOptions,
+  PluginCleanup,
+} from './plugins.js';
 export type { ResourceRequest, ResourceResolver, ResourceState } from './resources.js';
 export type { WidgetProvider, WidgetRequest } from './widgets.js';

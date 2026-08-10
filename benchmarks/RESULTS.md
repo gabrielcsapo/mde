@@ -15,11 +15,13 @@ budgets leave runner headroom, while these values are the observed baselines.
 | Core one-span plugin update, 100 KB | 1.532 ms | 0.0006 ms | 2,500× faster |
 | Core one-span plugin update, 1 MB | 13.888 ms | 0.0014 ms | 9,700× faster |
 | Core one-span plugin update, 5 MB | 99.622 ms | 0.0050 ms | 19,700× faster |
+| Core 32 KB Unicode single-paragraph edit | 163 ms | 3.3 ms | 49× faster |
 | Browser 100 KB edit | 21.1 ms | 0.7 ms | 30× faster |
 | Browser 1 MB edit near end | 192.3 ms p50 | 6.9 ms p50 | 28× faster |
 | Browser 1 MB edit near start | 349.7 ms p50 | 10.0 ms p50 | 35× faster |
 | Browser sustained 100 KB edits | 19.1 ms p50 | 0.9 ms p50 | 21× faster |
 | Browser one-span plugin update, 1 MB | 40.7 ms | 2.5 ms | 16× faster |
+| Browser 32 KB Unicode single-paragraph edit | 491 ms | 49.8 ms | 9.9× faster |
 | Browser 1 MB DOM elements | 206,332 | 137,734 | 33% fewer |
 | Native 1 MB `setMarkdown` | 577.68 ms | 59.79 ms | 9.7× faster |
 | Native load through painted first viewport | 590.15 ms | 183.19 ms | 3.2× faster |
@@ -45,7 +47,9 @@ the plugin’s one span rather than the document’s 49,000 parsed decorations.
 Two attempted optimizations were removed after isolation runs. Incrementally merging
 the renderer index for general text edits did not improve Chromium and slowed native
 sustained edits from about 3.0 ms to 5.5 ms. Only the bounded, position-stable plugin
-patch path described above remains. The giant single-paragraph case is also a hard edge:
-its core edit is about 163 ms and its browser edit about 491 ms because a safe reparse
-and one enormous line rebuild are both necessarily broad. It is tracked by the
-adversarial report rather than hidden inside an average.
+patch path described above remains. Giant Unicode paragraphs exposed a different
+quadratic edge: each decoration endpoint rescanned from the beginning of the line while
+converting UTF-8 parser offsets to UTF-16 host offsets. Long non-ASCII lines now batch
+those conversions into one ordered pass, cutting the 32 KB core edit from about 163 ms
+to 3.3 ms. The renderer still has to rebuild one enormous visual line, so the browser
+case remains separately tracked rather than hidden inside an average.

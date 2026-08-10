@@ -46,6 +46,7 @@ export default defineConfig({
       edit1MB: Number(process.env.MDE_WEB_1MB_EDIT_BUDGET_MS ?? 450),
       layer1MB: Number(process.env.MDE_WEB_1MB_LAYER_BUDGET_MS ?? 25),
       typewriter100KB: Number(process.env.MDE_WEB_100KB_TYPEWRITER_BUDGET_MS ?? 50),
+      giantParagraph: Number(process.env.MDE_WEB_GIANT_PARAGRAPH_BUDGET_MS ?? 150),
       scroll1MB: Number(process.env.MDE_WEB_1MB_SCROLL_BUDGET_MS ?? 50),
       maxDomNodes1MB: Number(process.env.MDE_WEB_1MB_DOM_NODE_BUDGET ?? 210000),
     }),
@@ -85,6 +86,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: `${here}src/index.ts`,
+        'plugin-testing': `${here}src/plugin-testing.ts`,
         'extensions/typewriter': `${here}extensions/typewriter.ts`,
         'extensions/parts-of-speech': `${here}extensions/parts-of-speech.ts`,
       },

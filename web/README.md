@@ -65,6 +65,35 @@ editor.installPlugin(comments);
 inline names before engine construction. A pre-encoded manifest cannot be combined with
 plugin syntax because its definitions are no longer inspectable.
 
+For document-wide analysis, use the context scheduler instead of owning timers. Calls
+with the same name coalesce, stale work receives an `AbortSignal`, and removal prevents
+late results from repainting. Put CPU-heavy work in a Worker and await its response:
+
+```ts
+context.on('change', () => {
+  context.scheduleAnalysis(
+    'lint',
+    ({ markdown, signal }) => lintWorker.run(markdown, { signal }),
+    (spans) => context.setLayer('lint', spans),
+    { delayMs: 100 },
+  );
+});
+```
+
+Plugin packages can verify the portable lifecycle without depending on a particular
+test framework:
+
+```ts
+import { checkPluginCompatibility } from '@mde/web/plugin-testing';
+
+expect(await checkPluginCompatibility(editor, comments)).toMatchObject({
+  installed: true,
+  removed: true,
+  sourcePreserved: true,
+  cleanupRemovedLayers: true,
+});
+```
+
 Build with `pnpm run build`. Vite emits the ESM library and Wasm asset; TypeScript emits
 declarations from the same source.
 

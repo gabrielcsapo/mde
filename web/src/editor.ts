@@ -14,7 +14,12 @@ import { ResourceCache } from './resources.js';
 import type { ResourceResolver } from './resources.js';
 import type { WidgetProvider } from './widgets.js';
 import { pluginLayerName } from './plugins.js';
-import type { EditorPlugin, EditorPluginContext, InstalledPlugin } from './plugins.js';
+import type {
+  EditorPlugin,
+  EditorPluginContext,
+  InstalledPlugin,
+  PluginAnalysisRun,
+} from './plugins.js';
 
 /**
  * Walk the document text, skipping presentation-only subtrees.
@@ -271,7 +276,21 @@ export class MarkdownEditor extends EventTarget {
     if (this.plugins.has(name)) throw new Error(`Plugin "${name}" is already installed`);
 
     const controller = new AbortController();
-    const installed: InstalledPlugin = { plugin, controller, layers: new Set() };
+    const installed: InstalledPlugin = {
+      plugin,
+      controller,
+      layers: new Set(),
+      analyses: new Map(),
+      analysisSequence: 0,
+    };
+    const cancelAnalysis = (task: string) => {
+      const canonical = task.trim();
+      const run = installed.analyses.get(canonical);
+      if (!run) return;
+      installed.analyses.delete(canonical);
+      if (run.timer !== null) window.clearTimeout(run.timer);
+      run.controller.abort();
+    };
     const context: EditorPluginContext = {
       editor: this,
       signal: controller.signal,
@@ -289,6 +308,49 @@ export class MarkdownEditor extends EventTarget {
         installed.layers.delete(layer);
         this.clearLayer(layer);
       },
+      scheduleAnalysis: (task, analyze, apply, options = {}) => {
+        if (controller.signal.aborted) return;
+        const canonical = task.trim();
+        if (!canonical) throw new Error(`Plugin "${name}" used an empty analysis name`);
+        cancelAnalysis(canonical);
+
+        const runController = new AbortController();
+        const sequence = ++installed.analysisSequence;
+        const run: PluginAnalysisRun = { controller: runController, timer: null, sequence };
+        installed.analyses.set(canonical, run);
+        const markdown = this.markdown;
+        run.timer = window.setTimeout(async () => {
+          run.timer = null;
+          try {
+            const result = await analyze({
+              markdown,
+              signal: runController.signal,
+              sequence,
+            });
+            if (
+              runController.signal.aborted
+              || installed.analyses.get(canonical) !== run
+            ) return;
+            installed.analyses.delete(canonical);
+            apply(result);
+          } catch (error) {
+            if (!runController.signal.aborted) {
+              const event = new CustomEvent('pluginerror', {
+                cancelable: true,
+                detail: { plugin: name, task: canonical, error },
+              });
+              if (this.dispatchEvent(event)) {
+                console.error(`Plugin "${name}" analysis "${canonical}" failed`, error);
+              }
+            }
+          } finally {
+            if (installed.analyses.get(canonical) === run) {
+              installed.analyses.delete(canonical);
+            }
+          }
+        }, Math.max(0, options.delayMs ?? 0));
+      },
+      cancelAnalysis,
       on: (type, listener) => this.addEventListener(
         type,
         listener as EventListener,
@@ -307,6 +369,7 @@ export class MarkdownEditor extends EventTarget {
     } catch (error) {
       this.plugins.delete(name);
       controller.abort();
+      for (const task of [...installed.analyses.keys()]) cancelAnalysis(task);
       for (const layer of installed.layers) this.clearLayer(layer);
       throw error;
     }
@@ -314,10 +377,17 @@ export class MarkdownEditor extends EventTarget {
 
   /** Remove a plugin and every listener/layer it registered through its context. */
   removePlugin(name: string): boolean {
-    const installed = this.plugins.get(name);
+    const canonical = name.trim();
+    const installed = this.plugins.get(canonical);
     if (!installed) return false;
-    this.plugins.delete(name);
+    this.plugins.delete(canonical);
     installed.controller.abort();
+    for (const task of [...installed.analyses.keys()]) {
+      const run = installed.analyses.get(task);
+      installed.analyses.delete(task);
+      if (run?.timer !== null) window.clearTimeout(run.timer);
+      run?.controller.abort();
+    }
 
     let cleanupError: unknown;
     try {

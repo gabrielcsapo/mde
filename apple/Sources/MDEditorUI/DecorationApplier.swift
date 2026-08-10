@@ -25,6 +25,12 @@ extension Array {
 /// host in it. Both `MarkdownTextView`s drive this identically; keeping it here is what
 /// stops the two platforms drifting apart on the semantics in DESIGN §4.
 final class DecorationApplier {
+    /// Above this size, resetting an entire paragraph for a tiny local edit becomes a
+    /// TextKit denial of service. Dirty ranges already contain every removed and added
+    /// decoration; repainting their local union is sufficient and preserves untouched
+    /// attributes that NSTextStorage shifted with the edit.
+    private static let localizedParagraphThreshold = 16 * 1024
+
     let engine: MarkdownEngine
     var theme: Theme
     /// Strong on purpose. A provider is a service the editor owns, not a delegate:
@@ -272,15 +278,31 @@ final class DecorationApplier {
         return Self.merged(ranges)
     }
 
-    /// Reset the affected paragraphs to base attributes, then lay every live decoration
-    /// back over them. Repainting whole paragraphs is what keeps removal correct — an
-    /// attribute has no "undo" short of overwriting it.
+    /// Reset the affected scope to base attributes, then lay every live decoration back
+    /// over it. Ordinary paragraphs repaint as a unit. Pathologically long paragraphs
+    /// use the already-complete dirty range, avoiding seconds of redundant TextKit work.
     func repaint(_ range: NSRange, in storage: NSTextStorage) {
         guard !isRepainting, storage.length > 0 else { return }
         let ns = storage.string as NSString
         let clamped = NSIntersectionRange(range, NSRange(location: 0, length: ns.length))
         guard clamped.length > 0 || range.location < ns.length else { return }
-        let scope = ns.paragraphRange(for: clamped)
+        let paragraph = ns.paragraphRange(for: clamped)
+        let scope: NSRange
+        if paragraph.length >= Self.localizedParagraphThreshold,
+           clamped.length < Self.localizedParagraphThreshold / 4 {
+            // Include one neighbouring code unit so inserted text cannot retain an
+            // attribute inherited from the character immediately across the boundary.
+            let start = clamped.location > paragraph.location
+                ? clamped.location - 1
+                : paragraph.location
+            let end = min(
+                paragraph.upperBound,
+                max(clamped.upperBound, clamped.location + 1) + 1
+            )
+            scope = NSRange(location: start, length: max(0, end - start))
+        } else {
+            scope = paragraph
+        }
 
         isRepainting = true
         storage.beginEditing()

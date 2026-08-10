@@ -133,7 +133,9 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   const giantSource = 'word **strong** @same résumé 日本語 🎉 '.repeat(850);
   const giantEditor = makeEditor();
   giantEditor.setMarkdown(giantSource);
-  const giantParagraphEdit = timedEdits(giantEditor, Math.floor(giantSource.length / 2), 1)[0];
+  const giantParagraphEdit = median(
+    timedEdits(giantEditor, Math.floor(giantSource.length / 2), 5),
+  );
   const scroll1MB = await new Promise((resolve) => {
     const started = performance.now();
     editor1MB.root.scrollTop = editor1MB.root.scrollHeight;
@@ -168,6 +170,9 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   );
   expect(typewriter100KB, '100 KB typewriter enable').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.typewriter100KB,
+  );
+  expect(giantParagraphEdit, '32 KB giant Unicode paragraph edit').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.giantParagraph,
   );
   expect(scroll1MB, '1 MB two-frame scroll').toBeLessThanOrEqual(__MDE_PERF_BUDGETS__.scroll1MB);
   expect(domNodes1MB, '1 MB DOM element count').toBeLessThanOrEqual(

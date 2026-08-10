@@ -16,6 +16,10 @@
       "types": "./dist/types/src/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./plugin-testing": {
+      "types": "./dist/types/src/plugin-testing.d.ts",
+      "import": "./dist/plugin-testing.js"
+    },
     "./theme.css": "./src/theme.css",
     "./extensions.css": "./extensions/extensions.css",
     "./mde.wasm": "./dist/mde.wasm",

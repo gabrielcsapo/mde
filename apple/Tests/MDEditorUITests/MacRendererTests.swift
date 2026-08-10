@@ -135,6 +135,59 @@ final class MacRendererTests: XCTestCase {
         )
     }
 
+    func testALocalEditInALongParagraphPreservesDistantStyling() throws {
+        let repeated = String(repeating: "lead **bold** ", count: 700)
+        let source = repeated + "target **edited** " + repeated
+        XCTAssertGreaterThan(source.utf16.count, 16 * 1024)
+
+        let engine = try XCTUnwrap(MarkdownEngine(manifest: HostExtensions.manifest))
+        let applier = DecorationApplier(engine: engine, theme: Theme())
+        let backing = NSTextStorage(attributedString: NSAttributedString(
+            string: source,
+            attributes: applier.theme.baseAttributes
+        ))
+        applier.ingest(engine.reset(source))
+        applier.repaint(NSRange(location: 0, length: backing.length), in: backing)
+
+        let edited = (source as NSString).range(of: "edited")
+        let insertion = NSRange(location: edited.location + 2, length: 0)
+        backing.replaceCharacters(in: insertion, with: "x")
+        let patch = try engine.apply(
+            [TextEdit(range: insertion, text: "x")],
+            documentLength: backing.length
+        )
+        let dirty = applier.dirtyRanges(for: patch, alsoDirty: insertion)
+        applier.ingest(patch)
+        for range in dirty { applier.repaint(range, in: backing) }
+
+        XCTAssertEqual(backing.string, repeated + "target **edxited** " + repeated)
+        let localMarker = (backing.string as NSString).range(of: "**edxited**")
+        let distantMarker = (backing.string as NSString).range(
+            of: "**bold**",
+            options: .backwards
+        )
+        XCTAssertLessThan(
+            (backing.attribute(.font, at: localMarker.location, effectiveRange: nil)
+                as? NSFont)?.pointSize ?? 0,
+            1
+        )
+        XCTAssertTrue(
+            ((backing.attribute(.font, at: localMarker.location + 3, effectiveRange: nil)
+                as? NSFont)?.fontDescriptor.symbolicTraits.contains(.bold)) ?? false
+        )
+        XCTAssertLessThan(
+            (backing.attribute(.font, at: distantMarker.location, effectiveRange: nil)
+                as? NSFont)?.pointSize ?? 0,
+            1,
+            "localized repainting stripped a distant marker"
+        )
+        XCTAssertTrue(
+            ((backing.attribute(.font, at: distantMarker.location + 3, effectiveRange: nil)
+                as? NSFont)?.fontDescriptor.symbolicTraits.contains(.bold)) ?? false,
+            "localized repainting stripped distant strong text"
+        )
+    }
+
     func testRequestingALinkUsesTheCoreDestinationWithoutChangingSource() {
         let source = "Read [the docs](https://example.dev/docs)."
         let recorder = LinkRecorder()
@@ -1048,6 +1101,35 @@ extension MacRendererTests {
         let replacement = CountingPlugin(name: plugin.name)
         XCTAssertNoThrow(try editor.installPlugin(replacement))
     }
+
+    func testPluginAnalysisIsLatestWinsAndCancelledOnRemoval() throws {
+        let applied = expectation(description: "latest analysis applied")
+        let plugin = AnalysisPlugin { markdown in
+            if markdown == "latest snapshot" { applied.fulfill() }
+        }
+        try editor.installPlugin(plugin)
+        editor.setMarkdown("first snapshot")
+        editor.setMarkdown("latest snapshot")
+        wait(for: [applied], timeout: 2)
+        XCTAssertEqual(plugin.results, ["latest snapshot"])
+
+        editor.setMarkdown("must never apply")
+        XCTAssertTrue(editor.removePlugin(named: plugin.name))
+        let settled = expectation(description: "cancelled analysis stayed cancelled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled.fulfill() }
+        wait(for: [settled], timeout: 1)
+        XCTAssertEqual(plugin.results, ["latest snapshot"])
+    }
+
+    func testPublishedPluginCompatibilityCheckVerifiesLayerCleanup() throws {
+        let report = try MarkdownPluginCompatibility.check(CountingPlugin(), in: editor)
+        XCTAssertEqual(report.name, "test.counting")
+        XCTAssertTrue(report.installed)
+        XCTAssertTrue(report.removed)
+        XCTAssertTrue(report.sourcePreserved)
+        XCTAssertEqual(report.contributedLayerDecorations, 1)
+        XCTAssertTrue(report.cleanupRemovedLayers)
+    }
 }
 
 private final class CountingPlugin: MarkdownPlugin {
@@ -1106,6 +1188,33 @@ private final class FailingPlugin: MarkdownPlugin {
             LayerSpan(range: NSRange(location: 0, length: 5), role: role),
         ])
         throw TestPluginFailure.expected
+    }
+}
+
+private final class AnalysisPlugin: MarkdownPlugin {
+    let name = "test.analysis"
+    private var context: MarkdownPluginContext?
+    private let onApply: (String) -> Void
+    private(set) var results: [String] = []
+
+    init(onApply: @escaping (String) -> Void) {
+        self.onApply = onApply
+    }
+
+    func install(in context: MarkdownPluginContext) throws {
+        self.context = context
+    }
+
+    func markdownDidChange() {
+        context?.scheduleAnalysis(
+            "document",
+            delay: 0.02,
+            analyze: { markdown, _ in markdown },
+            apply: { [weak self] markdown, _ in
+                self?.results.append(markdown)
+                self?.onApply(markdown)
+            }
+        )
     }
 }
 

@@ -26,6 +26,7 @@ import {
 // editor, and testing them here is the check that they never needed to be.
 import { TypewriterMode } from '../dist/extensions/typewriter.js';
 import { PartsOfSpeech, tagWord } from '../dist/extensions/parts-of-speech.js';
+import { checkPluginCompatibility } from '../dist/plugin-testing.js';
 
 function assert(condition, message) {
   expect(condition, message).toBeTruthy();
@@ -1358,6 +1359,58 @@ function makeEditor(options = {}) {
     e.destroy();
     e.destroy();
     assertEqual(cleaned, 1);
+  });
+
+  test('plugin analysis is latest-wins and cannot apply after removal', async () => {
+    const e = makeEditor();
+    const applied = [];
+    const plugin = definePlugin({
+      name: 'test.analysis',
+      setup(context) {
+        context.on('change', () => {
+          context.scheduleAnalysis(
+            'words',
+            async ({ markdown, signal }) => {
+              await new Promise((resolve) => setTimeout(resolve, 5));
+              return signal.aborted ? 'aborted' : markdown;
+            },
+            (markdown) => applied.push(markdown),
+            { delayMs: 10 },
+          );
+        });
+      },
+    });
+
+    e.installPlugin(plugin);
+    e.setMarkdown('first snapshot');
+    e.setMarkdown('latest snapshot');
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assertEqual(applied, ['latest snapshot']);
+
+    e.setMarkdown('must never apply');
+    e.removePlugin(plugin.name);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assertEqual(applied, ['latest snapshot']);
+  });
+
+  test('the published compatibility helper verifies source and layer cleanup', async () => {
+    const e = makeEditor();
+    const plugin = definePlugin({
+      name: 'test.compatibility-helper',
+      setup(context) {
+        const role = context.internRole('compatibility-mark');
+        context.setLayer('probe', [{ start: 0, end: 4, role }]);
+      },
+    });
+    const report = await checkPluginCompatibility(e, plugin);
+    assertEqual(report, {
+      name: plugin.name,
+      installed: true,
+      removed: true,
+      sourcePreserved: true,
+      contributedLayerDecorations: 1,
+      cleanupRemovedLayers: true,
+    });
   });
 
   test('typewriter mode focuses the caret\'s paragraph and dims the rest', () => {

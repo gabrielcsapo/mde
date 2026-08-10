@@ -128,7 +128,7 @@ fn position_workload(label: &str, document: &str, fraction: f64, iterations: usi
     report(label, &samples);
 }
 
-fn one_shot(label: &str, document: &str, iterations: usize) {
+fn one_shot(label: &str, document: &str, iterations: usize) -> f64 {
     let length = document.encode_utf16().count() as u32;
     let at = length / 2;
     let samples: Vec<_> = (0..iterations)
@@ -140,10 +140,33 @@ fn one_shot(label: &str, document: &str, iterations: usize) {
         })
         .collect();
     report(label, &samples);
+    percentile(&samples, 0.50)
+}
+
+fn enforce_budget(label: &str, measured: f64, variable: &str) {
+    let budget: f64 = std::env::var(variable)
+        .unwrap_or_else(|_| panic!("{variable} is required with --check"))
+        .parse()
+        .unwrap_or_else(|_| panic!("{variable} must be a number"));
+    println!("   {label} budget: {measured:.3} <= {budget:.3} ms");
+    assert!(measured <= budget, "{label} exceeded {budget:.3} ms: {measured:.3} ms");
 }
 
 fn main() {
     println!("mde-core adversarial workloads (release profile expected)\n");
+    let arguments: Vec<_> = std::env::args().collect();
+    let check = arguments.iter().any(|argument| argument == "--check");
+    if arguments.iter().any(|argument| argument == "--giant-only") {
+        let giant = one_shot("32KB giant paragraph", &giant_paragraph(32 * 1024), 10);
+        if check {
+            enforce_budget(
+                "32KB giant paragraph",
+                giant,
+                "MDE_CORE_GIANT_PARAGRAPH_BUDGET_MS",
+            );
+        }
+        return;
+    }
     let one_mb = mixed_document(1024 * 1024);
     position_workload("1MB edit near start", &one_mb, 0.01, 20);
     position_workload("1MB edit in middle", &one_mb, 0.50, 20);
@@ -156,7 +179,14 @@ fn main() {
     );
     // These intentionally disable or greatly widen regional parsing. Keep them large
     // enough to expose scaling without making a routine performance run take minutes.
-    one_shot("32KB giant paragraph", &giant_paragraph(32 * 1024), 1);
+    let giant = one_shot("32KB giant paragraph", &giant_paragraph(32 * 1024), 3);
+    if check {
+        enforce_budget(
+            "32KB giant paragraph",
+            giant,
+            "MDE_CORE_GIANT_PARAGRAPH_BUDGET_MS",
+        );
+    }
     one_shot(
         "256KB unterminated fence",
         &unterminated_fence(256 * 1024),

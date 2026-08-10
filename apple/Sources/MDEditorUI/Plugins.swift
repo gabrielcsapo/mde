@@ -43,14 +43,82 @@ public enum MarkdownPluginManifests {
     }
 }
 
+/// Cooperative cancellation passed to background plugin analysis.
+public final class MarkdownPluginAnalysisCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    public var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    fileprivate func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+}
+
+private final class MarkdownPluginAnalysisRun {
+    let id = UUID()
+    let cancellation = MarkdownPluginAnalysisCancellation()
+    var workItem: DispatchWorkItem?
+}
+
+public struct MarkdownPluginCompatibilityReport: Equatable {
+    public let name: String
+    public let installed: Bool
+    public let removed: Bool
+    public let sourcePreserved: Bool
+    public let contributedLayerDecorations: Int
+    public let cleanupRemovedLayers: Bool
+}
+
+/// Framework-neutral lifecycle check for plugin package test suites.
+public enum MarkdownPluginCompatibility {
+    public static func check(
+        _ plugin: any MarkdownPlugin,
+        in editor: MarkdownTextView,
+        markdown: String = "# Plugin compatibility\n\nTest **content**.\n"
+    ) throws -> MarkdownPluginCompatibilityReport {
+        editor.setMarkdown(markdown)
+        let before = Set(editor.decorations.filter { $0.layer > 0 }.map(\.key))
+        try editor.installPlugin(plugin)
+        let name = plugin.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let installed = editor.installedPluginNames.contains(name)
+        let during = Set(editor.decorations.filter { $0.layer > 0 }.map(\.key))
+        let contributed = during.subtracting(before)
+        let sourcePreserved = editor.markdown == markdown
+        let removed = editor.removePlugin(named: name)
+        let after = Set(editor.decorations.filter { $0.layer > 0 }.map(\.key))
+        return MarkdownPluginCompatibilityReport(
+            name: name,
+            installed: installed,
+            removed: removed,
+            sourcePreserved: sourcePreserved,
+            contributedLayerDecorations: contributed.count,
+            cleanupRemovedLayers: contributed.isDisjoint(with: after)
+        )
+    }
+}
+
 /// The scoped editor surface passed to a plugin.
 ///
 /// Layer names are namespaced by plugin and every layer registered here is removed
 /// even when installation fails or the plugin forgets to clean it up itself.
 public final class MarkdownPluginContext {
+    private static let analysisQueue = DispatchQueue(
+        label: "dev.mde.plugin-analysis",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
     public private(set) weak var editor: MarkdownTextView?
     public let name: String
     private var layers: Set<String> = []
+    private var analyses: [String: MarkdownPluginAnalysisRun] = [:]
     private var active = true
 
     fileprivate init(editor: MarkdownTextView, name: String) {
@@ -74,6 +142,53 @@ public final class MarkdownPluginContext {
         editor.clearLayer(qualified)
     }
 
+    /// Schedule latest-wins work against an immutable markdown snapshot.
+    ///
+    /// Scheduling the same name again cooperatively cancels the old operation. Its
+    /// result is never applied, even if the operation does not observe cancellation
+    /// before returning. The apply closure always runs on the main queue.
+    @discardableResult
+    public func scheduleAnalysis<Result>(
+        _ name: String,
+        delay: TimeInterval = 0,
+        analyze: @escaping (String, MarkdownPluginAnalysisCancellation) -> Result,
+        apply: @escaping (Result, MarkdownPluginContext) -> Void
+    ) -> Bool {
+        let canonical = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard active, !canonical.isEmpty, let markdown = editor?.markdown else { return false }
+        cancelAnalysis(canonical)
+
+        let run = MarkdownPluginAnalysisRun()
+        let item = DispatchWorkItem { [weak self, weak run] in
+            guard let self, let run, !run.cancellation.isCancelled else { return }
+            let result = analyze(markdown, run.cancellation)
+            guard !run.cancellation.isCancelled else { return }
+            DispatchQueue.main.async { [weak self, weak run] in
+                guard let self, let run,
+                      self.active,
+                      self.analyses[canonical]?.id == run.id,
+                      !run.cancellation.isCancelled
+                else { return }
+                self.analyses.removeValue(forKey: canonical)
+                apply(result, self)
+            }
+        }
+        run.workItem = item
+        analyses[canonical] = run
+        Self.analysisQueue.asyncAfter(
+            deadline: .now() + max(0, delay),
+            execute: item
+        )
+        return true
+    }
+
+    public func cancelAnalysis(_ name: String) {
+        let canonical = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let run = analyses.removeValue(forKey: canonical) else { return }
+        run.cancellation.cancel()
+        run.workItem?.cancel()
+    }
+
     private func layerName(_ local: String) -> String? {
         guard !local.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return "plugin:\(name):\(local)"
@@ -81,6 +196,7 @@ public final class MarkdownPluginContext {
 
     fileprivate func removeAllLayers() {
         defer { active = false }
+        for name in Array(analyses.keys) { cancelAnalysis(name) }
         guard let editor else {
             layers.removeAll()
             return
@@ -140,7 +256,10 @@ public extension MarkdownTextView {
 
     @discardableResult
     func removePlugin(named name: String) -> Bool {
-        guard let index = pluginInstallations.firstIndex(where: { $0.context.name == name }) else {
+        let canonical = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let index = pluginInstallations.firstIndex(where: {
+            $0.context.name == canonical
+        }) else {
             return false
         }
         let installation = pluginInstallations.remove(at: index)

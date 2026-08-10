@@ -726,7 +726,27 @@ impl Engine {
         });
 
         let mut next = Vec::with_capacity(self.built.len());
-        next.extend(self.built.iter().map(|built| self.emitted_for(built, sel)));
+        let endpoint_count = self.built.len() * 2;
+        if self.text.benefits_from_batched_utf16(endpoint_count) {
+            let mut endpoints = Vec::with_capacity(endpoint_count);
+            for built in &self.built {
+                endpoints.push(built.start);
+                endpoints.push(built.end);
+            }
+            let converted = self.text.utf8_offsets_to_utf16(&endpoints);
+            next.extend(self.built.iter().enumerate().map(|(index, built)| Decoration {
+                start: converted[index * 2],
+                end: converted[index * 2 + 1],
+                key: built.key,
+                role: built.role,
+                kind: self.effective_kind(built, sel),
+                reveal: built.reveal,
+                depth: built.depth,
+                layer: 0,
+            }));
+        } else {
+            next.extend(self.built.iter().map(|built| self.emitted_for(built, sel)));
+        }
         self.append_emitted_layers(&mut next);
 
         let patch = diff::diff(&self.emitted, &next);
