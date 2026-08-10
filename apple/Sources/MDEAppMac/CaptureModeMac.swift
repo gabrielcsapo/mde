@@ -65,7 +65,10 @@ enum CaptureMode {
         after(1.2) {
             if shot.hasPrefix("matrix-") {
                 showMatrixFixture(String(shot.dropFirst("matrix-".count)), editor: editor)
-                after(0.5) { writeWindow(editor) }
+                after(0.5) {
+                    dump(editor)
+                    writeWindow(editor)
+                }
                 return
             }
             if shot == "cross-platform" {

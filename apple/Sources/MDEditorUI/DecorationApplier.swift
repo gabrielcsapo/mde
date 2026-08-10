@@ -364,15 +364,45 @@ final class DecorationApplier {
                 headingLevel: level
             )
             if !attrs.isEmpty { storage.addAttributes(attrs, range: range) }
+            #if os(macOS)
+            // TextKit 1 paints a background attached to a newline across the remaining
+            // line fragment. Keep code-block backgrounds behind glyphs, matching UIKit
+            // and TextKit 2, instead of producing a full-width grey stripe.
+            if d.role == Role.codeBlock, attrs[.backgroundColor] != nil {
+                for location in range.location ..< range.upperBound {
+                    let character = ns.character(at: location)
+                    if character == 0x0A || character == 0x0D {
+                        storage.removeAttribute(
+                            .backgroundColor,
+                            range: NSRange(location: location, length: 1)
+                        )
+                    }
+                }
+            }
+            #endif
 
         case .conceal:
             storage.addAttributes(Self.concealAttributes, range: range)
 
         case .inlineWidget, .blockWidget:
-            // The attachment itself is installed by the content-storage delegate; here
-            // we only hide the source it stands in for. Everything after the first
-            // character is concealed, including newlines inside a block widget — a
-            // hairline newline contributes ~0 height, so only the attachment shows.
+            guard isTopLevelWidget(d) else { return }
+            #if os(macOS)
+            if NSLocationInRange(d.range.location, range),
+               let attachment = makeWidgetAttachment(
+                   for: d,
+                   backing: storage,
+                   containerWidth: 320
+               ) {
+                storage.addAttribute(
+                    Self.widgetAttachmentAttribute,
+                    value: attachment,
+                    range: NSRange(location: d.range.location, length: 1)
+                )
+            }
+            #endif
+            // Everything after the first character is concealed, including newlines
+            // inside a block widget — a hairline newline contributes ~0 height, so only
+            // the attachment/control glyph shows.
             let tail = NSRange(
                 location: d.range.location + 1,
                 length: max(0, d.range.length - 1)
@@ -400,10 +430,74 @@ final class DecorationApplier {
 
     // MARK: - Widget substitution
 
+    #if os(macOS)
+    static let widgetAttachmentAttribute = NSAttributedString.Key("MDEWidgetAttachment")
+    #endif
+
+    private func isTopLevelWidget(_ candidate: Decoration) -> Bool {
+        !decorations(intersecting: candidate.range).contains(where: { outer in
+            outer.key != candidate.key
+                && outer.kind == .blockWidget
+                && outer.range.location <= candidate.range.location
+                && outer.range.upperBound >= candidate.range.upperBound
+        })
+    }
+
+    private func topLevelWidgets(intersecting range: NSRange) -> [Decoration] {
+        let overlapping = decorations(intersecting: range)
+        return overlapping.filter { candidate in
+            (candidate.kind == .inlineWidget || candidate.kind == .blockWidget)
+                && candidate.range.length > 0
+                && NSLocationInRange(candidate.range.location, range)
+                && isTopLevelWidget(candidate)
+        }
+    }
+
+    func makeWidgetAttachment(
+        for widget: Decoration,
+        backing: NSTextStorage,
+        containerWidth: CGFloat
+    ) -> WidgetAttachment? {
+        guard let roleName = engine.roleName(widget.role),
+              widget.range.length > 0,
+              widget.range.upperBound <= backing.length
+        else { return nil }
+        let source = (backing.string as NSString).substring(with: widget.range)
+        let baselineFont = backing.attribute(
+            .font,
+            at: widget.range.location,
+            effectiveRange: nil
+        ) as? PlatformFont ?? theme.bodyFont
+        let tableModel = roleName == "table"
+            ? MarkdownTableModel(
+                source: source,
+                tableRange: widget.range,
+                decorations: Array(decorations(intersecting: widget.range)),
+                alignmentPayload: engine.payload(for: widget.key),
+                payload: { [engine] key in engine.payload(for: key) }
+            )
+            : nil
+        let attachment = WidgetAttachment(
+            roleName: roleName,
+            source: source,
+            payload: engine.payload(for: widget.key),
+            provider: widgetProvider,
+            resources: resources,
+            cache: self,
+            key: widget.key,
+            baselineFont: baselineFont,
+            isInline: widget.kind == .inlineWidget,
+            tableModel: tableModel,
+            openLink: openLink
+        )
+        attachment.fittingWidth = max(containerWidth, 1)
+        return attachment
+    }
+
     /// TextKit 2 lets the *display* string for a paragraph differ from the backing
-    /// store. That is the only way to get an attachment glyph without writing a
-    /// `U+FFFC` into the document — and the document must stay exactly the markdown
-    /// source.
+    /// store. UIKit uses that to get an attachment glyph without writing a `U+FFFC`
+    /// into the document. AppKit installs the same `WidgetAttachment` as a custom
+    /// control-glyph attribute and overlays its native view instead.
     ///
     /// The substitution is strictly length-preserving: one source character becomes one
     /// attachment character. A length change here would desynchronise every selection
@@ -413,57 +507,21 @@ final class DecorationApplier {
         backing: NSTextStorage,
         containerWidth: CGFloat
     ) -> NSTextParagraph? {
-        let overlapping = decorations(intersecting: range)
-        let widgets = overlapping.filter { candidate in
-            (candidate.kind == .inlineWidget || candidate.kind == .blockWidget)
-                && candidate.range.length > 0
-                && NSLocationInRange(candidate.range.location, range)
-                && !overlapping.contains(where: { outer in
-                    outer.key != candidate.key
-                        && outer.kind == .blockWidget
-                        && outer.range.location <= candidate.range.location
-                        && outer.range.upperBound >= candidate.range.upperBound
-                })
-        }
+        let widgets = topLevelWidgets(intersecting: range)
         guard !widgets.isEmpty else { return nil }
 
-        let ns = backing.string as NSString
         let display = NSMutableAttributedString(
             attributedString: backing.attributedSubstring(from: range)
         )
         for w in widgets.sorted(by: { $0.range.location > $1.range.location }) {
-            guard let roleName = engine.roleName(w.role) else { continue }
-            let source = ns.substring(with: w.range)
             let local = NSRange(location: w.range.location - range.location, length: 1)
-            guard local.upperBound <= display.length else { continue }
-            let baselineFont = display.attribute(
-                .font,
-                at: local.location,
-                effectiveRange: nil
-            ) as? PlatformFont ?? theme.bodyFont
-            let tableModel = roleName == "table"
-                ? MarkdownTableModel(
-                    source: source,
-                    tableRange: w.range,
-                    decorations: Array(decorations(intersecting: w.range)),
-                    alignmentPayload: engine.payload(for: w.key),
-                    payload: { [engine] key in engine.payload(for: key) }
-                )
-                : nil
-            let attachment = WidgetAttachment(
-                roleName: roleName,
-                source: source,
-                payload: engine.payload(for: w.key),
-                provider: widgetProvider,
-                resources: resources,
-                cache: self,
-                key: w.key,
-                baselineFont: baselineFont,
-                isInline: w.kind == .inlineWidget,
-                tableModel: tableModel,
-                openLink: openLink
-            )
-            attachment.fittingWidth = max(containerWidth, 1)
+            guard local.upperBound <= display.length,
+                  let attachment = makeWidgetAttachment(
+                      for: w,
+                      backing: backing,
+                      containerWidth: containerWidth
+                  )
+            else { continue }
             display.replaceCharacters(in: local, with: NSAttributedString(attachment: attachment))
         }
         assert(display.length == range.length, "widget substitution changed the length")

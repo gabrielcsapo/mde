@@ -175,12 +175,16 @@ final class MacRendererBenchmarks: XCTestCase {
                 editor = fresh
             }
 
-            // TextKit 2's viewport controller is the shipping path: opening a document
-            // must lay out what is visible without eagerly visiting every paragraph.
+            // TextKit 1's non-contiguous layout manager is the shipping path: opening a
+            // document must lay out what is visible without visiting every paragraph.
             let viewport = timed {
                 editor.layoutSubtreeIfNeeded()
-                editor.contentStorage.textLayoutManagers.first?
-                    .textViewportLayoutController.layoutViewport()
+                if let layoutManager = editor.layoutManager,
+                   let textContainer = editor.textContainer {
+                    let origin = editor.textContainerOrigin
+                    let rect = editor.visibleRect.offsetBy(dx: -origin.x, dy: -origin.y)
+                    layoutManager.ensureLayout(forBoundingRect: rect, in: textContainer)
+                }
                 // Large documents paint attributes on the next main-queue turn after
                 // viewport layout. Include that work rather than timing an unpainted
                 // viewport and calling it a renderer improvement.
@@ -192,8 +196,9 @@ final class MacRendererBenchmarks: XCTestCase {
             // but the full-document number is what a "jump to the end" costs, and it is
             // the term that decides whether a document is usable at all.
             let layout = timed {
-                let cs = editor.contentStorage
-                cs.textLayoutManagers.first?.ensureLayout(for: cs.documentRange)
+                editor.layoutManager?.ensureLayout(
+                    forCharacterRange: NSRange(location: 0, length: editor.string.utf16.count)
+                )
             }
 
             print(String(
@@ -366,22 +371,65 @@ final class MacRendererBenchmarks: XCTestCase {
         editor.setSelectedRange(NSRange(location: at, length: 0))
         editor.scrollRangeToVisible(NSRange(location: at, length: 0))
         drainMainQueue()
-        var input = 0.0
-        var display = 0.0
-        let update = timed {
-            input = timed {
-                editor.insertText("x", replacementRange: NSRange(location: at, length: 0))
+        var samples: [(total: Double, input: Double, display: Double)] = []
+        for offset in 0 ..< 5 {
+            var input = 0.0
+            var display = 0.0
+            let total = timed {
+                input = timed {
+                    editor.insertText(
+                        "x",
+                        replacementRange: NSRange(location: at + offset, length: 0)
+                    )
+                }
+                display = timed { drainMainQueue() }
             }
-            display = timed { drainMainQueue() }
+            samples.append((total, input, display))
         }
-        print(String(format: "32KB giant Unicode paragraph %8.3f ms", update))
-        print(String(format: "  input %8.3f ms  display %8.3f ms", input, display))
+        let totals = samples.map(\.total)
+        let p95 = percentile(totals, 0.95)
+        let slowest = samples.max(by: { $0.total < $1.total })!
+        print(String(
+            format: "32KB giant Unicode paragraph p50 %8.3f p95 %8.3f ms",
+            percentile(totals, 0.50),
+            p95
+        ))
+        print(String(
+            format: "  slowest input %8.3f ms  display %8.3f ms",
+            slowest.input,
+            slowest.display
+        ))
+        XCTAssertLessThanOrEqual(
+            p95,
+            250,
+            "32 KB AppKit pathological edit must stay perceptibly interactive"
+        )
         enforceBudget(
-            update,
+            p95,
             environment: "MDE_APPLE_GIANT_PARAGRAPH_BUDGET_MS",
-            metric: "32 KB native giant Unicode paragraph edit"
+            metric: "32 KB native giant Unicode paragraph edit p95"
         )
         _ = window
+    }
+
+    func testBenchmarkCoreOnlyGiantUnicodeParagraph() throws {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
+            throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
+        }
+        let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 850)
+        let engine = try XCTUnwrap(MarkdownEngine(manifest: HostExtensions.manifest))
+        _ = engine.reset(source)
+        let at = source.utf16.count / 2
+        let expectedLength = source.utf16.count + 1
+        _ = engine.setSelection(NSRange(location: at, length: 0))
+        let update = timed {
+            _ = try! engine.apply(
+                [TextEdit(range: NSRange(location: at, length: 0), text: "x")],
+                documentLength: expectedLength
+            )
+        }
+        print(String(format: "32KB giant Unicode paragraph core only %8.3f ms", update))
+        XCTAssertLessThanOrEqual(update, 50, "the shared core should leave AppKit headroom")
     }
 
     // MARK: - Repaint scope
@@ -476,8 +524,8 @@ final class MacRendererBenchmarks: XCTestCase {
         let (window, editor) = makeEditor()
         let projection = timed {
             editor.setMarkdown(source)
-            editor.contentStorage.textLayoutManagers.first?.ensureLayout(
-                for: editor.contentStorage.documentRange
+            editor.layoutManager?.ensureLayout(
+                forCharacterRange: NSRange(location: 0, length: editor.string.utf16.count)
             )
         }
         print(String(format: "100x10 table projection %8.2f ms", projection))

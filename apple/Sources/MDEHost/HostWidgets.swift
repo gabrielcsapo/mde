@@ -58,6 +58,7 @@ public final class CardView: PlatformView {
     private static let inset = CGSize(width: 14, height: 12)
 
     private let label: PlatformLabel
+    private let accent: PlatformColor
 
     public init(text: String, tone: Tone) {
         // Use the inert label cell and opt it into wrapping. AppKit's dedicated
@@ -68,8 +69,8 @@ public final class CardView: PlatformView {
         #else
         label = PlatformLabel()
         #endif
+        accent = tone == .warning ? .systemOrange : .systemBlue
         super.init(frame: .zero)
-        let accent: PlatformColor = tone == .warning ? .systemOrange : .systemBlue
 
         #if os(macOS)
         // The factory makes it selectable, which would let it swallow clicks meant for
@@ -92,11 +93,7 @@ public final class CardView: PlatformView {
         // lets the default paper-shaped attachment backing show through as a raised
         // rectangle in cached/offscreen rendering, so compose the same tint into an
         // opaque platform background first.
-        layer?.backgroundColor = accent.blended(
-            withFraction: 0.88,
-            of: .platformBackground
-        )?.cgColor ?? PlatformColor.platformBackground.cgColor
-        layer?.borderColor = accent.withAlphaComponent(0.4).cgColor
+        updateAppearanceColors()
         #else
         label.text = text
         label.numberOfLines = 0
@@ -143,6 +140,21 @@ public final class CardView: PlatformView {
     }
 
     #if os(macOS)
+    private func updateAppearanceColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = accent.blended(
+                withFraction: 0.88,
+                of: .platformBackground
+            )?.cgColor ?? PlatformColor.platformBackground.cgColor
+            layer?.borderColor = accent.withAlphaComponent(0.4).cgColor
+        }
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearanceColors()
+    }
+
     override public func layout() {
         super.layout()
         updateWrapWidth()

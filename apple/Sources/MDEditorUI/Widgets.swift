@@ -286,7 +286,7 @@ final class ResourcePlaceholderView: PlatformView {
         label.textColor = failed ? .systemRed : .platformSecondaryLabel
         wantsLayer = true
         layer?.cornerRadius = 6
-        layer?.backgroundColor = PlatformColor.platformSecondaryBackground.cgColor
+        updateAppearanceColor()
         #else
         label.text = title
         label.font = .platformSystem(ofSize: 12)
@@ -306,4 +306,17 @@ final class ResourcePlaceholderView: PlatformView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
+
+    #if os(macOS)
+    private func updateAppearanceColor() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = PlatformColor.platformSecondaryBackground.cgColor
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearanceColor()
+    }
+    #endif
 }

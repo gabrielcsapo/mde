@@ -59,8 +59,11 @@ final class MacRendererTests: XCTestCase {
     /// Attachments consult the resolver during layout, not during substitution, so a
     /// test that only calls the content-storage delegate never reaches it.
     private func forceLayout() {
-        let cs = editor.contentStorage
-        cs.textLayoutManagers.first?.ensureLayout(for: cs.documentRange)
+        guard let layoutManager = editor.layoutManager,
+              let textContainer = editor.textContainer
+        else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        editor.layoutWidgetOverlays()
     }
 
     /// Drains the main queue. `textStorage(_:didProcessEditing:…)` cannot re-enter the
@@ -87,24 +90,26 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(editor.markdown, source, "the storage must never diverge from the source")
     }
 
-    func testAPathologicalParagraphUsesTheResponsiveUnwrappedLayout() throws {
+    func testAPathologicalParagraphUsesTheResponsiveIncrementalLayout() throws {
         let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 850)
 
         editor.setMarkdown(source)
 
         XCTAssertEqual(editor.markdown, source, "the layout fast path must not rewrite source")
         XCTAssertEqual(storage.string, source, "the backing store must remain the source")
-        XCTAssertFalse(try XCTUnwrap(editor.textContainer).widthTracksTextView)
-        XCTAssertTrue(editor.isHorizontallyResizable)
-        XCTAssertTrue(scroll.hasHorizontalScroller)
+        XCTAssertTrue(editor.isOptimizingLongParagraph)
+        XCTAssertTrue(try XCTUnwrap(editor.textContainer).widthTracksTextView)
+        XCTAssertFalse(editor.isHorizontallyResizable)
+        XCTAssertFalse(scroll.hasHorizontalScroller)
     }
 
-    func testOrdinaryTextRestoresWrappingAfterAPathologicalParagraph() throws {
+    func testOrdinaryTextLeavesThePathologicalParagraphFastPath() throws {
         editor.setMarkdown(String(repeating: "word ", count: 2_000))
-        XCTAssertFalse(try XCTUnwrap(editor.textContainer).widthTracksTextView)
+        XCTAssertTrue(editor.isOptimizingLongParagraph)
 
         editor.setMarkdown("ordinary wrapped text")
 
+        XCTAssertFalse(editor.isOptimizingLongParagraph)
         XCTAssertTrue(try XCTUnwrap(editor.textContainer).widthTracksTextView)
         XCTAssertFalse(editor.isHorizontallyResizable)
         XCTAssertFalse(scroll.hasHorizontalScroller)
@@ -117,6 +122,7 @@ final class MacRendererTests: XCTestCase {
         editor.setMarkdown(source)
 
         XCTAssertEqual(storage.string, source)
+        XCTAssertFalse(editor.isOptimizingLongParagraph)
         XCTAssertTrue(try XCTUnwrap(editor.textContainer).widthTracksTextView)
         XCTAssertFalse(editor.isHorizontallyResizable)
         XCTAssertFalse(scroll.hasHorizontalScroller)
@@ -127,12 +133,14 @@ final class MacRendererTests: XCTestCase {
         editor.setMarkdown("short")
         storage.replaceCharacters(in: NSRange(location: 5, length: 0), with: source)
         drainMainQueue()
-        XCTAssertFalse(try XCTUnwrap(editor.textContainer).widthTracksTextView)
+        XCTAssertTrue(editor.isOptimizingLongParagraph)
+        XCTAssertTrue(try XCTUnwrap(editor.textContainer).widthTracksTextView)
 
         let middle = storage.length / 2
         storage.replaceCharacters(in: NSRange(location: middle, length: 1), with: "\n")
         drainMainQueue()
 
+        XCTAssertFalse(editor.isOptimizingLongParagraph)
         XCTAssertTrue(try XCTUnwrap(editor.textContainer).widthTracksTextView)
         XCTAssertEqual(editor.markdown, storage.string)
     }
@@ -162,8 +170,6 @@ final class MacRendererTests: XCTestCase {
         let tail = (source as NSString).range(of: "# distant", options: .backwards).location
         editor.setMarkdown(source)
         editor.layoutSubtreeIfNeeded()
-        editor.contentStorage.textLayoutManagers.first?
-            .textViewportLayoutController.layoutViewport()
         drainMainQueue()
 
         XCTAssertGreaterThan(fontSize(at: 2), fontSize(at: 18))
@@ -176,8 +182,6 @@ final class MacRendererTests: XCTestCase {
 
         editor.scrollRangeToVisible(NSRange(location: tail, length: 1))
         editor.layoutSubtreeIfNeeded()
-        editor.contentStorage.textLayoutManagers.first?
-            .textViewportLayoutController.layoutViewport()
         drainMainQueue()
         XCTAssertGreaterThan(
             fontSize(at: tail + 2), fontSize(at: 18),
@@ -544,6 +548,16 @@ final class MacRendererTests: XCTestCase {
         XCTAssertTrue(font?.isFixedPitch ?? false, "it should render as code, not a widget")
     }
 
+    func testCodeBlockNewlinesDoNotExtendTheBackgroundAcrossTheLineFragment() {
+        let source = "```rust\nlet value = 1\n```\n"
+        editor.setMarkdown(source)
+
+        let content = (source as NSString).range(of: "let value")
+        let newline = (source as NSString).range(of: "\n").location
+        XCTAssertNotNil(storage.attribute(.backgroundColor, at: content.location, effectiveRange: nil))
+        XCTAssertNil(storage.attribute(.backgroundColor, at: newline, effectiveRange: nil))
+    }
+
     /// TextKit instantiates attachment view providers during display, which an
     /// offscreen view never gets, so the container is exercised directly. The mechanism
     /// is what matters: whether the widget's view swallows the click.
@@ -860,6 +874,61 @@ final class MacRendererTests: XCTestCase {
     func testTheEditorExposesRememberedSizesToTheHost() {
         editor.resourceSizes = ["photo.png": CGSize(width: 300, height: 120)]
         XCTAssertEqual(editor.resourceSizes["photo.png"], CGSize(width: 300, height: 120))
+    }
+
+    func testLiveWidgetControlGlyphReservesTheOverlaySizeWithoutChangingSource() throws {
+        let source = "ping @gabe now"
+        editor.setMarkdown(source)
+        forceLayout()
+
+        let overlay = try XCTUnwrap(editor.subviews.compactMap { $0 as? WidgetContainer }.first)
+        let expected = try XCTUnwrap(
+            HostWidgets().widgetSize(
+                roleName: "mention",
+                source: "@gabe",
+                fittingWidth: editor.textContainer?.size.width ?? editor.bounds.width
+            )
+        )
+        XCTAssertEqual(overlay.frame.width, expected.width, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.height, expected.height, accuracy: 0.5)
+        XCTAssertEqual(editor.markdown, source)
+        XCTAssertEqual(storage.string, source)
+    }
+
+    func testLiveTableUsesOneOverlayAndDoesNotProjectNestedImagesBesideIt() throws {
+        let source = """
+        # Table
+
+        | Surface | Resource |
+        | :--- | ---: |
+        | **JS** | ![chart](chart.png) |
+        | iOS | ![photo](photo.png) |
+
+        after
+        """
+        let resolver = DeferredResolver()
+        editor.resourceResolver = resolver
+        editor.setMarkdown(source)
+        forceLayout()
+
+        let overlays = editor.subviews.compactMap { $0 as? WidgetContainer }
+        let overlay = try XCTUnwrap(overlays.first)
+        XCTAssertEqual(overlays.count, 1, "nested images escaped the table widget")
+        XCTAssertTrue(overlay.subviews.contains { $0 is TableWidgetView })
+        XCTAssertLessThan(overlay.frame.minY, 200, "the table was positioned outside its source line")
+        XCTAssertGreaterThan(overlay.frame.height, 100)
+
+        XCTAssertGreaterThan(resolver.deliveries.count, 0)
+        resolver.deliveries[0](.ready(FixedSizeView(size: CGSize(width: 96, height: 54))))
+        drainMainQueue()
+        forceLayout()
+        let rebuilt = try XCTUnwrap(
+            editor.subviews.compactMap { $0 as? WidgetContainer }.first
+        )
+        XCTAssertFalse(rebuilt === overlay, "resource completion left an empty cached container")
+        XCTAssertTrue(rebuilt.subviews.contains { $0 is TableWidgetView })
+        XCTAssertEqual(editor.markdown, source)
+        XCTAssertEqual(storage.string, source)
     }
 
     // MARK: - Widget view cache

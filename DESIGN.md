@@ -16,7 +16,7 @@ macOS, web — running against it, each with a reference app.
 2. **One brain, three faces.** Parsing, extension semantics, reveal policy, and
    widget identity are decided once, in Rust. Renderers apply, they do not decide.
 3. **The system text engine owns input.** Native IME, autocorrect, spellcheck,
-   selection handles, and accessibility come from TextKit 2 / the browser. We never
+   selection handles, and accessibility come from TextKit / the browser. We never
    reimplement a caret.
 4. **Correctness first, incrementality later.** Nothing may depend on incremental
    parsing for correctness. It is a profiling-driven optimization behind a fixed
@@ -45,7 +45,7 @@ macOS, web — running against it, each with a reference app.
                                        │  Patch { removed[], added[], shifted[], moved[] }
                     ┌──────────────────▼──────────────────┐
                     │            RENDERER                 │
-                    │  TextKit 2 attrs + attachments      │
+                    │  TextKit attrs + native views       │
                     │  DOM attrs + replaced elements      │
                     └─────────────────────────────────────┘
 ```
@@ -546,16 +546,21 @@ the text container has a width, so resolution must wait for a real one — and a
 a *size* has to start the load, or a resource skipped for want of a width is never
 requested again.
 
-**macOS (built).** `NSTextView`, also TextKit 2.
+**macOS (built).** `NSTextView` with TextKit 1's incremental `NSLayoutManager`.
 
 TextKit 2's smallest invalidation unit is a paragraph. A hostile document containing a
-single multi-kilobyte wrapped line therefore asks CoreText to reshape the entire line on
-every keypress, even though parsing and decoration painting are local. The AppKit host
-switches documents containing an 8 KiB paragraph to a horizontally scrolling layout;
-ordinary documents stay wrapped, and replacing or splitting the long paragraph restores
-wrapping. This changes only layout — `NSTextStorage.string` remains exactly the markdown
-source — and hosts that need wrapping at any cost can set
-`optimizesLongParagraphLayout` to `false`.
+single multi-kilobyte wrapped line therefore asked CoreText to reshape the entire line on
+every keypress, even though parsing and decoration painting were local. The measured
+32 KiB edit took seconds. TextKit 1 keeps non-contiguous layout genuinely incremental;
+the same wrapped edit now has a checked 250 ms ceiling and measures tens of milliseconds.
+
+AppKit's older layout manager does not host arbitrary attachment views without replacing
+source characters, so widgets use length-preserving control glyphs plus viewport-managed
+native view overlays. Their geometry still comes from `WidgetAttachment`, and the backing
+character remains the original markdown. Paragraphs above 8 KiB also paint syntax only
+around the viewport. Wrapping, selection offsets, copy/paste, widget interaction, and
+`NSTextStorage.string` therefore stay exact; `optimizesLongParagraphLayout = false`
+restores eager styling for hosts that prefer it.
 
 Everything that decides *what a decoration means* — reveal resolution, paint ordering,
 conceal, widget substitution, the `moved`-does-not-repaint rule, hit testing — lives in

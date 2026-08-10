@@ -603,8 +603,6 @@ final class TableWidgetView: PlatformView {
         #if os(macOS)
         identifier = NSUserInterfaceItemIdentifier("mde.rendered-table")
         wantsLayer = true
-        layer?.backgroundColor = PlatformColor.platformBackground.cgColor
-        layer?.borderColor = PlatformColor.platformTertiaryLabel.withAlphaComponent(0.35).cgColor
         #else
         accessibilityIdentifier = "mde.rendered-table"
         backgroundColor = .platformBackground
@@ -623,11 +621,6 @@ final class TableWidgetView: PlatformView {
         for (index, background) in rowBackgrounds.enumerated() {
             #if os(macOS)
             background.wantsLayer = true
-            background.layer?.backgroundColor = (index == 0
-                ? PlatformColor.platformSecondaryBackground
-                : index.isMultiple(of: 2)
-                    ? PlatformColor.platformSecondaryBackground.withAlphaComponent(0.38)
-                    : PlatformColor.clear).cgColor
             #else
             background.backgroundColor = index == 0
                 ? .platformSecondaryBackground
@@ -640,14 +633,15 @@ final class TableWidgetView: PlatformView {
         for rule in rules {
             #if os(macOS)
             rule.wantsLayer = true
-            rule.layer?.backgroundColor = PlatformColor.platformTertiaryLabel
-                .withAlphaComponent(0.24).cgColor
             #else
             rule.backgroundColor = PlatformColor.platformTertiaryLabel.withAlphaComponent(0.24)
             #endif
             addSubview(rule)
         }
         cells.forEach(addSubview)
+        #if os(macOS)
+        updateAppearanceColors()
+        #endif
         layoutGrid()
     }
 
@@ -730,6 +724,30 @@ final class TableWidgetView: PlatformView {
     }
 
     #if os(macOS)
+    private func updateAppearanceColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = PlatformColor.platformBackground.cgColor
+            layer?.borderColor = PlatformColor.platformTertiaryLabel
+                .withAlphaComponent(0.35).cgColor
+            for (index, background) in rowBackgrounds.enumerated() {
+                background.layer?.backgroundColor = (index == 0
+                    ? PlatformColor.platformSecondaryBackground
+                    : index.isMultiple(of: 2)
+                        ? PlatformColor.platformSecondaryBackground.withAlphaComponent(0.38)
+                        : PlatformColor.clear).cgColor
+            }
+            for rule in rules {
+                rule.layer?.backgroundColor = PlatformColor.platformTertiaryLabel
+                    .withAlphaComponent(0.24).cgColor
+            }
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearanceColors()
+    }
+
     override var isFlipped: Bool { true }
     override func layout() {
         super.layout()

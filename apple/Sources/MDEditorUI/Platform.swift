@@ -1,5 +1,5 @@
 // UIKit and AppKit differ in type names far more than in behaviour for what this
-// renderer needs: attributed strings, text storage, TextKit 2, and attachments are the
+// renderer needs: attributed strings, text storage, TextKit, and attachments are the
 // same API on both. Aliasing the handful of divergent types keeps the decoration
 // logic in one place instead of two copies that drift.
 
