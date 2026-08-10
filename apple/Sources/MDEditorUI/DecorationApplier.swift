@@ -378,6 +378,13 @@ final class DecorationApplier {
         for w in widgets.sorted(by: { $0.range.location > $1.range.location }) {
             guard let roleName = engine.roleName(w.role) else { continue }
             let source = ns.substring(with: w.range)
+            let local = NSRange(location: w.range.location - range.location, length: 1)
+            guard local.upperBound <= display.length else { continue }
+            let baselineFont = display.attribute(
+                .font,
+                at: local.location,
+                effectiveRange: nil
+            ) as? PlatformFont ?? theme.bodyFont
             let tableModel = roleName == "table"
                 ? MarkdownTableModel(
                     source: source,
@@ -395,12 +402,12 @@ final class DecorationApplier {
                 resources: resources,
                 cache: self,
                 key: w.key,
+                baselineFont: baselineFont,
+                isInline: w.kind == .inlineWidget,
                 tableModel: tableModel,
                 openLink: openLink
             )
             attachment.fittingWidth = max(containerWidth, 1)
-            let local = NSRange(location: w.range.location - range.location, length: 1)
-            guard local.upperBound <= display.length else { continue }
             display.replaceCharacters(in: local, with: NSAttributedString(attachment: attachment))
         }
         assert(display.length == range.length, "widget substitution changed the length")

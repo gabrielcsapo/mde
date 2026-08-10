@@ -60,6 +60,10 @@ final class WidgetAttachment: NSTextAttachment {
     let key: UInt64
     let tableModel: MarkdownTableModel?
     let openLink: ((String) -> Void)?
+    /// Inline host widgets are centered on this font's typographic line box. Block
+    /// widgets and externally resolved resources keep their existing baseline rules.
+    let baselineFont: PlatformFont
+    let isInline: Bool
     var fittingWidth: CGFloat = 320
 
     init(
@@ -70,6 +74,8 @@ final class WidgetAttachment: NSTextAttachment {
         resources: ResourceCache?,
         cache: DecorationApplier?,
         key: UInt64,
+        baselineFont: PlatformFont,
+        isInline: Bool,
         tableModel: MarkdownTableModel? = nil,
         openLink: ((String) -> Void)? = nil
     ) {
@@ -80,6 +86,8 @@ final class WidgetAttachment: NSTextAttachment {
         self.resources = resources
         self.cache = cache
         self.key = key
+        self.baselineFont = baselineFont
+        self.isInline = isInline
         self.tableModel = tableModel
         self.openLink = openLink
         super.init(data: nil, ofType: nil)
@@ -160,7 +168,10 @@ final class WidgetAttachment: NSTextAttachment {
             source: source,
             fittingWidth: width
         ) {
-            return CGRect(origin: .zero, size: size)
+            let y = isInline
+                ? (baselineFont.ascender + baselineFont.descender - size.height) / 2
+                : 0
+            return CGRect(origin: CGPoint(x: 0, y: y), size: size)
         }
         if roleName == "table", let tableModel {
             return CGRect(origin: .zero, size: TableWidgetView.size(for: tableModel, fittingWidth: width))

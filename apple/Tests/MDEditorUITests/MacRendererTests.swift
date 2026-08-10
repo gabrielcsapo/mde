@@ -370,8 +370,22 @@ final class MacRendererTests: XCTestCase {
             backing.length,
             "substitution changed the length, which desynchronises every offset"
         )
-        XCTAssertNotNil(
+        let attachment = try XCTUnwrap(
             paragraph.attributedString.attribute(.attachment, at: 5, effectiveRange: nil)
+                as? WidgetAttachment
+        )
+        let bounds = attachment.attachmentBounds(
+            for: nil,
+            proposedLineFragment: .zero,
+            glyphPosition: .zero,
+            characterIndex: 5
+        )
+        let font = Theme().bodyFont
+        XCTAssertEqual(
+            bounds.midY,
+            (font.ascender + font.descender) / 2,
+            accuracy: 0.5,
+            "the mention chip is not vertically centered on the surrounding text"
         )
     }
 

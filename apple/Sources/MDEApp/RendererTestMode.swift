@@ -1,5 +1,6 @@
 import MDECore
 import MDEditorUI
+import MDEHost
 import UIKit
 
 /// A simulator-side renderer test. SwiftPM can exercise AppKit directly, but this
@@ -85,6 +86,7 @@ enum RendererTestMode {
                     ancestor.accessibilityIdentifier == "mde.table-image"
                 }
             }.isEmpty
+            let mentionAligned = mentionIsAligned(in: editor, source: source, views: views)
 
             let tableRange = (source as NSString).range(of: "| Surface")
             _ = editor.becomeFirstResponder()
@@ -106,6 +108,7 @@ enum RendererTestMode {
                 "mixedImage": mixedImage,
                 "imageRowsFit": imageRowsFit,
                 "noDuplicateImage": noDuplicateImage,
+                "mentionAligned": mentionAligned,
                 "revealed": revealed,
                 "restored": restored,
             ])
@@ -114,6 +117,30 @@ enum RendererTestMode {
 
     private static func descendants(of root: UIView) -> [UIView] {
         root.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    private static func mentionIsAligned(
+        in editor: MarkdownTextView,
+        source: String,
+        views: [UIView]
+    ) -> Bool {
+        let mention = (source as NSString).range(of: "@gabe")
+        guard mention.location != NSNotFound,
+              let chip = views.first(where: { $0 is ChipView }),
+              let textStart = editor.position(
+                  from: editor.beginningOfDocument,
+                  offset: max(0, mention.location - 5)
+              ),
+              let textEnd = editor.position(
+                  from: editor.beginningOfDocument,
+                  offset: mention.location
+              ),
+              let textRange = editor.textRange(from: textStart, to: textEnd)
+        else { return false }
+
+        let textRect = editor.firstRect(for: textRange)
+        let chipRect = chip.convert(chip.bounds, to: editor)
+        return !textRect.isNull && abs(textRect.midY - chipRect.midY) <= 1.5
     }
 
     private static func ancestors(of view: UIView) -> [UIView] {
