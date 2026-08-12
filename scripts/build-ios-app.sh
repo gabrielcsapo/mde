@@ -24,6 +24,11 @@ rm -rf "$APP" "$BUILD/modules" "$BUILD/obj"
 mkdir -p "$APP" "$BUILD/modules" "$BUILD/obj"
 cp "$ROOT/fixtures/cross-platform.md" "$APP/cross-platform.md"
 cp "$ROOT"/fixtures/captures/capture-*.md "$APP/"
+if [ -d "$ROOT/target/bench-corpus" ]; then
+    mkdir -p "$APP/bench-corpus"
+    cp "$ROOT"/target/bench-corpus/{10KB,100KB,500KB,1MB}.md "$APP/bench-corpus/"
+    cp "$ROOT/benchmarks/edit-matrix.json" "$APP/edit-matrix.json"
+fi
 MODULES="$BUILD/modules"
 OBJ="$BUILD/obj"
 INCLUDE="$ROOT/apple/include"

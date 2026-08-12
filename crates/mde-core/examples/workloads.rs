@@ -6,7 +6,9 @@
 //! lines, edits at each document position, and a sustained typing session.
 
 use mde_core::{Edit, Engine, Registry, Selection};
+use serde::Deserialize;
 use std::hint::black_box;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 const MANIFEST: &str = r#"
@@ -42,6 +44,57 @@ struct Sample {
     removed: usize,
     moved: usize,
     shifted: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EditMatrix {
+    corpora: Vec<String>,
+    positions: Vec<MatrixPosition>,
+    edits: Vec<MatrixEdit>,
+    repetitions: usize,
+    endurance: MatrixEndurance,
+}
+
+#[derive(Deserialize)]
+struct MatrixPosition {
+    name: String,
+    fraction: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MatrixEdit {
+    name: String,
+    delete_utf16: u32,
+    #[serde(default)]
+    text: String,
+    text_pattern: Option<String>,
+    text_utf8_bytes: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct MatrixEndurance {
+    corpus: String,
+    position: f64,
+    operations: usize,
+}
+
+impl MatrixEdit {
+    fn replacement(&self) -> String {
+        let Some(bytes) = self.text_utf8_bytes else {
+            return self.text.clone();
+        };
+        let pattern = self
+            .text_pattern
+            .as_deref()
+            .expect("matrix paste needs textPattern");
+        pattern
+            .repeat(bytes / pattern.len() + 1)
+            .chars()
+            .take(bytes)
+            .collect()
+    }
 }
 
 fn registry() -> Registry {
@@ -161,13 +214,166 @@ fn enforce_budget(label: &str, measured: f64, variable: &str) {
         .parse()
         .unwrap_or_else(|_| panic!("{variable} must be a number"));
     println!("   {label} budget: {measured:.3} <= {budget:.3} ms");
-    assert!(measured <= budget, "{label} exceeded {budget:.3} ms: {measured:.3} ms");
+    assert!(
+        measured <= budget,
+        "{label} exceeded {budget:.3} ms: {measured:.3} ms"
+    );
+}
+
+fn matrix_paths(arguments: &[String]) -> (PathBuf, PathBuf) {
+    let spec = arguments
+        .iter()
+        .position(|argument| argument == "--matrix")
+        .and_then(|index| arguments.get(index + 1))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("benchmarks/edit-matrix.json"));
+    let corpus = arguments
+        .iter()
+        .position(|argument| argument == "--corpus")
+        .and_then(|index| arguments.get(index + 1))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("target/bench-corpus"));
+    (spec, corpus)
+}
+
+fn matrix_corpus(directory: &Path, label: &str) -> String {
+    std::fs::read_to_string(directory.join(format!("{label}.md")))
+        .unwrap_or_else(|error| panic!("read matrix corpus {label}: {error}"))
+}
+
+fn run_edit_matrix(arguments: &[String], check: bool) {
+    let (spec_path, corpus_dir) = matrix_paths(arguments);
+    let spec: EditMatrix = serde_json::from_slice(
+        &std::fs::read(&spec_path).unwrap_or_else(|error| panic!("read matrix spec: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("parse matrix spec: {error}"));
+    let mut overall = Vec::new();
+    println!("\nshared edit matrix ({})", spec_path.display());
+
+    for label in &spec.corpora {
+        let document = matrix_corpus(&corpus_dir, label);
+        let document_len = document.encode_utf16().count() as u32;
+        let mut samples = Vec::new();
+        for position in &spec.positions {
+            for edit in &spec.edits {
+                let replacement = edit.replacement();
+                for _ in 0..spec.repetitions {
+                    let mut engine = Engine::new(registry());
+                    engine.reset(&document);
+                    let start = ((f64::from(document_len) * position.fraction) as u32)
+                        .min(document_len.saturating_sub(edit.delete_utf16));
+                    let end = (start + edit.delete_utf16).min(document_len);
+                    let expected_len =
+                        document_len - (end - start) + replacement.encode_utf16().count() as u32;
+                    let mut expected_text = document.clone();
+                    expected_text.replace_range(
+                        utf16_to_utf8(&document, start)..utf16_to_utf8(&document, end),
+                        &replacement,
+                    );
+                    engine.set_selection(Some(Selection::caret(start)));
+                    let started = Instant::now();
+                    engine
+                        .edit(
+                            &[Edit {
+                                start,
+                                end,
+                                text: replacement.clone(),
+                            }],
+                            Some(expected_len),
+                            1_000,
+                        )
+                        .expect("matrix edit is valid");
+                    let sample = started.elapsed().as_secs_f64() * 1_000.0;
+                    assert_eq!(engine.text(), expected_text);
+                    samples.push(sample);
+                    overall.push(sample);
+                }
+                let current = &samples[samples.len() - spec.repetitions..];
+                println!(
+                    "  {label:<5} {:<7} {:<16} p95 {:>8.3} ms",
+                    position.name,
+                    edit.name,
+                    percentile_ms(current, 0.95),
+                );
+            }
+        }
+    }
+
+    let endurance_document = matrix_corpus(&corpus_dir, &spec.endurance.corpus);
+    let mut expected = endurance_document.clone();
+    let mut engine = Engine::new(registry());
+    engine.reset(&expected);
+    let mut endurance = Vec::with_capacity(spec.endurance.operations);
+    for index in 0..spec.endurance.operations {
+        let length = expected.encode_utf16().count() as u32;
+        let at = (f64::from(length) * spec.endurance.position) as u32;
+        let (end, replacement) = if index % 2 == 0 {
+            (at, "x")
+        } else {
+            ((at + 1).min(length), "")
+        };
+        let start_byte = utf16_to_utf8(&expected, at);
+        let end_byte = utf16_to_utf8(&expected, end);
+        expected.replace_range(start_byte..end_byte, replacement);
+        let new_length = expected.encode_utf16().count() as u32;
+        let started = Instant::now();
+        engine
+            .edit(
+                &[Edit {
+                    start: at,
+                    end,
+                    text: replacement.into(),
+                }],
+                Some(new_length),
+                1_000,
+            )
+            .expect("endurance edit is valid");
+        endurance.push(started.elapsed().as_secs_f64() * 1_000.0);
+    }
+    assert_eq!(engine.text(), expected);
+    let matrix_p95 = percentile_ms(&overall, 0.95);
+    let endurance_p95 = percentile_ms(&endurance, 0.95);
+    println!("  all matrix edits p95      {matrix_p95:>8.3} ms");
+    println!("  100-edit endurance p95    {endurance_p95:>8.3} ms");
+    if check {
+        enforce_budget(
+            "shared core edit matrix p95",
+            matrix_p95,
+            "MDE_CORE_EDIT_MATRIX_P95_BUDGET_MS",
+        );
+        enforce_budget(
+            "shared core endurance p95",
+            endurance_p95,
+            "MDE_CORE_EDIT_MATRIX_ENDURANCE_P95_BUDGET_MS",
+        );
+    }
+}
+
+fn percentile_ms(samples: &[f64], quantile: f64) -> f64 {
+    let mut values = samples.to_vec();
+    values.sort_by(f64::total_cmp);
+    values[((values.len() - 1) as f64 * quantile).ceil() as usize]
+}
+
+fn utf16_to_utf8(text: &str, target: u32) -> usize {
+    let mut offset = 0u32;
+    for (byte, character) in text.char_indices() {
+        if offset >= target {
+            return byte;
+        }
+        offset += character.len_utf16() as u32;
+    }
+    text.len()
 }
 
 fn main() {
     println!("mde-core adversarial workloads (release profile expected)\n");
     let arguments: Vec<_> = std::env::args().collect();
     let check = arguments.iter().any(|argument| argument == "--check");
+    if arguments.iter().any(|argument| argument == "--matrix-only") {
+        run_edit_matrix(&arguments, check);
+        return;
+    }
     if arguments.iter().any(|argument| argument == "--giant-only") {
         let giant = one_shot("32KB giant paragraph", &giant_paragraph(32 * 1024), 10);
         if check {
@@ -208,4 +414,7 @@ fn main() {
 
     let endurance = mixed_document(100 * 1024);
     position_workload("100KB sustained 2000 edits", &endurance, 0.50, 2_000);
+    if arguments.iter().any(|argument| argument == "--matrix") {
+        run_edit_matrix(&arguments, check);
+    }
 }

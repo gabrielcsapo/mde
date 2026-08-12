@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "repetitions": 3,
+  "corpora": ["10KB", "100KB", "500KB", "1MB"],
+  "positions": [
+    { "name": "start", "fraction": 0.01 },
+    { "name": "middle", "fraction": 0.5 },
+    { "name": "end", "fraction": 0.99 }
+  ],
+  "edits": [
+    { "name": "insert-character", "deleteUtf16": 0, "text": "x" },
+    { "name": "delete-character", "deleteUtf16": 1, "text": "" },
+    { "name": "replace-word", "deleteUtf16": 32, "text": "replacement-value" },
+    { "name": "insert-newline", "deleteUtf16": 0, "text": "\n" },
+    { "name": "paste-1KB", "deleteUtf16": 0, "textPattern": "journal paste block ", "textUtf8Bytes": 1024 },
+    { "name": "delete-1KB", "deleteUtf16": 1024, "text": "" }
+  ],
+  "endurance": {
+    "corpus": "100KB",
+    "position": 0.5,
+    "operations": 100
+  }
+}

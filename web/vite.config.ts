@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { chmod, copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
@@ -55,6 +55,16 @@ export default defineConfig({
       ),
       maxHeap1MB: Number(process.env.MDE_WEB_1MB_HEAP_BUDGET_BYTES ?? 160000000),
       reactMount100KB: Number(process.env.MDE_REACT_100KB_MOUNT_BUDGET_MS ?? 150),
+      editMatrixP95: Number(process.env.MDE_WEB_EDIT_MATRIX_P95_BUDGET_MS ?? 100),
+      editMatrixEnduranceP95: Number(
+        process.env.MDE_WEB_EDIT_MATRIX_ENDURANCE_P95_BUDGET_MS ?? 25,
+      ),
+      reactControlledMatrixP95: Number(
+        process.env.MDE_REACT_CONTROLLED_MATRIX_P95_BUDGET_MS ?? 150,
+      ),
+      editMatrixHeapGrowth: Number(
+        process.env.MDE_WEB_EDIT_MATRIX_HEAP_GROWTH_BUDGET_BYTES ?? 120000000,
+      ),
       mediaJournalReady: Number(process.env.MDE_WEB_MEDIA_JOURNAL_READY_BUDGET_MS ?? 2000),
       mediaJournalEdit: Number(process.env.MDE_WEB_MEDIA_JOURNAL_EDIT_BUDGET_MS ?? 100),
       mediaJournalScroll: Number(process.env.MDE_WEB_MEDIA_JOURNAL_SCROLL_BUDGET_MS ?? 100),
@@ -66,6 +76,17 @@ export default defineConfig({
     {
       name: 'copy-wasm-core',
       configureServer(server) {
+        server.middlewares.use('/__mde_perf_matrix', async (_request, response) => {
+          const spec = JSON.parse(await readFile(`${here}../benchmarks/edit-matrix.json`, 'utf8'));
+          const corpora = Object.fromEntries(await Promise.all(
+            spec.corpora.map(async (label: string) => [
+              label,
+              await readFile(`${here}../target/bench-corpus/${label}.md`, 'utf8'),
+            ]),
+          ));
+          response.setHeader('content-type', 'application/json');
+          response.end(JSON.stringify({ spec, corpora }));
+        });
         server.middlewares.use('/__mde_perf_report', (request, response, next) => {
           if (request.method !== 'POST') {
             next();

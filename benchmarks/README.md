@@ -18,7 +18,12 @@ for the costs most likely to regress:
 - a 100×10 native table projection;
 - AppKit positional and sustained edit p95;
 - AppKit projection, edit, and scroll costs for the same media-heavy journal; and
-- indexed lookup among 10,000 resource references.
+- indexed lookup among 10,000 resource references; and
+- one shared edit matrix across Rust, JS, React, UIKit, and AppKit: 10 KB, 100 KB,
+  500 KB, and 1 MB documents; start/middle/end positions; character insert/delete,
+  32-character replacement, structural newline, 1 KB paste/delete, and a 100-edit
+  endurance session. Every host asserts the exact resulting Markdown.
+  Browser heap and Apple process-footprint growth are bounded across the run.
 
 Run the same command as scheduled CI:
 
@@ -36,6 +41,13 @@ for edits near the start/middle/end, repeated identical nodes, a giant paragraph
 unterminated fence, Unicode-heavy text, and a sustained 2,000-edit session. The giant
 Unicode paragraph is enforced as a core regression gate. Browser and native positional
 and sustained p95 values are also enforced by their renderer suites.
+
+`edit-matrix.json` is the cross-client contract. Rust generates the corpus once into
+`target/bench-corpus`; browser tests receive those files from the Vitest server, AppKit
+reads them directly, and the iOS build embeds the same bytes. React measures controlled
+`value` updates separately from the framework-free JS editor. The 5 MB corpus remains an
+extended core/load workload because materializing its entire renderer tree measures
+memory and cold-open policy more than ordinary editing.
 
 AppKit workloads run in separate test processes. Full-document TextKit measurements
 create substantial transient allocator pressure; process isolation prevents one corpus

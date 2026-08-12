@@ -1,5 +1,6 @@
 import MDEditorUI
 import UIKit
+import Darwin.Mach
 
 /// Simulator-side performance workloads for the real UIKit renderer.
 ///
@@ -18,14 +19,199 @@ enum PerformanceTestMode {
     static func run(_ editor: MarkdownTextView) {
         guard isEnabled else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            runStandardWorkloads(editor) { standardMetrics, standardChecks in
-                runMediaJournal(editor) { mediaMetrics, mediaChecks in
-                    finish(
-                        metrics: standardMetrics.merging(mediaMetrics) { _, latest in latest },
-                        checks: standardChecks.merging(mediaChecks) { _, latest in latest }
+            runEditMatrix(editor) { matrixMetrics, matrixChecks in
+                runStandardWorkloads(editor) { standardMetrics, standardChecks in
+                    runMediaJournal(editor) { mediaMetrics, mediaChecks in
+                        finish(
+                            metrics: matrixMetrics
+                                .merging(standardMetrics) { _, latest in latest }
+                                .merging(mediaMetrics) { _, latest in latest },
+                            checks: matrixChecks
+                                .merging(standardChecks) { _, latest in latest }
+                                .merging(mediaChecks) { _, latest in latest }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private struct EditMatrix: Decodable {
+        let repetitions: Int
+        let corpora: [String]
+        let positions: [MatrixPosition]
+        let edits: [MatrixEdit]
+        let endurance: MatrixEndurance
+    }
+
+    private struct MatrixPosition: Decodable { let name: String; let fraction: Double }
+
+    private struct MatrixEdit: Decodable {
+        let name: String
+        let deleteUtf16: Int
+        let text: String?
+        let textPattern: String?
+        let textUtf8Bytes: Int?
+
+        var replacement: String {
+            guard let bytes = textUtf8Bytes, let pattern = textPattern else { return text ?? "" }
+            let repeated = String(repeating: pattern, count: bytes / pattern.utf8.count + 1)
+            return String(decoding: repeated.utf8.prefix(bytes), as: UTF8.self)
+        }
+    }
+
+    private struct MatrixEndurance: Decodable {
+        let corpus: String
+        let position: Double
+        let operations: Int
+    }
+
+    private struct MatrixCase {
+        let source: String
+        let position: MatrixPosition
+        let edit: MatrixEdit
+    }
+
+    private static func runEditMatrix(
+        _ editor: MarkdownTextView,
+        completion: @escaping ([String: Double], [String: Bool]) -> Void
+    ) {
+        guard let specURL = Bundle.main.url(forResource: "edit-matrix", withExtension: "json"),
+              let spec = try? JSONDecoder().decode(
+                EditMatrix.self, from: Data(contentsOf: specURL)
+              )
+        else {
+            completion([:], ["matrixSpecLoaded": false])
+            return
+        }
+        let memoryBefore = residentMemoryBytes()
+        var cases = [MatrixCase]()
+        for label in spec.corpora {
+            guard let url = Bundle.main.url(
+                forResource: label, withExtension: "md", subdirectory: "bench-corpus"
+            ), let source = try? String(contentsOf: url, encoding: .utf8) else {
+                completion([:], ["matrixCorporaLoaded": false])
+                return
+            }
+            for position in spec.positions {
+                for edit in spec.edits {
+                    for _ in 0 ..< spec.repetitions {
+                        cases.append(MatrixCase(source: source, position: position, edit: edit))
+                    }
+                }
+            }
+        }
+        runMatrixCases(editor, cases: cases) { samples, sourcesPreserved in
+            let enduranceURL = Bundle.main.url(
+                forResource: spec.endurance.corpus,
+                withExtension: "md",
+                subdirectory: "bench-corpus"
+            )!
+            let source = try! String(contentsOf: enduranceURL, encoding: .utf8)
+            editor.setMarkdown(source)
+            DispatchQueue.main.async {
+                let expected = NSMutableString(string: source)
+                runEndurance(
+                    editor,
+                    remaining: spec.endurance.operations,
+                    fraction: spec.endurance.position,
+                    expected: expected
+                ) { enduranceSamples in
+                    completion(
+                        [
+                            "editMatrixP95Ms": percentile(samples.map(\.total), 0.95),
+                            "editMatrixSyncP95Ms": percentile(samples.map(\.synchronous), 0.95),
+                            "editMatrixEnduranceP95Ms": percentile(
+                                enduranceSamples.map(\.total), 0.95
+                            ),
+                            "editMatrixMemoryGrowthBytes": Double(max(
+                                0, Int64(residentMemoryBytes()) - Int64(memoryBefore)
+                            )),
+                        ],
+                        [
+                            "matrixSpecLoaded": true,
+                            "matrixCorporaLoaded": true,
+                            "matrixSourcesPreserved": sourcesPreserved,
+                            "matrixEnduranceSourcePreserved": editor.markdown == expected as String,
+                        ]
                     )
                 }
             }
+        }
+    }
+
+    private static func runMatrixCases(
+        _ editor: MarkdownTextView,
+        cases: [MatrixCase],
+        samples: [EditSample] = [],
+        sourcesPreserved: Bool = true,
+        completion: @escaping ([EditSample], Bool) -> Void
+    ) {
+        guard let item = cases.first else {
+            completion(samples, sourcesPreserved)
+            return
+        }
+        editor.setMarkdown(item.source)
+        DispatchQueue.main.async {
+            editor.layoutIfNeeded()
+            let storage = editor.textStorage
+            let start = min(
+                Int(Double(storage.length) * item.position.fraction),
+                max(0, storage.length - item.edit.deleteUtf16)
+            )
+            let range = NSRange(
+                location: start,
+                length: min(item.edit.deleteUtf16, storage.length - start)
+            )
+            let expected = NSMutableString(string: item.source)
+            expected.replaceCharacters(in: range, with: item.edit.replacement)
+            let clock = DispatchTime.now().uptimeNanoseconds
+            storage.replaceCharacters(in: range, with: item.edit.replacement)
+            let synchronous = elapsed(since: clock)
+            DispatchQueue.main.async {
+                editor.layoutIfNeeded()
+                runMatrixCases(
+                    editor,
+                    cases: Array(cases.dropFirst()),
+                    samples: samples + [EditSample(
+                        total: elapsed(since: clock), synchronous: synchronous
+                    )],
+                    sourcesPreserved: sourcesPreserved && editor.markdown == expected as String,
+                    completion: completion
+                )
+            }
+        }
+    }
+
+    private static func runEndurance(
+        _ editor: MarkdownTextView,
+        remaining: Int,
+        fraction: Double,
+        expected: NSMutableString,
+        samples: [EditSample] = [],
+        completion: @escaping ([EditSample]) -> Void
+    ) {
+        guard remaining > 0 else { completion(samples); return }
+        let insert = remaining.isMultiple(of: 2)
+        let at = Int(Double(expected.length) * fraction)
+        let range = NSRange(location: at, length: insert ? 0 : 1)
+        let replacement = insert ? "x" : ""
+        let clock = DispatchTime.now().uptimeNanoseconds
+        editor.textStorage.replaceCharacters(in: range, with: replacement)
+        let synchronous = elapsed(since: clock)
+        expected.replaceCharacters(in: range, with: replacement)
+        DispatchQueue.main.async {
+            editor.layoutIfNeeded()
+            runEndurance(
+                editor,
+                remaining: remaining - 1,
+                fraction: fraction,
+                expected: expected,
+                samples: samples + [EditSample(
+                    total: elapsed(since: clock), synchronous: synchronous
+                )],
+                completion: completion
+            )
         }
     }
 
@@ -228,6 +414,19 @@ enum PerformanceTestMode {
 
     private static func elapsed(since start: UInt64) -> Double {
         Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+    }
+
+    private static func residentMemoryBytes() -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
+        )
+        let status = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return status == KERN_SUCCESS ? info.phys_footprint : 0
     }
 
     private static func percentile(_ samples: [Double], _ quantile: Double) -> Double {

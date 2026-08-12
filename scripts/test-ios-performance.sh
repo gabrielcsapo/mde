@@ -63,6 +63,13 @@ budgets = {
     "standardLoadMs": float(os.environ["MDE_IOS_1MB_LOAD_BUDGET_MS"]),
     "standardFirstPaintMs": float(os.environ["MDE_IOS_1MB_FIRST_PAINT_BUDGET_MS"]),
     "standardEditP95Ms": float(os.environ["MDE_IOS_1MB_EDIT_P95_BUDGET_MS"]),
+    "editMatrixP95Ms": float(os.environ["MDE_IOS_EDIT_MATRIX_P95_BUDGET_MS"]),
+    "editMatrixEnduranceP95Ms": float(
+        os.environ["MDE_IOS_EDIT_MATRIX_ENDURANCE_P95_BUDGET_MS"]
+    ),
+    "editMatrixMemoryGrowthBytes": float(
+        os.environ["MDE_IOS_EDIT_MATRIX_MEMORY_GROWTH_BUDGET_BYTES"]
+    ),
     "pathologicalEditP95Ms": float(os.environ["MDE_IOS_GIANT_PARAGRAPH_BUDGET_MS"]),
     "tableReadyMs": float(os.environ["MDE_IOS_TABLE_BUDGET_MS"]),
     "mediaReadyMs": float(os.environ["MDE_IOS_MEDIA_JOURNAL_READY_BUDGET_MS"]),
@@ -80,6 +87,10 @@ print("UIKit standard: "
       f"edit p95 {metrics['standardEditP95Ms']:.2f} ms, "
       f"pathological p95 {metrics['pathologicalEditP95Ms']:.2f} ms, "
       f"table {metrics['tableReadyMs']:.2f} ms")
+print("UIKit shared edit matrix: "
+      f"p95 {metrics['editMatrixP95Ms']:.2f} ms, "
+      f"endurance p95 {metrics['editMatrixEnduranceP95Ms']:.2f} ms, "
+      f"footprint growth {metrics['editMatrixMemoryGrowthBytes'] / 1048576:.1f} MiB")
 print("UIKit media journal: "
       f"ready {metrics['mediaReadyMs']:.2f} ms, edit {metrics['mediaEditMs']:.2f} ms, "
       f"scroll {metrics['mediaScrollMs']:.2f} ms, "

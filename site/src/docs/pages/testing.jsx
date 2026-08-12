@@ -7,6 +7,7 @@ import { tag } from '../../lib/highlight.js';
 const golden = tag('bash', `UPDATE_GOLDEN=1 cargo test -p mde-core --test golden`);
 const all = tag('bash', `./scripts/test.sh   # Rust, both Swift suites, and the browser suite`);
 const captures = tag('bash', `pnpm capture:cross-platform   # 5 scenarios × 4 renderers`);
+const performance = tag('bash', `./scripts/test-performance.sh   # edit matrix + budgets`);
 
 const SUITES = [
   [
@@ -121,6 +122,16 @@ export default function Testing() {
         captures must be updated in the same change. The change is complete only after the suites
         pass, the capture command succeeds, and all four images have been visually reviewed.
       </Aside>
+
+      <H2 id="performance-matrix">One edit contract, every client</H2>
+      <p>
+        The performance suite runs the same Rust-generated 10 KB, 100 KB, 500 KB, and 1 MB
+        documents through JS, React, UIKit, AppKit, and the core. At the beginning, middle, and
+        end it inserts and deletes a character, replaces a word, inserts a structural newline,
+        pastes 1 KB, and deletes 1 KB. A sustained 100-edit session follows. Every case asserts
+        the exact resulting Markdown before its latency can count as a pass.
+      </p>
+      <SourceFigure className="mt-6" path="from the repository root" lang="bash" code={performance} />
 
       <SeeAlso
         links={[

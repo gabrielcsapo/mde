@@ -13,9 +13,11 @@ set +a
 mkdir -p "$ROOT/target/performance"
 cargo run --release --example bench -p mde-core -- --check \
     | tee "$ROOT/target/performance/core.txt"
-cargo run --release --example workloads -p mde-core -- --check \
-    | tee "$ROOT/target/performance/workloads.txt"
 cargo run --release --example bench -p mde-core -- --dump "$ROOT/target/bench-corpus"
+cargo run --release --example workloads -p mde-core -- --check \
+    --matrix "$ROOT/benchmarks/edit-matrix.json" \
+    --corpus "$ROOT/target/bench-corpus" \
+    | tee "$ROOT/target/performance/workloads.txt"
 
 "$ROOT/scripts/build-web.sh" >/dev/null
 rm -f "$ROOT/target/performance/web-metrics.json"
@@ -44,6 +46,7 @@ fi
         testBenchmarkGiantUnicodeParagraph \
         testBenchmarkKeystroke \
         testBenchmarkLargeTableProjection \
+        testBenchmarkSharedEditMatrix \
         testBenchmarkPluginLayerUpdate \
         testBenchmarkPositionAndTailLatency \
         testBenchmarkRepaintScopeAndDirtyRange \

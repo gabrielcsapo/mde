@@ -163,7 +163,125 @@ function coldLoad(source, repetitions) {
   return median(samples);
 }
 
+function matrixReplacement(edit) {
+  if (!edit.textUtf8Bytes) return edit.text;
+  return edit.textPattern.repeat(Math.ceil(edit.textUtf8Bytes / edit.textPattern.length))
+    .slice(0, edit.textUtf8Bytes);
+}
+
+function applyMatrixEdit(source, edit, fraction) {
+  const start = Math.min(
+    Math.floor(source.length * fraction),
+    source.length - Math.min(edit.deleteUtf16, source.length),
+  );
+  const end = Math.min(source.length, start + edit.deleteUtf16);
+  const replacement = matrixReplacement(edit);
+  return { start, end, replacement, expected: source.slice(0, start) + replacement + source.slice(end) };
+}
+
+function runEditorMatrix(spec, corpora) {
+  const samples = [];
+  const byCorpus = {};
+  for (const label of spec.corpora) {
+    const source = corpora[label];
+    const corpusSamples = [];
+    for (const position of spec.positions) {
+      for (const edit of spec.edits) {
+        for (let repetition = 0; repetition < spec.repetitions; repetition++) {
+          const editor = makeEditor();
+          editor.setMarkdown(source);
+          const operation = applyMatrixEdit(source, edit, position.fraction);
+          const elapsed = timed(() => editor.replaceRange(
+            operation.start, operation.end, operation.replacement,
+          ));
+          expect(editor.markdown, `${label} ${position.name} ${edit.name} source`).toBe(
+            operation.expected,
+          );
+          corpusSamples.push(elapsed);
+          samples.push(elapsed);
+          const entry = live.pop();
+          entry.editor.destroy();
+          entry.engine.free();
+          document.body.replaceChildren();
+        }
+      }
+    }
+    byCorpus[label] = { p50: median(corpusSamples), p95: percentile(corpusSamples, 0.95) };
+  }
+
+  const enduranceSource = corpora[spec.endurance.corpus];
+  const editor = makeEditor();
+  editor.setMarkdown(enduranceSource);
+  let expected = enduranceSource;
+  const endurance = [];
+  for (let index = 0; index < spec.endurance.operations; index++) {
+    const at = Math.floor(expected.length * spec.endurance.position);
+    const end = index % 2 === 0 ? at : Math.min(expected.length, at + 1);
+    const replacement = index % 2 === 0 ? 'x' : '';
+    endurance.push(timed(() => editor.replaceRange(at, end, replacement)));
+    expected = expected.slice(0, at) + replacement + expected.slice(end);
+  }
+  expect(editor.markdown, 'web endurance source').toBe(expected);
+  return {
+    byCorpus,
+    p50: median(samples),
+    p95: percentile(samples, 0.95),
+    enduranceP95: percentile(endurance, 0.95),
+  };
+}
+
+async function runReactControlledMatrix(spec, corpora) {
+  await preloadReactCore('/dist/mde.wasm');
+  const samples = [];
+  for (const label of spec.corpora) {
+    const source = corpora[label];
+    for (const position of spec.positions) {
+      for (const edit of spec.edits) {
+        for (let repetition = 0; repetition < spec.repetitions; repetition++) {
+          const operation = applyMatrixEdit(source, edit, position.fraction);
+          const host = document.createElement('div');
+          document.body.appendChild(host);
+          const root = createRoot(host);
+          let handle;
+          let ready;
+          const isReady = new Promise((resolve) => { ready = resolve; });
+          root.render(createElement(ReactMarkdownEditor, {
+            value: source,
+            wasm: '/dist/mde.wasm',
+            onReady: (api) => { handle = api; ready(); },
+          }));
+          await isReady;
+          const started = performance.now();
+          root.render(createElement(ReactMarkdownEditor, {
+            value: operation.expected,
+            wasm: '/dist/mde.wasm',
+          }));
+          for (let frame = 0; frame < 10 && handle.getMarkdown() !== operation.expected; frame++) {
+            await nextPaint();
+          }
+          samples.push(performance.now() - started);
+          expect(handle.getMarkdown(), `React ${label} ${position.name} ${edit.name} source`).toBe(
+            operation.expected,
+          );
+          root.unmount();
+          host.remove();
+        }
+      }
+    }
+  }
+  return { p50: median(samples), p95: percentile(samples, 0.95) };
+}
+
 test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
+  const { spec: matrixSpec, corpora: matrixCorpora } = await fetch('/__mde_perf_matrix')
+    .then((response) => response.json());
+  const matrixHeapBefore = (/** @type {any} */ (performance)).memory?.usedJSHeapSize ?? null;
+  const editMatrix = runEditorMatrix(matrixSpec, matrixCorpora);
+  const reactControlledMatrix = await runReactControlledMatrix(matrixSpec, matrixCorpora);
+  const matrixHeapAfter = (/** @type {any} */ (performance)).memory?.usedJSHeapSize ?? null;
+  const editMatrixHeapGrowth = matrixHeapBefore === null || matrixHeapAfter === null
+    ? null
+    : Math.max(0, matrixHeapAfter - matrixHeapBefore);
   const source100KB = documentOfAtLeast(100 * 1024);
   const source1MB = documentOfAtLeast(1024 * 1024);
   const load100KB = coldLoad(source100KB, 5);
@@ -258,7 +376,7 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
     editEnd1MB: { p50: median(editEnd1MB), p95: percentile(editEnd1MB, 0.95) },
     sustained100KB: { p50: median(endurance), p95: percentile(endurance, 0.95) },
     giantParagraphEdit,
-    usedHeap1MB, reactMount100KB,
+    usedHeap1MB, reactMount100KB, editMatrix, reactControlledMatrix, editMatrixHeapGrowth,
     mediaJournal: {
       ready: mediaReady,
       edit: mediaEdit,
@@ -312,6 +430,20 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(reactMount100KB, 'React 100 KB warm-core mount').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.reactMount100KB,
   );
+  expect(editMatrix.p95, 'shared browser edit matrix p95').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.editMatrixP95,
+  );
+  expect(editMatrix.enduranceP95, 'shared browser endurance p95').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.editMatrixEnduranceP95,
+  );
+  expect(reactControlledMatrix.p95, 'React controlled update matrix p95').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.reactControlledMatrixP95,
+  );
+  if (editMatrixHeapGrowth !== null) {
+    expect(editMatrixHeapGrowth, 'browser edit matrix heap growth').toBeLessThanOrEqual(
+      __MDE_PERF_BUDGETS__.editMatrixHeapGrowth,
+    );
+  }
   expect(editor1MB.chunkEls.length).toBeGreaterThan(100);
   expect(editor1MB.markdown).toContain('xxxxx');
   expect(mediaReady, '72-resource journal through resolved media').toBeLessThanOrEqual(
@@ -329,4 +461,4 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(mediaResolver.requested).toHaveLength(72);
   expect(mediaCounts).toEqual({ images: 48, videos: 8, audio: 16 });
   expect(mediaEditor.markdown).toBe(mediaSource.replace('Closing reflection', 'xClosing reflection'));
-});
+}, 120_000);

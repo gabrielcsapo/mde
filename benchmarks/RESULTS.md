@@ -70,3 +70,26 @@ renders the same 72 resources in roughly 25–30 ms and keeps the resulting edit
 12 ms. React's warm-core 100 KB mount is now separately gated at about 40–47 ms, and
 the browser suite enforces positional p95, sustained p95, and heap usage as well as its
 existing median, DOM, and scroll budgets.
+
+## Shared cross-client edit matrix — 2026-08-12
+
+The same Rust-generated 10 KB, 100 KB, 500 KB, and 1 MB documents now run through six
+edit shapes at the start, middle, and end of every client. Each case is repeated three
+times and followed by a 100-operation alternating insert/delete session. The gate checks
+the exact final Markdown as well as latency, so a fast dropped or mis-addressed edit
+cannot pass.
+
+| Client | Mixed edit matrix p95 | 100-edit endurance p95 |
+| --- | ---: | ---: |
+| Rust core | 3.36 ms | 0.05 ms |
+| JS / Chromium | 20.6 ms | 0.5 ms |
+| React controlled `value` update | 40.6 ms | covered by the JS editor below the adapter |
+| AppKit | 23.5 ms | 2.7 ms |
+| UIKit / iPhone simulator | 25.9 ms | 2.2 ms |
+
+These are regression baselines, not cross-device product claims. The matrix intentionally
+resets each edit case outside the timed interval, while the endurance workload keeps one
+live document and exposes cumulative-state regressions.
+The same run measured no retained Chromium heap growth, about 19 MiB of iOS footprint
+growth, and about 134 MiB on AppKit after cycling four full layout trees; explicit
+ceilings now catch unbounded retention alongside latency regressions.

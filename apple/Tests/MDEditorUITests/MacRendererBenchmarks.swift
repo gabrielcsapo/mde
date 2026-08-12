@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import Darwin.Mach
 import MDECore
 import MDEHost
 import XCTest
@@ -34,6 +35,39 @@ final class MacRendererBenchmarks: XCTestCase {
     private struct Corpus {
         let label: String
         let text: String
+    }
+
+    private struct EditMatrix: Decodable {
+        let repetitions: Int
+        let corpora: [String]
+        let positions: [MatrixPosition]
+        let edits: [MatrixEdit]
+        let endurance: MatrixEndurance
+    }
+
+    private struct MatrixPosition: Decodable {
+        let name: String
+        let fraction: Double
+    }
+
+    private struct MatrixEdit: Decodable {
+        let name: String
+        let deleteUtf16: Int
+        let text: String?
+        let textPattern: String?
+        let textUtf8Bytes: Int?
+
+        var replacement: String {
+            guard let bytes = textUtf8Bytes, let pattern = textPattern else { return text ?? "" }
+            let repeated = String(repeating: pattern, count: bytes / pattern.utf8.count + 1)
+            return String(decoding: repeated.utf8.prefix(bytes), as: UTF8.self)
+        }
+    }
+
+    private struct MatrixEndurance: Decodable {
+        let corpus: String
+        let position: Double
+        let operations: Int
     }
 
     /// Written by `cargo run --release --example bench -p mde-core -- --dump <dir>`.
@@ -73,6 +107,16 @@ final class MacRendererBenchmarks: XCTestCase {
         return out
     }
 
+    private func editMatrix() throws -> EditMatrix {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("benchmarks/edit-matrix.json")
+        return try JSONDecoder().decode(EditMatrix.self, from: Data(contentsOf: url))
+    }
+
     // MARK: - Timing
 
     /// Milliseconds, matching the core benchmark's units so the two tables add up.
@@ -104,6 +148,19 @@ final class MacRendererBenchmarks: XCTestCase {
         let sorted = samples.sorted()
         let index = Int(ceil(Double(sorted.count - 1) * quantile))
         return sorted[index]
+    }
+
+    private func residentMemoryBytes() -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
+        )
+        let status = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return status == KERN_SUCCESS ? info.phys_footprint : 0
     }
 
     private func enforceBudget(_ value: Double, environment key: String, metric: String) {
@@ -342,6 +399,104 @@ final class MacRendererBenchmarks: XCTestCase {
             percentile(sustained, 0.95),
             environment: "MDE_APPLE_100KB_SUSTAINED_EDIT_P95_BUDGET_MS",
             metric: "100 KB native sustained edit p95"
+        )
+        _ = window
+    }
+
+    func testBenchmarkSharedEditMatrix() throws {
+        let spec = try editMatrix()
+        let memoryBefore = residentMemoryBytes()
+        let available = Dictionary(uniqueKeysWithValues: try corpora().map { ($0.label, $0.text) })
+        var allSamples = [Double]()
+        print("\n=== shared edit matrix: AppKit (ms) ===")
+
+        for label in spec.corpora {
+            let source = try XCTUnwrap(available[label])
+            var corpusSamples = [Double]()
+            let (window, editor) = makeEditor()
+            for position in spec.positions {
+                for edit in spec.edits {
+                    var samples = [Double]()
+                    for _ in 0 ..< spec.repetitions {
+                        autoreleasepool {
+                            editor.setMarkdown(source)
+                            drainMainQueue()
+                            let storage = editor.textStorage!
+                            let start = min(
+                                Int(Double(storage.length) * position.fraction),
+                                max(0, storage.length - edit.deleteUtf16)
+                            )
+                            let range = NSRange(
+                                location: start,
+                                length: min(edit.deleteUtf16, storage.length - start)
+                            )
+                            let expected = NSMutableString(string: source)
+                            expected.replaceCharacters(in: range, with: edit.replacement)
+                            let value = timed {
+                                storage.replaceCharacters(in: range, with: edit.replacement)
+                                drainMainQueue()
+                            }
+                            XCTAssertEqual(editor.markdown, expected as String)
+                            samples.append(value)
+                            corpusSamples.append(value)
+                            allSamples.append(value)
+                        }
+                    }
+                    print(String(
+                        format: "  %-5@ %-7@ %-16@ p95 %8.2f",
+                        label as NSString,
+                        position.name as NSString,
+                        edit.name as NSString,
+                        percentile(samples, 0.95)
+                    ))
+                }
+            }
+            print(String(
+                format: "  %-5@ all edits p95 %8.2f",
+                label as NSString,
+                percentile(corpusSamples, 0.95)
+            ))
+            window.contentView = nil
+        }
+
+        let enduranceSource = try XCTUnwrap(available[spec.endurance.corpus])
+        let (window, editor) = makeEditor()
+        editor.setMarkdown(enduranceSource)
+        drainMainQueue()
+        let expected = NSMutableString(string: enduranceSource)
+        var endurance = [Double]()
+        for index in 0 ..< spec.endurance.operations {
+            let at = Int(Double(expected.length) * spec.endurance.position)
+            let range = NSRange(location: at, length: index.isMultiple(of: 2) ? 0 : 1)
+            let replacement = index.isMultiple(of: 2) ? "x" : ""
+            expected.replaceCharacters(in: range, with: replacement)
+            endurance.append(timed {
+                editor.textStorage?.replaceCharacters(in: range, with: replacement)
+                drainMainQueue()
+            })
+        }
+        XCTAssertEqual(editor.markdown, expected as String)
+        let matrixP95 = percentile(allSamples, 0.95)
+        let enduranceP95 = percentile(endurance, 0.95)
+        let memoryAfter = residentMemoryBytes()
+        let memoryGrowth = memoryAfter > memoryBefore ? memoryAfter - memoryBefore : 0
+        print(String(format: "  all matrix edits p95   %8.2f", matrixP95))
+        print(String(format: "  100-edit endurance p95 %8.2f", enduranceP95))
+        print("  matrix footprint growth   \(memoryGrowth) bytes")
+        enforceBudget(
+            matrixP95,
+            environment: "MDE_APPLE_EDIT_MATRIX_P95_BUDGET_MS",
+            metric: "AppKit shared edit matrix p95"
+        )
+        enforceBudget(
+            enduranceP95,
+            environment: "MDE_APPLE_EDIT_MATRIX_ENDURANCE_P95_BUDGET_MS",
+            metric: "AppKit shared edit matrix endurance p95"
+        )
+        enforceBudget(
+            Double(memoryGrowth),
+            environment: "MDE_APPLE_EDIT_MATRIX_MEMORY_GROWTH_BUDGET_BYTES",
+            metric: "AppKit shared edit matrix footprint growth"
         )
         _ = window
     }
