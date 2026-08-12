@@ -3,8 +3,14 @@
 // extension layer are the costs a user actually feels.
 
 import { afterEach, beforeAll, expect, test } from 'vitest';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import '../src/theme.css';
 import { MarkdownEditor, encodeManifest, loadCore } from '../dist/index.js';
+import {
+  MarkdownEditor as ReactMarkdownEditor,
+  preloadCore as preloadReactCore,
+} from '../react/dist/index.js';
 import { TypewriterMode } from '../dist/extensions/typewriter.js';
 
 /* global __MDE_PERF__, __MDE_PERF_BUDGETS__ */
@@ -48,14 +54,74 @@ function documentOfAtLeast(bytes) {
   return block.repeat(Math.ceil(bytes / block.length)).slice(0, bytes);
 }
 
-function makeEditor() {
+function makeEditor(options = {}) {
   const host = document.createElement('div');
   host.style.cssText = 'display:block;width:720px;height:480px;overflow:auto';
   document.body.appendChild(host);
   const engine = core.newEngine(manifest);
-  const editor = new MarkdownEditor(host, engine);
+  const editor = new MarkdownEditor(host, engine, options);
   live.push({ editor, engine });
   return editor;
+}
+
+function journalMediaDocument() {
+  const entries = [];
+  const append = (kind, count, extension) => {
+    for (let index = 0; index < count; index++) {
+      entries.push(
+        `### ${kind} ${index + 1}\n\n` +
+        `A journal paragraph around ${kind.toLowerCase()} ${index + 1}, with **context**, ` +
+        `a [reference](https://example.dev/${kind.toLowerCase()}/${index + 1}), and a timestamp.\n\n` +
+        `![${kind} ${index + 1}](journal/${kind.toLowerCase()}-${index + 1}.${extension})\n`,
+      );
+    }
+  };
+  append('Photo', 48, 'jpg');
+  append('Video', 8, 'mp4');
+  append('Audio', 16, 'm4a');
+  return `# Media journal\n\n${entries.join('\n')}\nClosing reflection.\n`;
+}
+
+function journalMediaResolver() {
+  const requested = [];
+  return {
+    requested,
+    async resolve({ reference }) {
+      requested.push(reference);
+      const extension = reference.split('.').pop();
+      let view;
+      if (extension === 'mp4') {
+        view = document.createElement('video');
+        view.controls = true;
+        view.preload = 'metadata';
+        view.width = 640;
+        view.height = 360;
+        view.dataset.mediaKind = 'video';
+      } else if (extension === 'm4a') {
+        view = document.createElement('audio');
+        view.controls = true;
+        view.preload = 'metadata';
+        view.setAttribute('width', '480');
+        view.setAttribute('height', '54');
+        view.dataset.mediaKind = 'audio';
+      } else {
+        view = document.createElement('img');
+        view.alt = reference;
+        view.width = 640;
+        view.height = 360;
+        view.dataset.mediaKind = 'image';
+      }
+      return { state: 'ready', view };
+    },
+    reservedSize({ reference }) {
+      if (reference.endsWith('.m4a')) return { width: 480, height: 54 };
+      return { width: 640, height: 360 };
+    },
+  };
+}
+
+function nextPaint() {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 }
 
 function timed(body) {
@@ -144,6 +210,46 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   const domNodes1MB = editor1MB.root.querySelectorAll('*').length;
   const usedHeap1MB = (/** @type {any} */ (performance)).memory?.usedJSHeapSize ?? null;
 
+  // Price the adapter itself with the shared WASM core already compiled. Network and
+  // compilation are deployment costs; this measures React commit -> usable editor.
+  await preloadReactCore('/dist/mde.wasm');
+  const reactHost = document.createElement('div');
+  document.body.appendChild(reactHost);
+  const reactRoot = createRoot(reactHost);
+  let markReactReady;
+  const reactReady = new Promise((resolve) => { markReactReady = resolve; });
+  const reactStarted = performance.now();
+  reactRoot.render(createElement(ReactMarkdownEditor, {
+    defaultValue: source100KB,
+    wasm: '/dist/mde.wasm',
+    onReady: markReactReady,
+  }));
+  await reactReady;
+  await nextPaint();
+  const reactMount100KB = performance.now() - reactStarted;
+  reactRoot.unmount();
+  reactHost.remove();
+
+  const mediaSource = journalMediaDocument();
+  const mediaResolver = journalMediaResolver();
+  const mediaEditor = makeEditor({ resourceResolver: mediaResolver });
+  const mediaStarted = performance.now();
+  mediaEditor.setMarkdown(mediaSource);
+  await nextPaint();
+  const mediaReady = performance.now() - mediaStarted;
+  const mediaCounts = {
+    images: mediaEditor.root.querySelectorAll('[data-media-kind="image"]').length,
+    videos: mediaEditor.root.querySelectorAll('[data-media-kind="video"]').length,
+    audio: mediaEditor.root.querySelectorAll('[data-media-kind="audio"]').length,
+  };
+  const mediaNodes = mediaEditor.root.querySelectorAll('*').length;
+  const mediaEditAt = mediaEditor.markdown.indexOf('Closing reflection');
+  const mediaEdit = timed(() => mediaEditor.replaceRange(mediaEditAt, mediaEditAt, 'x'));
+  const mediaScrollStarted = performance.now();
+  mediaEditor.root.scrollTop = mediaEditor.root.scrollHeight;
+  await nextPaint();
+  const mediaScroll = performance.now() - mediaScrollStarted;
+
   const report = {
     load100KB, load1MB, edit100KB, edit1MB, layer1MB, typewriter100KB, scroll1MB, domNodes1MB,
     chunks1MB: editor1MB.chunkEls.length,
@@ -152,7 +258,15 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
     editEnd1MB: { p50: median(editEnd1MB), p95: percentile(editEnd1MB, 0.95) },
     sustained100KB: { p50: median(endurance), p95: percentile(endurance, 0.95) },
     giantParagraphEdit,
-    usedHeap1MB,
+    usedHeap1MB, reactMount100KB,
+    mediaJournal: {
+      ready: mediaReady,
+      edit: mediaEdit,
+      scroll: mediaScroll,
+      nodes: mediaNodes,
+      requested: mediaResolver.requested.length,
+      ...mediaCounts,
+    },
   };
   console.log(`MDE_WEB_PERFORMANCE ${JSON.stringify(report)}`);
   await fetch('/__mde_perf_report', {
@@ -178,6 +292,41 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(domNodes1MB, '1 MB DOM element count').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.maxDomNodes1MB,
   );
+  for (const [position, samples] of [
+    ['near start', editTop1MB],
+    ['middle', editMiddle1MB],
+    ['near end', editEnd1MB],
+  ]) {
+    expect(percentile(samples, 0.95), `1 MB ${position} edit p95`).toBeLessThanOrEqual(
+      __MDE_PERF_BUDGETS__.positionEditP95,
+    );
+  }
+  expect(percentile(endurance, 0.95), '100 KB sustained edit p95').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.sustainedEditP95,
+  );
+  if (usedHeap1MB !== null) {
+    expect(usedHeap1MB, '1 MB browser heap').toBeLessThanOrEqual(
+      __MDE_PERF_BUDGETS__.maxHeap1MB,
+    );
+  }
+  expect(reactMount100KB, 'React 100 KB warm-core mount').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.reactMount100KB,
+  );
   expect(editor1MB.chunkEls.length).toBeGreaterThan(100);
   expect(editor1MB.markdown).toContain('xxxxx');
+  expect(mediaReady, '72-resource journal through resolved media').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.mediaJournalReady,
+  );
+  expect(mediaEdit, 'local edit after 72 resolved media resources').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.mediaJournalEdit,
+  );
+  expect(mediaScroll, 'two-frame scroll through a media journal').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.mediaJournalScroll,
+  );
+  expect(mediaNodes, 'media-journal DOM element count').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.maxMediaJournalNodes,
+  );
+  expect(mediaResolver.requested).toHaveLength(72);
+  expect(mediaCounts).toEqual({ images: 48, videos: 8, audio: 16 });
+  expect(mediaEditor.markdown).toBe(mediaSource.replace('Closing reflection', 'xClosing reflection'));
 });

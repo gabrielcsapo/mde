@@ -65,7 +65,7 @@ export default function Architecture() {
         </Clause>
         <Clause title="The web layer is ours, not a framework">
           CodeMirror 6 sits <em>above</em> the browser’s text engine with its own decoration and
-          transaction model. Building against it and TextKit 2 would translate one protocol into two
+          transaction model. Building against it and TextKit would translate one protocol into two
           foreign vocabularies and let the semantics drift apart.
         </Clause>
         <Clause title="A patch is the only thing renderers consume">

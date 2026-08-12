@@ -11,7 +11,7 @@ const PRINCIPLES = [
   {
     label: 'Native input',
     title: 'The platform still owns the caret.',
-    body: 'Contenteditable and TextKit 2 keep IME, selection, spellcheck, and accessibility where they belong.',
+    body: 'Contenteditable and TextKit keep IME, selection, spellcheck, and accessibility where they belong.',
   },
   {
     label: 'Portable source',

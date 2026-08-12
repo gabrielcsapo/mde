@@ -12,7 +12,7 @@ const PRINCIPLES = [
   ],
   [
     'The system text engine owns input',
-    'Native IME, autocorrect, spellcheck, selection handles and accessibility come from TextKit 2 and from the browser. We never reimplement a caret.',
+    'Native IME, autocorrect, spellcheck, selection handles and accessibility come from TextKit and from the browser. We never reimplement a caret.',
   ],
   [
     'Correctness first, incrementality later',

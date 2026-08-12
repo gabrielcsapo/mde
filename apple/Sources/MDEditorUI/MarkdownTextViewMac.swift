@@ -76,7 +76,7 @@ public final class MarkdownTextView: NSTextView {
     }
 
     private let applier: DecorationApplier
-    /// Observes the same source storage so shared TextKit 2 paragraph projections can
+    /// Observes the same source storage so the shared length-preserving projections can
     /// still be tested against the AppKit host without owning its shipping layout manager.
     let contentStorage: NSTextContentStorage
     private lazy var ownUndoManager = DisabledUndoManager()

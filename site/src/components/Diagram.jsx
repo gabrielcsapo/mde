@@ -74,10 +74,10 @@ export default function Diagram() {
           iOS
         </text>
         <text className="dg-sub" x="110" y="384" textAnchor="middle">
-          TextKit 2 attrs
+          TextKit attrs
         </text>
         <text className="dg-sub" x="110" y="400" textAnchor="middle">
-          + attachments
+          + native views
         </text>
 
         <rect className="dg-box" x="250" y="340" width="220" height="72" rx="10" />
@@ -85,10 +85,10 @@ export default function Diagram() {
           macOS
         </text>
         <text className="dg-sub" x="360" y="384" textAnchor="middle">
-          TextKit 2 attrs
+          TextKit attrs
         </text>
         <text className="dg-sub" x="360" y="400" textAnchor="middle">
-          + attachments
+          + native views
         </text>
 
         <rect className="dg-box" x="500" y="340" width="220" height="72" rx="10" />

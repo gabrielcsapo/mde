@@ -162,7 +162,7 @@ export const GROUPS = [
         file: 'apple',
         title: 'iOS and macOS',
         summary:
-          'UITextView and NSTextView on TextKit 2, sharing one applier with no UIKit or AppKit in it. Plus the reference apps, captured.',
+          'UITextView and NSTextView on incremental TextKit, sharing one applier with no UIKit or AppKit in it. Plus the reference apps, captured.',
         keywords: 'textkit uikit appkit attachment nstextattachmentviewprovider gallery screenshots',
       },
     ],

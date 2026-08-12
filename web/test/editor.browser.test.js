@@ -395,6 +395,44 @@ function makeEditor(options = {}) {
     assert(e.root.querySelector('table.mde-rendered-table'), 'the table did not render again');
   });
 
+  test('selecting table rows reveals the exact Markdown range then restores the grid', () => {
+    const e = makeEditor();
+    const source =
+      '| Person | Platform | Detail |\n' +
+      '| :--- | :---: | ---: |\n' +
+      '| **Ada** | [Web](https://example.dev) | `Wasm` |\n' +
+      '| **Grace** | *iOS* | ![chart](chart.png) |\n' +
+      '| **Linus** | ~~macOS~~ | `FFI` |\n\n' +
+      'after\n';
+    e.setMarkdown(source);
+    e.root.focus();
+
+    const start = source.indexOf('| **Ada**');
+    const end = source.indexOf('| **Linus**');
+    e.setSelectionRange({ start, end });
+    e.onSelectionChange();
+
+    assert(!e.root.querySelector('table.mde-rendered-table'), 'the grid covered selected source');
+    assertEqual(e.root.querySelectorAll('.mde-line-table').length, 5);
+    const firstSourceLine = e.root.querySelector('.mde-line-table-start');
+    assert(firstSourceLine, 'the first editable table line was not marked');
+    const sourceStyle = getComputedStyle(firstSourceLine);
+    assertEqual(sourceStyle.backgroundColor, 'rgba(0, 0, 0, 0)');
+    assertEqual(sourceStyle.borderTopWidth, '0px');
+    assertEqual(sourceStyle.borderLeftWidth, '0px');
+    assertEqual(sourceStyle.paddingLeft, '0px');
+    assertEqual(sourceStyle.boxShadow, 'none');
+    assertEqual(e.selectionRange(), { start, end });
+    assertEqual(document.getSelection()?.toString(), source.slice(start, end));
+    assertEqual(domText(e.root), source, 'selecting rows changed the Markdown source');
+
+    const after = source.indexOf('after');
+    e.setSelectionRange({ start: after, end: after });
+    e.onSelectionChange();
+    assert(e.root.querySelector('table.mde-rendered-table'), 'the grid did not return');
+    assertEqual(domText(e.root), source);
+  });
+
   test('CommonMark autolinks render as links without changing their source', () => {
     const e = makeEditor();
     const source = '<https://example.dev> and <hello@example.dev>';

@@ -74,11 +74,22 @@ enum CaptureMode {
         else { return }
         editor.setMarkdown(source)
         scroll(editor, to: top(of: editor))
-        guard scenario == "editing" else { return }
-        let range = (source as NSString).range(of: "revealed syntax")
-        guard range.location != NSNotFound else { return }
-        editor.selectedRange = NSRange(location: range.location + 4, length: 0)
-        _ = editor.becomeFirstResponder()
+        switch scenario {
+        case "editing":
+            let range = (source as NSString).range(of: "revealed syntax")
+            guard range.location != NSNotFound else { return }
+            _ = editor.becomeFirstResponder()
+            editor.selectedRange = NSRange(location: range.location + 4, length: 0)
+        case "table-editing":
+            let storage = source as NSString
+            let start = storage.range(of: "| **Ada**").location
+            let end = storage.range(of: "| **Linus**").location
+            guard start != NSNotFound, end != NSNotFound, end > start else { return }
+            _ = editor.becomeFirstResponder()
+            editor.selectedRange = NSRange(location: start, length: end - start)
+        default:
+            break
+        }
     }
 
     /// Two spaced revisions, then the history sheet — the state a hand would reach by

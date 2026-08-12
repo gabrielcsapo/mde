@@ -3,6 +3,7 @@ const SCENARIOS = [
   ['tables', 'Rich tables and resources'],
   ['extensions', 'Host-defined syntax'],
   ['editing', 'Live syntax reveal'],
+  ['table-editing', 'Selected table source'],
 ];
 
 const PLATFORMS = [

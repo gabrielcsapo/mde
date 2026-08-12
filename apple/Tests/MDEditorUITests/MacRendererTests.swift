@@ -291,6 +291,28 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(editor.markdown, source, "the native projection changed the source")
     }
 
+    func testAWideNativeTableUsesReadableColumnsAndHorizontalScrolling() throws {
+        let columns = (1...10).map { "Column \($0)" }
+        let source = "| " + columns.joined(separator: " | ") + " |\n"
+            + "| " + columns.map { _ in "---" }.joined(separator: " | ") + " |\n"
+            + "| " + columns.map { "value \($0)" }.joined(separator: " | ") + " |\n"
+        editor.setMarkdown(source)
+        let paragraph = try XCTUnwrap(editor.textContentStorage(
+            editor.contentStorage,
+            textParagraphWith: NSRange(location: 0, length: storage.length)
+        ))
+        let attachment = try XCTUnwrap(
+            paragraph.attributedString.attribute(.attachment, at: 0, effectiveRange: nil)
+                as? WidgetAttachment
+        )
+        let table = try XCTUnwrap(attachment.makeView() as? TableWidgetView)
+        let scroll = try XCTUnwrap(table.subviews.compactMap { $0 as? NSScrollView }.first)
+
+        XCTAssertTrue(scroll.hasHorizontalScroller)
+        XCTAssertGreaterThan(scroll.documentView?.frame.width ?? 0, table.bounds.width)
+        XCTAssertEqual(editor.markdown, source)
+    }
+
     func testNativeTableCellsRenderBoldLinksAndCode() {
         let bold = TableCellRenderer.render(TableCellModel(source: "Ada", inlines: [
             TableInlineDecoration(
@@ -443,24 +465,54 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(editor.markdown, source)
     }
 
-    func testMovingTheCaretIntoATableRevealsPipesThenRestoresTheNativeGrid() throws {
-        let source = "| Name | Score |\n| :--- | ----: |\n| Ada | 10 |\n\nafter"
+    func testSelectingTableRowsRevealsExactPipesThenRestoresTheNativeGrid() throws {
+        let source = """
+        | Person | Platform | Detail |
+        | :--- | :---: | ---: |
+        | **Ada** | [Web](https://example.dev) | `Wasm` |
+        | **Grace** | *iOS* | ![chart](chart.png) |
+        | **Linus** | ~~macOS~~ | `FFI` |
+
+        after
+        """
         editor.setMarkdown(source)
         focus()
+        forceLayout()
+        XCTAssertTrue(editor.subviews.compactMap { $0 as? WidgetContainer }.contains {
+            $0.subviews.contains { $0 is TableWidgetView }
+        })
 
-        editor.setSelectedRange(NSRange(location: source.range(of: "Ada")!.lowerBound.utf16Offset(
-            in: source
-        ), length: 0))
+        let storage = source as NSString
+        let start = storage.range(of: "| **Ada**").location
+        let end = storage.range(of: "| **Linus**").location
+        let selectedRows = NSRange(location: start, length: end - start)
+        editor.setSelectedRange(selectedRows)
+        forceLayout()
         XCTAssertEqual(
             try XCTUnwrap(editor.decorations.first { $0.role == Role.table }).kind,
             .style
         )
+        XCTAssertEqual(editor.selectedRange(), selectedRows)
+        XCTAssertEqual(
+            storage.substring(with: selectedRows),
+            "| **Ada** | [Web](https://example.dev) | `Wasm` |\n"
+                + "| **Grace** | *iOS* | ![chart](chart.png) |\n"
+        )
+        XCTAssertFalse(editor.subviews.compactMap { $0 as? WidgetContainer }.contains {
+            $0.subviews.contains { $0 is TableWidgetView }
+        }, "the native grid stayed over selected Markdown")
+        XCTAssertEqual(editor.markdown, source)
 
         editor.setSelectedRange(NSRange(location: (source as NSString).range(of: "after").location, length: 0))
+        forceLayout()
         XCTAssertEqual(
             try XCTUnwrap(editor.decorations.first { $0.role == Role.table }).kind,
             .blockWidget
         )
+        XCTAssertTrue(editor.subviews.compactMap { $0 as? WidgetContainer }.contains {
+            $0.subviews.contains { $0 is TableWidgetView }
+        }, "the native grid did not return after the selection left")
+        XCTAssertEqual(editor.markdown, source)
     }
 
     func testMarkersAreConcealedWhileUnfocused() {

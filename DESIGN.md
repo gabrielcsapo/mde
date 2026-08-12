@@ -480,27 +480,24 @@ given the flat struct interface.
 
 ## 7. Renderers
 
-**Apple (built).** `UITextView` on TextKit 2, in `apple/Sources/MDEditorUI`.
+**Apple (built).** `UITextView` and `NSTextView` on TextKit 1's incremental
+`NSLayoutManager`, in `apple/Sources/MDEditorUI`.
 
 | primitive | how it is drawn |
 |---|---|
 | `Style` | `NSAttributedString` attributes from `Theme` |
 | `Conceal` | 0.01pt font + clear colour |
-| `InlineWidget` / `BlockWidget` | `NSTextAttachmentViewProvider`, installed by paragraph substitution |
+| `InlineWidget` / `BlockWidget` | length-preserving control glyph + viewport-managed native view overlay |
 | `Gutter` | the marker character, themed |
 | `Hit` | tap-tested against `live` decorations |
 
 Four things this cost that the spec did not anticipate:
 
-**Attachments need a `U+FFFC`, and the storage must stay pure markdown.** Setting
-`.attachment` on an ordinary character does nothing — TextKit only draws an attachment
-where that character sits. The resolution is `NSTextContentStorageDelegate`, which
-lets the *display* string for a paragraph differ from the backing store: the widget's
-first character is swapped for the attachment character, one for one. The substitution
-is strictly length-preserving; a length change there desynchronises every selection
-and edit offset in the view. A multi-line block widget then works for free — the
-remaining characters are concealed, and a 0.01pt newline contributes ~0 height, so
-only the attachment's own height shows.
+**Widgets must not alter the backing string.** TextKit 1 can reserve glyph geometry for
+an ordinary source character without replacing it. The widget's first character becomes
+a length-preserving control glyph and a viewport-managed native view is placed over its
+layout fragment. The remaining source is concealed. Selection, copy/paste, and every
+offset therefore continue to address the exact markdown string.
 
 **Concealing by shrinking, not by removing.** A hairline font keeps the character
 count 1:1 with the source, which is what keeps every offset in the system honest.
@@ -546,7 +543,7 @@ the text container has a width, so resolution must wait for a real one — and a
 a *size* has to start the load, or a resource skipped for want of a width is never
 requested again.
 
-**macOS (built).** `NSTextView` with TextKit 1's incremental `NSLayoutManager`.
+**Why TextKit 1 on both Apple clients.**
 
 TextKit 2's smallest invalidation unit is a paragraph. A hostile document containing a
 single multi-kilobyte wrapped line therefore asked CoreText to reshape the entire line on
@@ -554,9 +551,9 @@ every keypress, even though parsing and decoration painting were local. The meas
 32 KiB edit took seconds. TextKit 1 keeps non-contiguous layout genuinely incremental;
 the same wrapped edit now has a checked 250 ms ceiling and measures tens of milliseconds.
 
-AppKit's older layout manager does not host arbitrary attachment views without replacing
-source characters, so widgets use length-preserving control glyphs plus viewport-managed
-native view overlays. Their geometry still comes from `WidgetAttachment`, and the backing
+The layout manager does not host arbitrary attachment views without replacing source
+characters, so widgets use length-preserving control glyphs plus viewport-managed native
+view overlays. Their geometry still comes from `WidgetAttachment`, and the backing
 character remains the original markdown. Paragraphs above 8 KiB also paint syntax only
 around the viewport. Wrapping, selection offsets, copy/paste, widget interaction, and
 `NSTextStorage.string` therefore stay exact; `optimizesLongParagraphLayout = false`
@@ -575,9 +572,9 @@ share.
 
 **Web (built).** Our own layer over `contenteditable` — not a framework. The browser
 supplies IME, spellcheck, accessibility, and touch selection; we supply span
-application and replaced elements, exactly as on TextKit 2. CodeMirror 6 was rejected:
+application and replaced elements, analogous to the native TextKit projections. CodeMirror 6 was rejected:
 it is a framework *above* the browser's text engine with its own decoration and
-transaction model, so building against it and TextKit 2 would translate our protocol
+transaction model, so building against it and TextKit would translate our protocol
 into two foreign vocabularies and let the semantics of §4 drift apart.
 
 The host rests on one invariant: **the DOM's text, excluding `data-mde-ignore`
@@ -747,9 +744,6 @@ Three decisions are worth stating:
 - Soft-wrap interaction with `Gutter` depth on deeply nested quotes is unspecified.
   Gutters are currently drawn as the themed marker character rather than true margin
   content.
-- `swiftc -O` crashes on `super.init(usingTextLayoutManager:)` (Swift 6.3, SIL
-  CopyPropagation). Worked around by assembling the TextKit 2 stack by hand; worth
-  reporting upstream.
 
 ### Closed
 
@@ -767,7 +761,7 @@ Three decisions are worth stating:
 
 1. ~~Rust core: rope, parse, decorate, key, diff, golden-file corpus~~ — done
 2. ~~Undo/redo owned by the core~~ — done (§9)
-3. ~~iOS renderer on TextKit 2~~ — done (§7)
+3. ~~iOS renderer on incremental TextKit~~ — done (§7)
 4. ~~Reference app shell~~ — done, running in the simulator
 5. ~~Resource references with async resolution~~ — done (§5.1)
 6. ~~macOS renderer sharing the Swift package~~ — done (§7)

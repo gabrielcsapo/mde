@@ -19,7 +19,7 @@ export default function RefSwift() {
           {
             to: '/platforms/apple',
             title: 'iOS and macOS',
-            note: 'what these types do to TextKit 2',
+            note: 'what these types do to TextKit',
           },
           {
             to: '/reference/ffi',

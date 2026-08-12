@@ -21,12 +21,12 @@ export default function Web() {
       <H2 id="not-a-framework">Our own layer, not a framework</H2>
       <Lede>
         The browser supplies IME, spellcheck, accessibility and touch selection; we supply span
-        application and replaced elements — exactly as on TextKit 2. This sits <em>at</em> the level
+        application and replaced elements — analogous to the native TextKit projection. This sits <em>at</em> the level
         of the browser’s text engine, not above it.
       </Lede>
       <p>
         CodeMirror 6 was rejected for that reason. It is a framework above the browser’s text engine
-        with its own decoration and transaction model, so building against it and TextKit 2 would
+        with its own decoration and transaction model, so building against it and TextKit would
         translate one protocol into two foreign vocabularies and let{' '}
         <Link to="/concepts/widgets">the widget semantics</Link> drift apart — which is the
         highest-risk failure mode in the project.
@@ -136,7 +136,7 @@ export default function Web() {
           {
             to: '/platforms/apple',
             title: 'iOS and macOS',
-            note: 'the same primitives against TextKit 2',
+            note: 'the same primitives against native TextKit',
           },
           { to: '/reference/roles', title: 'Roles and CSS classes', note: 'what to style' },
           { to: '/internals/testing', title: 'Testing', note: 'why the web suite runs in a real browser' },

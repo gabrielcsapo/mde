@@ -176,6 +176,28 @@ async function capture(cdp, origin, variant, scenario) {
       const revealAt = window.__mde.editor.markdown.indexOf(${JSON.stringify(scenario.reveal)});
       window.__mde.editor.setSelectionRange({start: revealAt + 4, end: revealAt + 4});
       window.__mde.editor.onSelectionChange();` : ''}
+      ${scenario.selection ? `
+      window.__mde.editor.root.focus();
+      const selectionStart = window.__mde.editor.markdown.indexOf(${JSON.stringify(scenario.selection.start)});
+      const selectionEnd = window.__mde.editor.markdown.indexOf(${JSON.stringify(scenario.selection.end)});
+      if (selectionStart < 0 || selectionEnd <= selectionStart) {
+        throw new Error('table selection markers were not found');
+      }
+      window.__mde.editor.setSelectionRange({start: selectionStart, end: selectionEnd});
+      window.__mde.editor.onSelectionChange();
+      const actualSelection = window.__mde.editor.selectionRange();
+      if (actualSelection.start !== selectionStart || actualSelection.end !== selectionEnd) {
+        throw new Error('editor did not preserve the requested table row selection');
+      }
+      if (window.__mde.editor.markdown !== ${JSON.stringify(scenario.markdown)}) {
+        throw new Error('revealing the selected table changed its Markdown source');
+      }
+      if (window.__mde.editor.root.querySelector('table.mde-rendered-table')) {
+        throw new Error('the rendered table stayed over the selected pipe source');
+      }
+      if (window.__mde.editor.root.querySelectorAll('.mde-line-table').length < 5) {
+        throw new Error('the selected table did not reveal all source lines');
+      }` : ''}
       return true;
     })()`
   );

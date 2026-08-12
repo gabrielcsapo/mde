@@ -325,40 +325,64 @@ final class TableTextCellView: NSTextView, NSTextViewDelegate {
     }
 }
 #else
-/// Selectable native text gives links touch, keyboard, and VoiceOver interaction.
-final class TableTextCellView: UITextView, UITextViewDelegate {
+/// A lightweight label keeps large linked tables from allocating one complete TextKit
+/// stack per cell. A TextKit hit-test stack is created only for the cell being tapped.
+final class TableTextCellView: UILabel {
     private let onOpenLink: ((String) -> Void)?
 
     init(content: NSAttributedString, alignment: NSTextAlignment, onOpenLink: ((String) -> Void)?) {
         self.onOpenLink = onOpenLink
-        super.init(frame: .zero, textContainer: nil)
+        super.init(frame: .zero)
         attributedText = content
-        isEditable = false
-        isSelectable = true
-        isScrollEnabled = false
-        backgroundColor = .clear
-        textContainerInset = .zero
-        textContainer.lineFragmentPadding = 0
-        self.textAlignment = alignment
-        delegate = self
+        numberOfLines = 0
+        lineBreakMode = .byWordWrapping
+        textAlignment = alignment
+        isUserInteractionEnabled = true
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openTappedLink(_:))))
         accessibilityIdentifier = "mde.table-cell"
+        accessibilityTraits.insert(.link)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    func textView(
-        _ textView: UITextView,
-        primaryActionFor textItem: UITextItem,
-        defaultAction: UIAction
-    ) -> UIAction? {
-        guard case .link(let url) = textItem.content else { return defaultAction }
-        return UIAction { [weak self] _ in self?.onOpenLink?(url.absoluteString) }
+    @objc private func openTappedLink(_ recognizer: UITapGestureRecognizer) {
+        guard let index = characterIndex(at: recognizer.location(in: self)) else { return }
+        _ = activateLink(at: index)
+    }
+
+    private func characterIndex(at point: CGPoint) -> Int? {
+        guard let attributedText, attributedText.length > 0 else { return nil }
+        let storage = NSTextStorage(attributedString: attributedText)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: bounds.size)
+        container.lineFragmentPadding = 0
+        container.maximumNumberOfLines = numberOfLines
+        container.lineBreakMode = lineBreakMode
+        storage.addLayoutManager(layout)
+        layout.addTextContainer(container)
+        layout.ensureLayout(for: container)
+
+        let used = layout.usedRect(for: container)
+        let x: CGFloat = switch textAlignment {
+        case .center: (bounds.width - used.width) / 2 - used.minX
+        case .right: bounds.width - used.width - used.minX
+        default: -used.minX
+        }
+        let y = (bounds.height - used.height) / 2 - used.minY
+        let local = CGPoint(x: point.x - x, y: point.y - y)
+        let glyph = layout.glyphIndex(for: local, in: container)
+        guard layout.boundingRect(
+            forGlyphRange: NSRange(location: glyph, length: 1),
+            in: container
+        ).contains(local) else { return nil }
+        return layout.characterIndexForGlyph(at: glyph)
     }
 
     @discardableResult
     func activateLink(at index: Int) -> Bool {
-        guard index >= 0, index < attributedText.length,
+        guard let attributedText,
+              index >= 0, index < attributedText.length,
               let value = attributedText.attribute(.link, at: index, effectiveRange: nil)
         else { return false }
         let destination = (value as? URL)?.absoluteString ?? value as? String
@@ -531,16 +555,25 @@ private extension PlatformView {
 
 /// Native grid view shared by UIKit and AppKit. Equal columns keep the projection
 /// stable across platforms; row height expands for wrapped or formatted cell content.
+private final class TableGridView: PlatformView {
+    #if os(macOS)
+    override var isFlipped: Bool { true }
+    #endif
+}
+
 final class TableWidgetView: PlatformView {
     private static let horizontalInset: CGFloat = 12
     private static let verticalInset: CGFloat = 9
     private static let minimumRowHeight: CGFloat = 40
+    private static let minimumColumnWidth: CGFloat = 120
     private static let rule: CGFloat = 1
 
     let model: MarkdownTableModel
     private let cells: [PlatformView]
     private let rowBackgrounds: [PlatformView]
     private let rules: [PlatformView]
+    private let gridView: TableGridView
+    private let scrollView: PlatformView
     private var targetSize: CGSize
 
     init(
@@ -552,7 +585,8 @@ final class TableWidgetView: PlatformView {
         self.model = model
         targetSize = Self.size(for: model, fittingWidth: fittingWidth)
 
-        let columnWidth = fittingWidth / CGFloat(max(model.rows[0].count, 1))
+        let gridWidth = Self.gridWidth(for: model, fittingWidth: fittingWidth)
+        let columnWidth = gridWidth / CGFloat(max(model.rows[0].count, 1))
         var cells = [PlatformView]()
         for (rowIndex, row) in model.rows.enumerated() {
             for (column, cell) in row.enumerated() {
@@ -598,8 +632,31 @@ final class TableWidgetView: PlatformView {
         rowBackgrounds = model.rows.indices.map { _ in PlatformView(frame: .zero) }
         rules = (0..<(max(0, model.rows.count - 1) + max(0, model.rows[0].count - 1)))
             .map { _ in PlatformView(frame: .zero) }
+        gridView = TableGridView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: gridWidth,
+            height: targetSize.height
+        ))
+        #if os(macOS)
+        let scroll = NSScrollView(frame: CGRect(origin: .zero, size: targetSize))
+        scroll.drawsBackground = false
+        scroll.hasHorizontalScroller = gridWidth > targetSize.width
+        scroll.hasVerticalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.documentView = gridView
+        scrollView = scroll
+        #else
+        let scroll = UIScrollView(frame: CGRect(origin: .zero, size: targetSize))
+        scroll.alwaysBounceHorizontal = gridWidth > targetSize.width
+        scroll.showsHorizontalScrollIndicator = gridWidth > targetSize.width
+        scroll.contentSize = gridView.frame.size
+        scroll.addSubview(gridView)
+        scrollView = scroll
+        #endif
 
         super.init(frame: CGRect(origin: .zero, size: targetSize))
+        addSubview(scrollView)
         #if os(macOS)
         identifier = NSUserInterfaceItemIdentifier("mde.rendered-table")
         wantsLayer = true
@@ -628,7 +685,7 @@ final class TableWidgetView: PlatformView {
                     ? PlatformColor.platformSecondaryBackground.withAlphaComponent(0.38)
                     : .clear
             #endif
-            addSubview(background)
+            gridView.addSubview(background)
         }
         for rule in rules {
             #if os(macOS)
@@ -636,9 +693,9 @@ final class TableWidgetView: PlatformView {
             #else
             rule.backgroundColor = PlatformColor.platformTertiaryLabel.withAlphaComponent(0.24)
             #endif
-            addSubview(rule)
+            gridView.addSubview(rule)
         }
-        cells.forEach(addSubview)
+        cells.forEach(gridView.addSubview)
         #if os(macOS)
         updateAppearanceColors()
         #endif
@@ -650,7 +707,8 @@ final class TableWidgetView: PlatformView {
 
     static func size(for model: MarkdownTableModel, fittingWidth: CGFloat) -> CGSize {
         let width = fittingWidth > 1 ? fittingWidth : 320
-        let columnWidth = width / CGFloat(max(model.rows[0].count, 1))
+        let columnWidth = gridWidth(for: model, fittingWidth: width)
+            / CGFloat(max(model.rows[0].count, 1))
         let rowHeights = model.rows.enumerated().map { rowIndex, row in
             rowHeight(row, header: rowIndex == 0, columnWidth: columnWidth)
         }
@@ -660,11 +718,19 @@ final class TableWidgetView: PlatformView {
         )
     }
 
+    private static func gridWidth(for model: MarkdownTableModel, fittingWidth: CGFloat) -> CGFloat {
+        max(
+            fittingWidth > 1 ? fittingWidth : 320,
+            CGFloat(max(model.rows[0].count, 1)) * minimumColumnWidth
+        )
+    }
+
     override var intrinsicContentSize: CGSize { targetSize }
 
     private func layoutGrid() {
         let columns = max(model.rows[0].count, 1)
-        let columnWidth = bounds.width / CGFloat(columns)
+        let width = Self.gridWidth(for: model, fittingWidth: bounds.width)
+        let columnWidth = width / CGFloat(columns)
         var y: CGFloat = 0
         var cellIndex = 0
         var horizontalRule = 0
@@ -674,7 +740,7 @@ final class TableWidgetView: PlatformView {
                 header: rowIndex == 0,
                 columnWidth: columnWidth
             )
-            rowBackgrounds[rowIndex].frame = CGRect(x: 0, y: y, width: bounds.width, height: rowHeight)
+            rowBackgrounds[rowIndex].frame = CGRect(x: 0, y: y, width: width, height: rowHeight)
             for column in 0..<columns {
                 cells[cellIndex].frame = CGRect(
                     x: CGFloat(column) * columnWidth + Self.horizontalInset,
@@ -687,7 +753,7 @@ final class TableWidgetView: PlatformView {
             y += rowHeight
             if rowIndex < model.rows.count - 1 {
                 rules[horizontalRule].frame = CGRect(
-                    x: 0, y: y - Self.rule / 2, width: bounds.width, height: Self.rule
+                    x: 0, y: y - Self.rule / 2, width: width, height: Self.rule
                 )
                 horizontalRule += 1
             }
@@ -702,6 +768,17 @@ final class TableWidgetView: PlatformView {
             horizontalRule += 1
         }
         targetSize = CGSize(width: bounds.width, height: y)
+        scrollView.frame = bounds
+        gridView.frame = CGRect(x: 0, y: 0, width: width, height: y)
+        #if os(macOS)
+        (scrollView as? NSScrollView)?.hasHorizontalScroller = width > bounds.width
+        #else
+        if let scroll = scrollView as? UIScrollView {
+            scroll.alwaysBounceHorizontal = width > bounds.width
+            scroll.showsHorizontalScrollIndicator = width > bounds.width
+            scroll.contentSize = CGSize(width: width, height: y)
+        }
+        #endif
     }
 
     private static func rowHeight(_ row: [TableCellModel], header: Bool, columnWidth: CGFloat) -> CGFloat {
@@ -710,10 +787,23 @@ final class TableWidgetView: PlatformView {
                 let width = min(TableImageCellView.maximumWidthForLayout, max(columnWidth - horizontalInset * 2, 36))
                 return ceil(width * 9 / 16) + verticalInset * 2
             }
+            let availableWidth = max(columnWidth - horizontalInset * 2, 20)
+            let hasRichContent = cell.inlines.contains {
+                $0.kind == .inlineWidget
+                    || $0.role == Role.emphasis
+                    || $0.role == Role.strong
+                    || $0.role == Role.strikethrough
+                    || $0.role == Role.codeInline
+                    || $0.role == Role.linkText
+            }
+            if !hasRichContent,
+               CGFloat((cell.source as NSString).length) * 8 <= availableWidth {
+                return minimumRowHeight
+            }
             let content = TableCellRenderer.render(cell, header: header)
             let bounds = content.boundingRect(
                 with: CGSize(
-                    width: max(columnWidth - horizontalInset * 2, 20),
+                    width: availableWidth,
                     height: .greatestFiniteMagnitude
                 ),
                 options: [.usesLineFragmentOrigin, .usesFontLeading],

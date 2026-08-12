@@ -47,8 +47,7 @@ public extension WidgetProvider {
     func widgetWantsTouches(roleName _: String) -> Bool { false }
 }
 
-/// Carries context through to the view provider. TextKit 2 instantiates providers
-/// lazily, so the attachment is the only place to stash it.
+/// Carries context and geometry from the source decoration to the viewport overlay.
 final class WidgetAttachment: NSTextAttachment {
     let roleName: String
     let source: String

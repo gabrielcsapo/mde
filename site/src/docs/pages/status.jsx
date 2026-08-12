@@ -4,7 +4,7 @@ import { Link } from '../../lib/router.jsx';
 const SEQUENCE = [
   ['Rust core: rope, parse, decorate, key, diff, golden corpus', 'done'],
   ['Undo/redo owned by the core', 'done'],
-  ['iOS renderer on TextKit 2', 'done'],
+  ['iOS renderer on incremental TextKit', 'done'],
   ['Reference app shell', 'done'],
   ['Resource references with async resolution', 'done'],
   ['macOS renderer sharing the Swift package', 'done'],
@@ -26,10 +26,6 @@ const OPEN = [
   [
     'Gutters under soft wrap',
     'Soft-wrap interaction with Gutter depth on deeply nested quotes is unspecified. Gutters are currently drawn as the themed marker character rather than as true margin content.',
-  ],
-  [
-    'A Swift optimizer crash',
-    'swiftc -O crashes on super.init(usingTextLayoutManager:) (Swift 6.3, SIL CopyPropagation). Worked around by assembling the TextKit 2 stack by hand; worth reporting upstream.',
   ],
 ];
 

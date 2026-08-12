@@ -23,7 +23,7 @@ public extension MarkdownTextViewDelegate {
     func markdownTextViewDidChangeSelection(_: MarkdownTextView) {}
 }
 
-/// A `UITextView` on TextKit 2 that renders markdown inline.
+/// A `UITextView` on TextKit 1's incremental layout manager that renders markdown inline.
 ///
 /// The text storage stays exactly the markdown source — no substitution, no separate
 /// model. Everything visible is an attribute or an attachment applied over that
@@ -63,14 +63,30 @@ public final class MarkdownTextView: UITextView {
         }
     }
 
+    /// Bounds syntax painting for pathological paragraphs without changing wrapping.
+    /// The incremental layout manager and a small painted viewport keep hostile input
+    /// responsive while source, selection offsets, and decorations remain exact.
+    public var optimizesLongParagraphLayout = true {
+        didSet {
+            updateLongParagraphLayout()
+            usesViewportPainting = textStorage.length > Self.eagerPaintLimit
+                || longParagraphAnchor != nil
+            refreshPainting()
+        }
+    }
+
     private let applier: DecorationApplier
     private let contentStorage: NSTextContentStorage
     private lazy var ownUndoManager = DisabledUndoManager()
     private static let eagerPaintLimit = 256 * 1024
+    private static let longParagraphThreshold = 8 * 1024
+    private var longParagraphAnchor: Int?
     private var usesViewportPainting = false
     private var paintedRanges: [NSRange] = []
     private var viewportPaintScheduled = false
     private var pendingPaintLocation: Int?
+    private var widgetOverlays: [UInt64: WidgetContainer] = [:]
+    private var widgetLayoutScheduled = false
     var pluginInstallations: [MarkdownPluginInstallation] = []
 
     /// Set while an undo is written into the storage, so it is not reported back to the
@@ -90,21 +106,23 @@ public final class MarkdownTextView: UITextView {
     public init(engine: MarkdownEngine, theme: Theme = Theme()) {
         applier = DecorationApplier(engine: engine, theme: theme)
 
-        // The TextKit 2 stack is assembled by hand rather than via
-        // `super.init(usingTextLayoutManager:)`, which crashes the Swift 6.3 optimizer
-        // (SIL CopyPropagation, "leaked owned value"). Explicit is better here anyway:
-        // the layout manager is needed directly for attachment view providers.
+        // Assemble TextKit 1 explicitly so UIKit and AppKit share the same incremental
+        // layout behavior and control-glyph widget geometry.
         let contentStorage = NSTextContentStorage()
-        let layoutManager = NSTextLayoutManager()
+        let storage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
         let container = NSTextContainer(
             size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         )
         container.widthTracksTextView = true
-        layoutManager.textContainer = container
-        contentStorage.addTextLayoutManager(layoutManager)
+        storage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(container)
+        contentStorage.textStorage = storage
         self.contentStorage = contentStorage
 
         super.init(frame: .zero, textContainer: container)
+        layoutManager.delegate = self
+        layoutManager.allowsNonContiguousLayout = true
 
         applier.widgetProvider = nil
         applier.openLink = { [weak self] destination in
@@ -113,6 +131,7 @@ public final class MarkdownTextView: UITextView {
         }
         applier.resources.onResolved = { [weak self] reference in
             self?.repaintNodes(referencing: reference)
+            self?.scheduleWidgetLayout()
         }
         textStorage.delegate = self
         contentStorage.delegate = self
@@ -156,12 +175,14 @@ public final class MarkdownTextView: UITextView {
     override public func layoutSubviews() {
         super.layoutSubviews()
         scheduleViewportPaint()
+        scheduleWidgetLayout()
     }
 
     override public func scrollRangeToVisible(_ range: NSRange) {
         super.scrollRangeToVisible(range)
         pendingPaintLocation = range.location
         scheduleViewportPaint()
+        scheduleWidgetLayout()
     }
 
     /// The platform undo manager is deliberately inert: it sees keystrokes, not
@@ -179,10 +200,13 @@ public final class MarkdownTextView: UITextView {
     public var decorations: [Decoration] { applier.decorations }
 
     public func setMarkdown(_ text: String) {
+        updateLongParagraphLayout(in: text as NSString)
         // TextKit may ask for presentation paragraphs synchronously while replacing
         // storage. Drop old-document widget ranges first so they can never be sliced
         // from the new, possibly shorter buffer.
         applier.reset()
+        widgetOverlays.values.forEach { $0.removeFromSuperview() }
+        widgetOverlays.removeAll()
         isRewinding = true
         textStorage.setAttributedString(
             NSAttributedString(string: text, attributes: theme.baseAttributes)
@@ -191,9 +215,61 @@ public final class MarkdownTextView: UITextView {
 
         applier.ingest(engine.reset(text))
         usesViewportPainting = textStorage.length > Self.eagerPaintLimit
+            || longParagraphAnchor != nil
         paintedRanges.removeAll()
         refreshPainting()
         pluginsDidChangeMarkdown()
+    }
+
+    private static func longParagraph(in source: NSString) -> NSRange? {
+        var location = 0
+        while location < source.length {
+            let paragraph = source.paragraphRange(for: NSRange(location: location, length: 0))
+            if paragraph.length >= longParagraphThreshold { return paragraph }
+            let next = paragraph.upperBound
+            guard next > location else { break }
+            location = next
+        }
+        return nil
+    }
+
+    private func updateLongParagraphLayout() {
+        updateLongParagraphLayout(in: textStorage.string as NSString)
+    }
+
+    private func updateLongParagraphLayout(in source: NSString) {
+        let paragraph = optimizesLongParagraphLayout ? Self.longParagraph(in: source) : nil
+        setLongParagraphLayout(anchor: paragraph?.location)
+    }
+
+    private func updateLongParagraphLayout(afterEditAt location: Int, delta: Int) {
+        let source = textStorage.string as NSString
+        guard optimizesLongParagraphLayout else {
+            setLongParagraphLayout(anchor: nil)
+            return
+        }
+
+        if let anchor = longParagraphAnchor, source.length > 0 {
+            let shifted = anchor >= location ? max(0, anchor + delta) : anchor
+            let safe = min(shifted, source.length - 1)
+            let paragraph = source.paragraphRange(for: NSRange(location: safe, length: 0))
+            if paragraph.length >= Self.longParagraphThreshold {
+                setLongParagraphLayout(anchor: paragraph.location)
+                return
+            }
+        } else if source.length > 0 {
+            let safe = min(location, source.length - 1)
+            let paragraph = source.paragraphRange(for: NSRange(location: safe, length: 0))
+            if paragraph.length >= Self.longParagraphThreshold {
+                setLongParagraphLayout(anchor: paragraph.location)
+                return
+            }
+        }
+        setLongParagraphLayout(anchor: Self.longParagraph(in: source)?.location)
+    }
+
+    private func setLongParagraphLayout(anchor: Int?) {
+        longParagraphAnchor = optimizesLongParagraphLayout ? anchor : nil
     }
 
     // MARK: - Undo
@@ -236,6 +312,7 @@ public final class MarkdownTextView: UITextView {
         textStorage.endEditing()
         isRewinding = false
 
+        updateLongParagraphLayout()
         applier.ingest(rewind.patch)
         refreshPainting()
         if let sel = rewind.selection, sel.upperBound <= textStorage.length {
@@ -343,17 +420,35 @@ public final class MarkdownTextView: UITextView {
         // Disjoint ranges, not a bounding box: see `dirtyRanges`.
         let dirty = applier.dirtyRanges(for: patch, alsoDirty: alsoDirty)
         applier.ingest(patch)
+        // A reveal patch can turn a projected widget back into styled source. Remove
+        // that overlay immediately so selection never sits behind a stale native view.
+        for key in widgetOverlays.keys {
+            guard let decoration = applier.live[key],
+                  decoration.kind == .inlineWidget || decoration.kind == .blockWidget
+            else {
+                widgetOverlays.removeValue(forKey: key)?.removeFromSuperview()
+                continue
+            }
+        }
         if usesViewportPainting, alsoDirty != nil { paintedRanges.removeAll() }
         for range in dirty {
             applier.repaint(range, in: textStorage)
             rememberPainted(range)
         }
         scheduleViewportPaint()
+        if patch.added.contains(where: {
+            $0.kind == .inlineWidget || $0.kind == .blockWidget
+        }) {
+            layoutWidgetOverlays()
+        } else {
+            scheduleWidgetLayout()
+        }
     }
 
     private func repaintAll() {
         applier.repaint(NSRange(location: 0, length: textStorage.length), in: textStorage)
         paintedRanges = [NSRange(location: 0, length: textStorage.length)]
+        scheduleWidgetLayout()
     }
 
     private func refreshPainting() {
@@ -372,21 +467,32 @@ public final class MarkdownTextView: UITextView {
     }
 
     private func repaintViewport() {
-        guard usesViewportPainting, textStorage.length > 0 else { return }
-        let viewport = contentStorage.textLayoutManagers.first?
-            .textViewportLayoutController.viewportRange
-        let viewportTop = viewport.map {
-            contentStorage.offset(from: contentStorage.documentRange.location, to: $0.location)
-        } ?? 0
-        let viewportBottom = viewport.map {
-            contentStorage.offset(from: contentStorage.documentRange.location, to: $0.endLocation)
-        } ?? viewportTop
+        guard usesViewportPainting, textStorage.length > 0 else {
+            return
+        }
+        let origin = CGPoint(x: textContainerInset.left, y: textContainerInset.top)
+        let viewportRect = bounds.offsetBy(dx: -origin.x, dy: -origin.y)
+        let viewportGlyphs = layoutManager.glyphRange(
+            forBoundingRect: viewportRect,
+            in: textContainer
+        )
+        let viewportCharacters = layoutManager.characterRange(
+            forGlyphRange: viewportGlyphs,
+            actualGlyphRange: nil
+        )
+        let viewportTop = viewportCharacters.location
+        let viewportBottom = viewportCharacters.upperBound
         let target = pendingPaintLocation
         pendingPaintLocation = nil
         let top = target ?? viewportTop
         let bottom = target ?? viewportBottom
-        let from = max(0, min(top, bottom) - 4096)
-        let to = min(textStorage.length, max(max(top, bottom) + 4096, from + 8192))
+        let paintRadius = longParagraphAnchor == nil ? 4096 : 256
+        let minimumPaint = longParagraphAnchor == nil ? 8192 : 512
+        let from = max(0, min(top, bottom) - paintRadius)
+        let to = min(
+            textStorage.length,
+            max(max(top, bottom) + paintRadius, from + minimumPaint)
+        )
         let range = NSRange(location: from, length: max(0, to - from))
         guard !paintedRanges.contains(where: {
             $0.location <= range.location && $0.upperBound >= range.upperBound
@@ -405,6 +511,89 @@ public final class MarkdownTextView: UITextView {
     private func repaintNodes(referencing reference: String) {
         for range in applier.ranges(referencing: reference) {
             applier.repaint(range, in: textStorage)
+        }
+        scheduleWidgetLayout()
+    }
+
+    private func scheduleWidgetLayout() {
+        guard !widgetLayoutScheduled else { return }
+        widgetLayoutScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.widgetLayoutScheduled = false
+            self.layoutWidgetOverlays()
+        }
+    }
+
+    /// TextKit 1 reserves widget glyph geometry; this keeps only views near the
+    /// viewport alive, matching the lazy resource behavior of the web renderer.
+    private func layoutWidgetOverlays() {
+        guard textStorage.length > 0 else {
+            widgetOverlays.values.forEach { $0.removeFromSuperview() }
+            widgetOverlays.removeAll()
+            return
+        }
+        let origin = CGPoint(x: textContainerInset.left, y: textContainerInset.top)
+        let viewport = bounds
+            .insetBy(dx: -bounds.width, dy: -bounds.height)
+            .offsetBy(dx: -origin.x, dy: -origin.y)
+        let glyphs = layoutManager.glyphRange(forBoundingRect: viewport, in: textContainer)
+        guard glyphs.length > 0 else { return }
+        let characters = layoutManager.characterRange(
+            forGlyphRange: glyphs,
+            actualGlyphRange: nil
+        )
+        var visibleKeys = Set<UInt64>()
+        textStorage.enumerateAttribute(
+            DecorationApplier.widgetAttachmentAttribute,
+            in: characters,
+            options: []
+        ) { value, range, _ in
+            guard let attachment = value as? WidgetAttachment else { return }
+            let widgetGlyphs = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: range.location, length: 1),
+                actualCharacterRange: nil
+            )
+            guard widgetGlyphs.length > 0 else { return }
+            var frame = layoutManager.boundingRect(
+                forGlyphRange: widgetGlyphs,
+                in: textContainer
+            )
+            let requested = attachment.attachmentBounds(
+                for: textContainer,
+                proposedLineFragment: frame,
+                glyphPosition: frame.origin,
+                characterIndex: range.location
+            )
+            let lineMidY = frame.midY
+            frame.size = requested.size
+            frame.origin.y = attachment.isInline
+                ? lineMidY - requested.height / 2
+                : frame.minY
+            frame.origin.x += origin.x
+            frame.origin.y += origin.y
+            guard frame.width > 0, frame.height > 0 else { return }
+
+            visibleKeys.insert(attachment.key)
+            let overlay: WidgetContainer
+            if let existing = widgetOverlays[attachment.key], !existing.subviews.isEmpty {
+                overlay = existing
+            } else {
+                widgetOverlays.removeValue(forKey: attachment.key)?.removeFromSuperview()
+                overlay = WidgetContainer(
+                    hosting: attachment.makeView(),
+                    wantsTouches: attachment.roleName == "table"
+                        || (attachment.provider?.widgetWantsTouches(
+                            roleName: attachment.roleName
+                        ) ?? false)
+                )
+                widgetOverlays[attachment.key] = overlay
+                addSubview(overlay)
+            }
+            overlay.frame = frame
+        }
+        for key in widgetOverlays.keys.filter({ !visibleKeys.contains($0) }) {
+            widgetOverlays.removeValue(forKey: key)?.removeFromSuperview()
         }
     }
 }
@@ -433,6 +622,134 @@ extension MarkdownTextView: NSTextContentStorageDelegate {
             backing: backing,
             containerWidth: textContainer.size.width
         )
+    }
+}
+
+// MARK: - TextKit 1 widget geometry
+
+extension MarkdownTextView: NSLayoutManagerDelegate {
+    public func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
+        properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
+        characterIndexes charIndexes: UnsafePointer<Int>,
+        font aFont: UIFont,
+        forGlyphRange glyphRange: NSRange
+    ) -> Int {
+        guard let storage = layoutManager.textStorage else { return 0 }
+        var generatedGlyphs = Array(UnsafeBufferPointer(start: glyphs, count: glyphRange.length))
+        var generatedProps = Array(UnsafeBufferPointer(start: props, count: glyphRange.length))
+        let generatedIndexes = Array(UnsafeBufferPointer(start: charIndexes, count: glyphRange.length))
+        guard let first = generatedIndexes.min(), let last = generatedIndexes.max(), first < storage.length else {
+            return 0
+        }
+        var widgetCharacters = Set<Int>()
+        storage.enumerateAttribute(
+            DecorationApplier.widgetAttachmentAttribute,
+            in: NSRange(location: first, length: min(storage.length - first, last - first + 1)),
+            options: []
+        ) { value, range, _ in
+            if value is WidgetAttachment { widgetCharacters.insert(range.location) }
+        }
+        guard !widgetCharacters.isEmpty else { return 0 }
+        var changed = false
+        for index in generatedProps.indices where widgetCharacters.contains(generatedIndexes[index]) {
+            generatedGlyphs[index] = 0
+            generatedProps[index].insert(.controlCharacter)
+            changed = true
+        }
+        guard changed else { return 0 }
+        generatedGlyphs.withUnsafeBufferPointer { glyphBuffer in
+            generatedProps.withUnsafeBufferPointer { propertyBuffer in
+                generatedIndexes.withUnsafeBufferPointer { indexBuffer in
+                    layoutManager.setGlyphs(
+                        glyphBuffer.baseAddress!,
+                        properties: propertyBuffer.baseAddress!,
+                        characterIndexes: indexBuffer.baseAddress!,
+                        font: aFont,
+                        forGlyphRange: glyphRange
+                    )
+                }
+            }
+        }
+        return glyphRange.length
+    }
+
+    public func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldUse action: NSLayoutManager.ControlCharacterAction,
+        forControlCharacterAt charIndex: Int
+    ) -> NSLayoutManager.ControlCharacterAction {
+        guard layoutManager.textStorage?.attribute(
+            DecorationApplier.widgetAttachmentAttribute,
+            at: charIndex,
+            effectiveRange: nil
+        ) is WidgetAttachment else { return action }
+        return .whitespace
+    }
+
+    public func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        boundingBoxForControlGlyphAt glyphIndex: Int,
+        for textContainer: NSTextContainer,
+        proposedLineFragment proposedRect: CGRect,
+        glyphPosition: CGPoint,
+        characterIndex charIndex: Int
+    ) -> CGRect {
+        guard let attachment = layoutManager.textStorage?.attribute(
+            DecorationApplier.widgetAttachmentAttribute,
+            at: charIndex,
+            effectiveRange: nil
+        ) as? WidgetAttachment else { return .zero }
+        attachment.fittingWidth = max(textContainer.size.width, 1)
+        let bounds = attachment.attachmentBounds(
+            for: textContainer,
+            proposedLineFragment: proposedRect,
+            glyphPosition: glyphPosition,
+            characterIndex: charIndex
+        )
+        return CGRect(
+            x: glyphPosition.x,
+            y: proposedRect.minY + bounds.origin.y,
+            width: bounds.width,
+            height: bounds.height
+        )
+    }
+
+    public func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<CGRect>,
+        lineFragmentUsedRect: UnsafeMutablePointer<CGRect>,
+        baselineOffset: UnsafeMutablePointer<CGFloat>,
+        in textContainer: NSTextContainer,
+        forGlyphRange glyphRange: NSRange
+    ) -> Bool {
+        guard let storage = layoutManager.textStorage else { return false }
+        let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+        var desiredHeight = lineFragmentUsedRect.pointee.height
+        var hasWidget = false
+        storage.enumerateAttribute(
+            DecorationApplier.widgetAttachmentAttribute,
+            in: characters,
+            options: []
+        ) { value, range, _ in
+            guard let attachment = value as? WidgetAttachment else { return }
+            attachment.fittingWidth = max(textContainer.size.width, 1)
+            let bounds = attachment.attachmentBounds(
+                for: textContainer,
+                proposedLineFragment: lineFragmentRect.pointee,
+                glyphPosition: .zero,
+                characterIndex: range.location
+            )
+            desiredHeight = max(desiredHeight, bounds.height)
+            hasWidget = true
+        }
+        guard hasWidget, desiredHeight > lineFragmentUsedRect.pointee.height else { return false }
+        let growth = desiredHeight - lineFragmentUsedRect.pointee.height
+        lineFragmentRect.pointee.size.height = max(lineFragmentRect.pointee.height, desiredHeight)
+        lineFragmentUsedRect.pointee.size.height = desiredHeight
+        baselineOffset.pointee += growth / 2
+        return true
     }
 }
 
@@ -466,6 +783,10 @@ extension MarkdownTextView: NSTextStorageDelegate {
             // edit, so the repaint is deferred by one turn of the runloop.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                self.updateLongParagraphLayout(
+                    afterEditAt: editedRange.location,
+                    delta: delta
+                )
                 self.applyPatch(patch, alsoDirty: editedRange)
                 self.reportSelection()
                 self.pluginsDidChangeMarkdown()

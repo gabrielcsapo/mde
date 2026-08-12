@@ -386,7 +386,6 @@ final class DecorationApplier {
 
         case .inlineWidget, .blockWidget:
             guard isTopLevelWidget(d) else { return }
-            #if os(macOS)
             if NSLocationInRange(d.range.location, range),
                let attachment = makeWidgetAttachment(
                    for: d,
@@ -399,7 +398,6 @@ final class DecorationApplier {
                     range: NSRange(location: d.range.location, length: 1)
                 )
             }
-            #endif
             // Everything after the first character is concealed, including newlines
             // inside a block widget — a hairline newline contributes ~0 height, so only
             // the attachment/control glyph shows.
@@ -430,9 +428,7 @@ final class DecorationApplier {
 
     // MARK: - Widget substitution
 
-    #if os(macOS)
     static let widgetAttachmentAttribute = NSAttributedString.Key("MDEWidgetAttachment")
-    #endif
 
     private func isTopLevelWidget(_ candidate: Decoration) -> Bool {
         !decorations(intersecting: candidate.range).contains(where: { outer in
@@ -494,10 +490,10 @@ final class DecorationApplier {
         return attachment
     }
 
-    /// TextKit 2 lets the *display* string for a paragraph differ from the backing
-    /// store. UIKit uses that to get an attachment glyph without writing a `U+FFFC`
-    /// into the document. AppKit installs the same `WidgetAttachment` as a custom
-    /// control-glyph attribute and overlays its native view instead.
+    /// A length-preserving TextKit 2 projection retained for direct renderer tests and
+    /// hosts that consume `NSTextContentStorage`. The shipping UIKit and AppKit views
+    /// install the same `WidgetAttachment` as a control-glyph attribute and overlay its
+    /// native view without writing a `U+FFFC` into the document.
     ///
     /// The substitution is strictly length-preserving: one source character becomes one
     /// attachment character. A length change here would desynchronise every selection

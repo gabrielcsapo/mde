@@ -7,7 +7,7 @@ const PRIMITIVES = [
   ['Conceal', '0.01pt font and a clear colour'],
   [
     'InlineWidget / BlockWidget',
-    'NSTextAttachmentViewProvider, installed by paragraph substitution',
+    'control glyph geometry plus viewport-managed native view overlays',
   ],
   ['Gutter', 'the marker character, themed'],
   ['Hit', 'tap-tested against the live decorations'],
@@ -18,8 +18,9 @@ export default function Apple() {
     <>
       <H2 id="shared">Two hosts, one applier</H2>
       <Lede>
-        iOS is a <code>UITextView</code> and macOS an <code>NSTextView</code>, both on TextKit 2,
-        both called <code>MarkdownTextView</code>. Everything that decides what a decoration{' '}
+        iOS is a <code>UITextView</code> and macOS an <code>NSTextView</code>, both on TextKit 1’s
+        incremental layout manager and both called <code>MarkdownTextView</code>. Everything that
+        decides what a decoration{' '}
         <em>means</em> — reveal resolution, paint ordering, conceal, widget substitution, the
         moved-does-not-repaint rule, hit testing — lives in <code>DecorationApplier</code>, which
         has no UIKit or AppKit in it and is shared verbatim.
@@ -50,19 +51,17 @@ export default function Apple() {
         </tbody>
       </TableFrame>
 
-      <H2 id="attachments">Attachments need a U+FFFC, and the storage must stay pure markdown</H2>
+      <H2 id="attachments">Native widgets without changing the Markdown storage</H2>
       <p>
-        Setting <code>.attachment</code> on an ordinary character does nothing — TextKit only draws
-        an attachment where that character sits. The resolution is{' '}
-        <code>NSTextContentStorageDelegate</code>, which lets the <em>display</em> string for a
-        paragraph differ from the backing store: the widget’s first character is swapped for the
-        attachment character, one for one.
+        Each widget’s first source character becomes a length-preserving control glyph. TextKit
+        reserves geometry from <code>WidgetAttachment</code>, while the editor keeps native views
+        only around the viewport and positions them over those glyphs. The backing character is
+        still the original Markdown — no <code>U+FFFC</code> is written into the document.
       </p>
       <Note>
-        The substitution is strictly length-preserving. A length change there desynchronises every
-        selection and edit offset in the view. A multi-line block widget then works for free — the
-        remaining characters are concealed, and a 0.01pt newline contributes almost no height, so
-        only the attachment’s own height shows.
+        Geometry is strictly length-preserving. A multi-line block widget conceals its remaining
+        characters; a 0.01pt newline contributes almost no height, so only the overlay’s reserved
+        height shows. Selection, copy and paste continue to address exact source offsets.
       </Note>
 
       <H2 id="conceal">Concealing by shrinking, not by removing</H2>
@@ -96,7 +95,7 @@ export default function Apple() {
       <p>
         Measuring only with <code>systemLayoutSizeFitting</code> reports zero for such a view, which
         clamped a resolved image to one point and rendered it as an invisible gap. Related:
-        substitution can run before the text container has a width, so resolution must wait for a
+        projection can run before the text container has a width, so resolution must wait for a
         real one — and asking for a <em>size</em> has to start the load, or a resource skipped for
         want of a width is never requested again.
       </p>

@@ -114,7 +114,7 @@ export default function Install() {
 
       <Defs
         items={[
-          ['iOS 17+, macOS 14+', 'the platform floor the package declares — TextKit 2 throughout'],
+          ['iOS 17+, macOS 14+', 'the platform floor the package declares — incremental TextKit throughout'],
           [
             'MarkdownTextView',
             'a UITextView on iOS and an NSTextView on macOS, with the same name and the same public surface',

@@ -135,11 +135,23 @@ enum CaptureMode {
         }).first else { return }
         editor.setMarkdown(source)
         scroll(editor, to: 0)
-        guard scenario == "editing", let storage = editor.textStorage else { return }
-        let range = (storage.string as NSString).range(of: "revealed syntax")
-        guard range.location != NSNotFound else { return }
-        editor.window?.makeFirstResponder(editor)
-        editor.setSelectedRange(NSRange(location: range.location + 4, length: 0))
+        guard let storage = editor.textStorage else { return }
+        switch scenario {
+        case "editing":
+            let range = (storage.string as NSString).range(of: "revealed syntax")
+            guard range.location != NSNotFound else { return }
+            editor.window?.makeFirstResponder(editor)
+            editor.setSelectedRange(NSRange(location: range.location + 4, length: 0))
+        case "table-editing":
+            let source = storage.string as NSString
+            let start = source.range(of: "| **Ada**").location
+            let end = source.range(of: "| **Linus**").location
+            guard start != NSNotFound, end != NSNotFound, end > start else { return }
+            editor.window?.makeFirstResponder(editor)
+            editor.setSelectedRange(NSRange(location: start, length: end - start))
+        default:
+            break
+        }
     }
 
     /// Moves the window into the top-left corner for the screencast.

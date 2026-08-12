@@ -6,7 +6,7 @@ import { tag } from '../../lib/highlight.js';
 
 const golden = tag('bash', `UPDATE_GOLDEN=1 cargo test -p mde-core --test golden`);
 const all = tag('bash', `./scripts/test.sh   # Rust, both Swift suites, and the browser suite`);
-const captures = tag('bash', `pnpm capture:cross-platform   # 4 scenarios × 4 renderers`);
+const captures = tag('bash', `pnpm capture:cross-platform   # 5 scenarios × 4 renderers`);
 
 const SUITES = [
   [
@@ -109,10 +109,10 @@ export default function Testing() {
 
       <H2 id="visual-captures">Reproduce the cross-platform screenshot matrix</H2>
       <p>
-        These are captures of the real renderers, not HTML mockups. Four focused fixtures cover
-        CommonMark, rich tables and resources, host extensions, and live syntax reveal across JS,
-        React, iOS, and macOS. Keeping each scenario short makes every feature visible at phone
-        height and makes platform differences easy to spot.
+        These are captures of the real renderers, not HTML mockups. Five focused fixtures cover
+        CommonMark, rich tables and resources, host extensions, live syntax reveal, and selected
+        table source across JS, React, iOS, and macOS. Keeping each scenario short makes every
+        feature visible at phone height and makes platform differences easy to spot.
       </p>
       <CaptureMatrix />
       <SourceFigure className="mt-6" path="from the repository root" lang="bash" code={captures} />

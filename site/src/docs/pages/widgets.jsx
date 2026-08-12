@@ -151,7 +151,7 @@ export default function Widgets() {
           {
             to: '/platforms/apple',
             title: 'iOS and macOS',
-            note: 'what drawing one costs on TextKit 2',
+            note: 'what drawing one costs on TextKit',
           },
           {
             to: '/platforms/web',

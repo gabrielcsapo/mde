@@ -101,6 +101,10 @@ final class EditorViewController: UIViewController {
     /// screenshot; without the flag this does nothing. See `CaptureMode`.
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if PerformanceTestMode.isEnabled {
+            PerformanceTestMode.run(editor)
+            return
+        }
         if RendererTestMode.isEnabled {
             RendererTestMode.run(editor)
             return

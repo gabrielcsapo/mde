@@ -28,9 +28,6 @@ enum RendererTestMode {
             let tableBefore = editor.decorations.first { $0.role == Role.table }
             let views = descendants(of: editor)
             let tableView = views.first { $0.accessibilityIdentifier == "mde.rendered-table" }
-            let tableTextViews = views.compactMap { $0 as? UITextView }.filter {
-                $0.accessibilityIdentifier == "mde.table-cell"
-            }
             let labels = views.compactMap { view -> NSAttributedString? in
                 if let textView = view as? UITextView,
                    textView.accessibilityIdentifier == "mde.table-cell" {
@@ -51,9 +48,12 @@ enum RendererTestMode {
             let link = labels.contains { text in
                 text.string.contains("Web") && text.attribute(.link, at: 0, effectiveRange: nil) != nil
             }
-            let interactiveLink = tableTextViews.contains { textView in
-                textView.isSelectable && textView.delegate != nil && textView.attributedText.length > 0
-                    && textView.attributedText.attribute(
+            let interactiveLink = views.compactMap { $0 as? UILabel }.contains { label in
+                label.accessibilityIdentifier == "mde.table-cell"
+                    && label.isUserInteractionEnabled
+                    && !(label.gestureRecognizers ?? []).isEmpty
+                    && (label.attributedText?.length ?? 0) > 0
+                    && label.attributedText?.attribute(
                         .link,
                         at: 0,
                         effectiveRange: nil
@@ -98,12 +98,29 @@ enum RendererTestMode {
             }.isEmpty
             let mentionAligned = mentionIsAligned(in: editor, source: source, views: views)
 
-            let tableRange = (source as NSString).range(of: "| Surface")
+            let sourceStorage = source as NSString
+            let selectionStart = sourceStorage.range(of: "| **JS**").location
+            let selectionEnd = sourceStorage.range(of: "| **iOS**").location
+            let selectedRows = NSRange(
+                location: selectionStart,
+                length: selectionEnd - selectionStart
+            )
             _ = editor.becomeFirstResponder()
-            editor.selectedRange = NSRange(location: tableRange.location + 4, length: 0)
+            editor.selectedRange = selectedRows
+            editor.layoutIfNeeded()
             let revealed = editor.decorations.first { $0.role == Role.table }?.kind == .style
+            let rowSelection = editor.selectedRange == selectedRows
+                && sourceStorage.substring(with: selectedRows).hasPrefix("| **JS**")
+                && sourceStorage.substring(with: selectedRows).contains("| **React**")
+            let tableHiddenWhileEditing = !descendants(of: editor).contains {
+                $0.accessibilityIdentifier == "mde.rendered-table"
+            }
             editor.selectedRange = NSRange(location: 0, length: 0)
+            editor.layoutIfNeeded()
             let restored = editor.decorations.first { $0.role == Role.table }?.kind == .blockWidget
+            let tableViewRestored = descendants(of: editor).contains {
+                $0.accessibilityIdentifier == "mde.rendered-table"
+            }
 
             let plugin = RendererPluginProbe()
             let pluginInstalled = (try? editor.installPlugin(plugin)) != nil
@@ -129,7 +146,10 @@ enum RendererTestMode {
                 "noDuplicateImage": noDuplicateImage,
                 "mentionAligned": mentionAligned,
                 "revealed": revealed,
+                "rowSelection": rowSelection,
+                "tableHiddenWhileEditing": tableHiddenWhileEditing,
                 "restored": restored,
+                "tableViewRestored": tableViewRestored,
                 "pluginInstalled": pluginInstalled,
                 "pluginLayer": pluginLayer,
                 "pluginCleanup": pluginCleanup,

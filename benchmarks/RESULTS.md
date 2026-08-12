@@ -53,3 +53,20 @@ converting UTF-8 parser offsets to UTF-16 host offsets. Long non-ASCII lines now
 those conversions into one ordered pass, cutting the 32 KB core edit from about 163 ms
 to 3.3 ms. The renderer still has to rebuild one enormous visual line, so the browser
 case remains separately tracked rather than hidden inside an average.
+
+## UIKit and media hardening — 2026-08-11
+
+The iPhone simulator now runs enforced release workloads instead of relying on AppKit
+as a native proxy. Moving UIKit from TextKit 2's paragraph-granular invalidation to the
+same incremental TextKit 1 strategy as AppKit reduced the 32 KB pathological edit from
+about 12.3 seconds to 80 ms p95. A 100×10 native table fell from 6–8 seconds to about
+110 ms after wide tables gained readable minimum column widths, horizontal scrolling,
+lightweight linked labels, and a fast plain-cell sizing path.
+
+The media journal resolves 48 images, 8 videos, and 16 audio views on both Apple hosts.
+Representative release runs measured roughly 60–125 ms to fully project it, 10–22 ms
+for a subsequent local edit on UIKit, and 1–3 ms for the same edit on AppKit. Chromium
+renders the same 72 resources in roughly 25–30 ms and keeps the resulting edit near
+12 ms. React's warm-core 100 KB mount is now separately gated at about 40–47 ms, and
+the browser suite enforces positional p95, sustained p95, and heap usage as well as its
+existing median, DOM, and scroll budgets.

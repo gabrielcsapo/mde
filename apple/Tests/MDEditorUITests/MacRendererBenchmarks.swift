@@ -135,10 +135,15 @@ final class MacRendererBenchmarks: XCTestCase {
 
     // MARK: - Fixtures
 
-    private func makeEditor() -> (NSWindow, MarkdownTextView) {
+    private func makeDetachedEditor() -> MarkdownTextView {
         let editor = MarkdownTextView(manifest: HostExtensions.manifest)
         editor.widgetProvider = HostWidgets()
         editor.frame = NSRect(x: 0, y: 0, width: 600, height: 800)
+        return editor
+    }
+
+    private func makeEditor() -> (NSWindow, MarkdownTextView) {
+        let editor = makeDetachedEditor()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 800),
             styleMask: [.titled],
@@ -164,16 +169,20 @@ final class MacRendererBenchmarks: XCTestCase {
             // is empty when the text is unchanged, so every repetition after the first
             // would paint nothing and be timed as if loading were free.
             var load = Double.greatestFiniteMagnitude
-            var decorations = 0
-            var editor: MarkdownTextView!
-            var windows: [NSWindow] = []
-            for _ in 0 ... iterations(for: c.text.utf8.count) {
-                let (window, fresh) = makeEditor()
-                windows.append(window)
-                load = min(load, timed { fresh.setMarkdown(c.text) })
-                decorations = fresh.decorations.count
-                editor = fresh
+            let repetitionCount = iterations(for: c.text.utf8.count) + 1
+            for _ in 0 ..< repetitionCount {
+                // Load trials do not need a window. NSApplication retains native
+                // windows longer than their Swift locals, so creating one per trial
+                // polluted every later benchmark with dozens of live layout trees.
+                autoreleasepool {
+                    let fresh = makeDetachedEditor()
+                    load = min(load, timed { fresh.setMarkdown(c.text) })
+                    drainMainQueue()
+                }
             }
+            let (viewportWindow, editor) = makeEditor()
+            load = min(load, timed { editor.setMarkdown(c.text) })
+            let decorations = editor.decorations.count
 
             // TextKit 1's non-contiguous layout manager is the shipping path: opening a
             // document must lay out what is visible without visiting every paragraph.
@@ -222,7 +231,10 @@ final class MacRendererBenchmarks: XCTestCase {
                     metric: "1 MB load through painted first viewport"
                 )
             }
-            windows.removeAll()
+            withExtendedLifetime(viewportWindow) {}
+            // Do not leave a full TextKit tree retained by NSApplication until the
+            // benchmark process exits; later tests must not inherit its memory pressure.
+            viewportWindow.contentView = nil
         }
     }
 
@@ -298,6 +310,11 @@ final class MacRendererBenchmarks: XCTestCase {
                 percentile(samples, 0.95),
                 samples.max() ?? 0
             ))
+            enforceBudget(
+                percentile(samples, 0.95),
+                environment: "MDE_APPLE_1MB_POSITION_EDIT_P95_BUDGET_MS",
+                metric: "1 MB native \(label) edit p95"
+            )
             _ = window
         }
 
@@ -321,6 +338,11 @@ final class MacRendererBenchmarks: XCTestCase {
             percentile(sustained, 0.95),
             sustained.max() ?? 0
         ))
+        enforceBudget(
+            percentile(sustained, 0.95),
+            environment: "MDE_APPLE_100KB_SUSTAINED_EDIT_P95_BUDGET_MS",
+            metric: "100 KB native sustained edit p95"
+        )
         _ = window
     }
 
@@ -560,5 +582,219 @@ final class MacRendererBenchmarks: XCTestCase {
             metric: "10k-resource lookup"
         )
     }
+
+}
+
+/// Runs in its own test process from the performance script. The large-document suite
+/// intentionally forces several gigabytes of transient TextKit allocations; measuring
+/// media creation after that prices allocator pressure from unrelated workloads rather
+/// than the journal a user opened.
+final class MacMediaRendererBenchmarks: XCTestCase {
+    private func timed(_ body: () -> Void) -> Double {
+        let start = DispatchTime.now().uptimeNanoseconds
+        body()
+        return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+    }
+
+    private func drainMainQueue() {
+        var done = false
+        DispatchQueue.main.async { done = true }
+        while !done {
+            _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+    }
+
+    private func enforceBudget(_ value: Double, environment key: String, metric: String) {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH_ENFORCE"] == "1",
+              let raw = ProcessInfo.processInfo.environment[key],
+              let budget = Double(raw)
+        else { return }
+        XCTAssertLessThanOrEqual(
+            value,
+            budget,
+            "\(metric) \(String(format: "%.3f", value)) ms exceeded "
+                + "\(String(format: "%.3f", budget)) ms budget"
+        )
+    }
+
+    private func makeEditor() -> (NSWindow, MarkdownTextView) {
+        let editor = MarkdownTextView(manifest: HostExtensions.manifest)
+        editor.widgetProvider = HostWidgets()
+        editor.frame = NSRect(x: 0, y: 0, width: 600, height: 800)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 800),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
+        scroll.hasVerticalScroller = true
+        scroll.documentView = editor
+        window.contentView?.addSubview(scroll)
+        return (window, editor)
+    }
+
+    func testBenchmarkMediaJournalProjection() throws {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
+            throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
+        }
+        let source = mediaJournalSource()
+        let resolver = MediaJournalResolver()
+        let (window, editor) = makeEditor()
+        editor.resourceResolver = resolver
+
+        let ready = timed {
+            editor.setMarkdown(source)
+            editor.layoutManager?.ensureLayout(
+                forCharacterRange: NSRange(location: 0, length: editor.string.utf16.count)
+            )
+            editor.layoutWidgetOverlays()
+            drainMainQueue()
+        }
+        let storage = try XCTUnwrap(editor.textStorage)
+        let editAt = (storage.string as NSString).range(of: "Closing reflection").location
+        let edit = timed {
+            storage.replaceCharacters(in: NSRange(location: editAt, length: 0), with: "x")
+            drainMainQueue()
+        }
+        let scroll = timed {
+            editor.scrollRangeToVisible(NSRange(location: max(0, storage.length - 1), length: 0))
+            editor.layoutSubtreeIfNeeded()
+            drainMainQueue()
+        }
+
+        print(String(
+            format: "72-resource media journal ready %8.2f edit %8.2f scroll %8.2f ms views %d",
+            ready, edit, scroll, resolver.requested.count
+        ))
+        enforceBudget(
+            ready,
+            environment: "MDE_APPLE_MEDIA_JOURNAL_READY_BUDGET_MS",
+            metric: "72-resource native media journal render"
+        )
+        enforceBudget(
+            edit,
+            environment: "MDE_APPLE_MEDIA_JOURNAL_EDIT_BUDGET_MS",
+            metric: "native edit after 72 media resources"
+        )
+        enforceBudget(
+            scroll,
+            environment: "MDE_APPLE_MEDIA_JOURNAL_SCROLL_BUDGET_MS",
+            metric: "native media journal scroll"
+        )
+        XCTAssertEqual(resolver.requested.count, 72)
+        XCTAssertEqual(resolver.images, 48)
+        XCTAssertEqual(resolver.videos, 8)
+        XCTAssertEqual(resolver.audio, 16)
+        XCTAssertEqual(editor.markdown, source.replacingOccurrences(
+            of: "Closing reflection", with: "xClosing reflection"
+        ))
+        _ = window
+    }
+
+    private func mediaJournalSource() -> String {
+        var entries = [String]()
+        func append(_ kind: String, count: Int, extension ext: String) {
+            for index in 1...count {
+                entries.append("""
+                ### \(kind) \(index)
+
+                A journal paragraph around \(kind.lowercased()) \(index), with **context**, a [reference](https://example.dev/\(kind.lowercased())/\(index)), and a timestamp.
+
+                ![\(kind) \(index)](journal/\(kind.lowercased())-\(index).\(ext))
+                """)
+            }
+        }
+        append("Photo", count: 48, extension: "jpg")
+        append("Video", count: 8, extension: "mp4")
+        append("Audio", count: 16, extension: "m4a")
+        return "# Media journal\n\n" + entries.joined(separator: "\n\n")
+            + "\n\nClosing reflection.\n"
+    }
+}
+
+private final class MediaJournalResolver: ResourceResolver {
+    private(set) var requested = [String]()
+    private(set) var images = 0
+    private(set) var videos = 0
+    private(set) var audio = 0
+
+    func resolve(
+        _ request: ResourceRequest,
+        deliver _: @escaping (ResourceState) -> Void
+    ) -> ResourceState {
+        requested.append(request.reference)
+        let ext = (request.reference as NSString).pathExtension.lowercased()
+        let kind: MediaJournalView.Kind
+        switch ext {
+        case "mp4":
+            videos += 1
+            kind = .video
+        case "m4a":
+            audio += 1
+            kind = .audio
+        default:
+            images += 1
+            kind = .image
+        }
+        return .ready(MediaJournalView(kind: kind, maxWidth: request.fittingWidth))
+    }
+
+    func reservedSize(_ request: ResourceRequest) -> CGSize {
+        let width = min(max(request.fittingWidth, 1), 640)
+        if request.reference.hasSuffix(".m4a") {
+            return CGSize(width: width, height: 54)
+        }
+        return CGSize(width: width, height: width * 9 / 16)
+    }
+}
+
+private final class MediaJournalView: NSView {
+    enum Kind { case image, video, audio }
+    private let target: CGSize
+
+    init(kind: Kind, maxWidth: CGFloat) {
+        let width = min(max(maxWidth, 1), 640)
+        target = kind == .audio
+            ? CGSize(width: width, height: 54)
+            : CGSize(width: width, height: width * 9 / 16)
+        super.init(frame: CGRect(origin: .zero, size: target))
+
+        switch kind {
+        case .image:
+            let image = NSImageView(frame: bounds)
+            image.image = NSImage(size: NSSize(width: 16, height: 9))
+            image.imageScaling = .scaleProportionallyUpOrDown
+            addSubview(image)
+        case .video:
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.black.cgColor
+            let play = NSButton(
+                image: NSImage(systemSymbolName: "play.circle.fill", accessibilityDescription: nil)
+                    ?? NSImage(),
+                target: nil,
+                action: nil
+            )
+            play.frame = CGRect(x: target.width / 2 - 18, y: target.height / 2 - 18, width: 36, height: 36)
+            addSubview(play)
+            let scrubber = NSSlider(frame: CGRect(x: 16, y: 12, width: target.width - 32, height: 20))
+            addSubview(scrubber)
+        case .audio:
+            let play = NSButton(
+                image: NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+                    ?? NSImage(),
+                target: nil,
+                action: nil
+            )
+            play.frame = CGRect(x: 8, y: 9, width: 36, height: 36)
+            addSubview(play)
+            addSubview(NSSlider(frame: CGRect(x: 52, y: 17, width: target.width - 64, height: 20)))
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
+
+    override var intrinsicContentSize: NSSize { target }
 }
 #endif

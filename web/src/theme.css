@@ -124,39 +124,12 @@
 .mde-rule { color: var(--mde-muted, #a3a7b3); }
 
 /* Tables render as semantic HTML until the caret enters the block. The Markdown source
-   never leaves the DOM; these source-row styles are the editing state. */
+   never leaves the DOM. While editing, it deliberately returns to ordinary source lines
+   like the TextKit renderers instead of retaining a table-shaped box. */
 .mde-table {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.9em;
   font-variant-numeric: tabular-nums;
-}
-.mde-line-table {
-  display: inline-block;
-  box-sizing: border-box;
-  width: max-content;
-  min-width: min(100%, 27rem);
-  max-width: 100%;
-  padding: 0.28em 0.75em;
-  border-inline: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 28%, transparent);
-  background: color-mix(in srgb, var(--mde-code-bg, #f1f2f5) 42%, transparent);
-  line-height: 1.5;
-}
-.mde-line-table-start {
-  padding-top: 0.48em;
-  border-top: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 34%, transparent);
-  border-radius: 8px 8px 0 0;
-  background: color-mix(in srgb, var(--mde-code-bg, #f1f2f5) 82%, transparent);
-  box-shadow: inset 3px 0 0 var(--mde-accent, #2f6bf5);
-}
-.mde-line-table-delimiter {
-  padding-block: 0.12em;
-  border-block: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 28%, transparent);
-  background: color-mix(in srgb, var(--mde-code-bg, #f1f2f5) 62%, transparent);
-}
-.mde-line-table-end {
-  padding-bottom: 0.48em;
-  border-bottom: 1px solid color-mix(in srgb, var(--mde-muted, #a3a7b3) 34%, transparent);
-  border-radius: 0 0 8px 8px;
 }
 .mde-table-header { font-weight: 750; }
 .mde-table-delimiter { color: var(--mde-muted, #a3a7b3); }
