@@ -901,6 +901,23 @@ function makeEditor(options = {}) {
     assertEqual(session.snapshot('three').markdown, 'third note');
   });
 
+  test('warm session projections are separately bounded and remain editable', () => {
+    const e = makeEditor();
+    const session = new MarkdownSession(e, { maxDocuments: 5, maxWarmDocuments: 2 });
+    const note = (label) => `# ${label}\n\n` + '**journal** paragraph\n'.repeat(3000);
+    session.open('one', note('one'));
+    session.open('two', note('two'));
+    session.open('three', note('three'));
+    assertEqual(session.warmDocumentIds, ['one', 'two']);
+    session.switchTo('two');
+    e.replaceRange(0, 0, 'x');
+    assert(e.markdown.startsWith('x# two'));
+    session.switchTo('three');
+    session.switchTo('two');
+    assert(e.markdown.startsWith('x# two'), 'warm switching restored stale source');
+    assert(session.warmDocumentIds.length <= 2);
+  });
+
   test('commands are pure, selection-aware, and undo as one step', () => {
     assertEqual(markdownCommand('bold', 'hello', { start: 0, end: 5 }), {
       start: 0, end: 5, text: '**hello**', selection: { start: 2, end: 7 },

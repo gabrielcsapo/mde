@@ -221,6 +221,34 @@ public final class MarkdownTextView: UITextView {
         pluginsDidChangeMarkdown()
     }
 
+    func captureProjection() -> NSAttributedString? {
+        let copy = NSMutableAttributedString(attributedString: textStorage)
+        copy.removeAttribute(
+            DecorationApplier.widgetAttachmentAttribute,
+            range: NSRange(location: 0, length: copy.length)
+        )
+        return copy
+    }
+
+    @discardableResult
+    func restoreProjection(markdown text: String, projection: NSAttributedString) -> Bool {
+        guard projection.string == text else { return false }
+        updateLongParagraphLayout(in: text as NSString)
+        applier.reset()
+        widgetOverlays.values.forEach { $0.removeFromSuperview() }
+        widgetOverlays.removeAll()
+        isRewinding = true
+        textStorage.setAttributedString(projection)
+        isRewinding = false
+        applier.ingest(engine.reset(text))
+        usesViewportPainting = textStorage.length > Self.eagerPaintLimit || longParagraphAnchor != nil
+        paintedRanges = usesViewportPainting ? [] : [NSRange(location: 0, length: textStorage.length)]
+        scheduleViewportPaint()
+        scheduleWidgetLayout()
+        pluginsDidChangeMarkdown()
+        return true
+    }
+
     private static func longParagraph(in source: NSString) -> NSRange? {
         var location = 0
         while location < source.length {

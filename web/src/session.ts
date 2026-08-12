@@ -1,4 +1,4 @@
-import type { MarkdownEditor } from './editor.js';
+import type { EditorProjectionSnapshot, MarkdownEditor } from './editor.js';
 import type { SelectionRange } from './core.js';
 
 export interface SessionDocument {
@@ -12,16 +12,26 @@ export interface SessionDocument {
 export class MarkdownSession {
   readonly editor: MarkdownEditor;
   readonly maxDocuments: number;
+  readonly maxWarmDocuments: number;
   private documents = new Map<string, SessionDocument>();
+  private warm = new Map<string, EditorProjectionSnapshot>();
   private activeId: string | null = null;
 
-  constructor(editor: MarkdownEditor, options: { maxDocuments?: number } = {}) {
+  constructor(
+    editor: MarkdownEditor,
+    options: { maxDocuments?: number; maxWarmDocuments?: number } = {},
+  ) {
     this.editor = editor;
     this.maxDocuments = Math.max(1, options.maxDocuments ?? 16);
+    this.maxWarmDocuments = Math.max(0, Math.min(
+      this.maxDocuments,
+      options.maxWarmDocuments ?? 4,
+    ));
   }
 
   get activeDocumentId(): string | null { return this.activeId; }
   get openDocumentIds(): string[] { return [...this.documents.keys()]; }
+  get warmDocumentIds(): string[] { return [...this.warm.keys()]; }
 
   open(id: string, markdown: string): void {
     if (!id.trim()) throw new Error('A session document id must not be empty');
@@ -33,7 +43,14 @@ export class MarkdownSession {
     this.documents.delete(id);
     this.documents.set(id, document);
     this.activeId = id;
-    this.editor.setMarkdown(document.markdown);
+    const projection = this.warm.get(id);
+    if (!projection || projection.markdown !== document.markdown) {
+      this.editor.setMarkdown(document.markdown);
+    } else {
+      this.editor.restoreProjection(projection);
+      this.warm.delete(id);
+      this.warm.set(id, projection);
+    }
     if (document.selection) this.editor.setSelectionRange(document.selection);
     this.evictInactive();
   }
@@ -47,6 +64,7 @@ export class MarkdownSession {
 
   close(id: string): boolean {
     const existed = this.documents.delete(id);
+    this.warm.delete(id);
     if (this.activeId === id) this.activeId = null;
     return existed;
   }
@@ -66,11 +84,21 @@ export class MarkdownSession {
       ? this.editor.selectionRange()
       : document.selection;
     document.touchedAt = performance.now();
+    if (this.maxWarmDocuments > 0) {
+      this.warm.delete(this.activeId);
+      this.warm.set(this.activeId, this.editor.captureProjection());
+      while (this.warm.size > this.maxWarmDocuments) {
+        const oldest = this.warm.keys().next().value;
+        if (oldest === undefined) break;
+        this.warm.delete(oldest);
+      }
+    }
   }
 
   destroy(): void {
     this.saveActive();
     this.documents.clear();
+    this.warm.clear();
     this.activeId = null;
   }
 
@@ -85,6 +113,7 @@ export class MarkdownSession {
         continue;
       }
       this.documents.delete(candidate);
+      this.warm.delete(candidate);
     }
   }
 }

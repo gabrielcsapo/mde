@@ -103,6 +103,24 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(editor.markdown, "second note")
     }
 
+    func testWarmSessionProjectionsAreSeparatelyBoundedAndEditable() throws {
+        let session = MarkdownSession(editor: editor, maxDocuments: 5, maxWarmDocuments: 2)
+        func note(_ label: String) -> String {
+            "# \(label)\n\n" + String(repeating: "**journal** paragraph\n", count: 3_000)
+        }
+        try session.open(id: "one", markdown: note("one"))
+        try session.open(id: "two", markdown: note("two"))
+        try session.open(id: "three", markdown: note("three"))
+        XCTAssertEqual(session.warmDocumentIDs, ["one", "two"])
+        XCTAssertTrue(try session.switchTo(id: "two"))
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "x")
+        drainMainQueue()
+        XCTAssertTrue(try session.switchTo(id: "three"))
+        XCTAssertTrue(try session.switchTo(id: "two"))
+        XCTAssertTrue(editor.markdown.hasPrefix("x# two"))
+        XCTAssertLessThanOrEqual(session.warmDocumentIDs.count, 2)
+    }
+
     func testCommandsMatchPortableSourceTransformationsAndUndo() {
         XCTAssertEqual(
             markdownCommand(.bold, markdown: "hello", selection: NSRange(location: 0, length: 5)),

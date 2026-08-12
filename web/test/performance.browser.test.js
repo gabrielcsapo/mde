@@ -6,7 +6,7 @@ import { afterEach, beforeAll, expect, test } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../src/theme.css';
-import { MarkdownEditor, encodeManifest, loadCore } from '../dist/index.js';
+import { MarkdownEditor, MarkdownSession, encodeManifest, loadCore } from '../dist/index.js';
 import {
   MarkdownEditor as ReactMarkdownEditor,
   preloadCore as preloadReactCore,
@@ -340,6 +340,20 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   const domNodes1MB = editor1MB.root.querySelectorAll('*').length;
   const usedHeap1MB = (/** @type {any} */ (performance)).memory?.usedJSHeapSize ?? null;
 
+  const sessionEditor = makeEditor();
+  const session = new MarkdownSession(sessionEditor, { maxDocuments: 6, maxWarmDocuments: 3 });
+  const sessionNotes = Array.from({ length: 6 }, (_, index) =>
+    source100KB.replace('Renderer performance', `Journal ${index}`)
+  );
+  sessionNotes.forEach((note, index) => session.open(`note-${index}`, note));
+  const warmSwitchSamples = [];
+  for (let index = 0; index < 12; index++) {
+    const id = `note-${3 + (index % 3)}`;
+    warmSwitchSamples.push(timed(() => session.switchTo(id)));
+  }
+  const warmSwitchP95 = percentile(warmSwitchSamples, 0.95);
+  const warmSessionNodes = sessionEditor.root.querySelectorAll('*').length;
+
   // Price the adapter itself with the shared WASM core already compiled. Network and
   // compilation are deployment costs; this measures React commit -> usable editor.
   await preloadReactCore('/dist/mde.wasm');
@@ -387,7 +401,7 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
     editMiddle1MB: { p50: median(editMiddle1MB), p95: percentile(editMiddle1MB, 0.95) },
     editEnd1MB: { p50: median(editEnd1MB), p95: percentile(editEnd1MB, 0.95) },
     sustained100KB: { p50: median(endurance), p95: percentile(endurance, 0.95) },
-    giantParagraphEdit,
+    giantParagraphEdit, warmSwitchP95, warmSessionNodes,
     usedHeap1MB, reactMount100KB, editMatrix, reactControlledMatrix, editMatrixHeapGrowth,
     mediaJournal: {
       ready: mediaReady,

@@ -259,6 +259,42 @@ export class MarkdownEditor extends EventTarget {
     this.dispatchEvent(new CustomEvent('change'));
   }
 
+  /** Capture a detached, resource-task-free presentation for bounded session reuse. */
+  captureProjection(): EditorProjectionSnapshot {
+    return {
+      markdown: this.text,
+      html: this.root.innerHTML,
+      lines: [...this.lines],
+      lineStarts: [...this.lineStarts],
+    };
+  }
+
+  /** Restore a recent document without rebuilding every styled run from decorations. */
+  restoreProjection(snapshot: EditorProjectionSnapshot): boolean {
+    if (snapshot.markdown.length === 0 && snapshot.lines.length === 0) return false;
+    this.text = snapshot.markdown;
+    this.applier.reset();
+    this.applier.ingest(this.engine.reset(snapshot.markdown));
+    this.applier.text = snapshot.markdown;
+    this.lines = [...snapshot.lines];
+    this.lineStarts = [...snapshot.lineStarts];
+    this.root.innerHTML = snapshot.html;
+    this.chunkEls = Array.from(this.root.children) as HTMLElement[];
+    this.lineEls = new Array(this.lines.length).fill(null);
+    for (let chunkIndex = 0; chunkIndex < this.chunkEls.length; chunkIndex++) {
+      const chunk = this.chunkEls[chunkIndex];
+      if (chunk.classList.contains('mde-chunk-virtual')) continue;
+      let line = chunkIndex * 64;
+      for (const child of chunk.children) this.lineEls[line++] = child as HTMLElement;
+    }
+    this.virtualizesDocument = this.lines.length > 2048;
+    this.activeChunk = null;
+    this.scheduleResourcePriorities();
+    this.scheduleVirtualization();
+    this.dispatchEvent(new CustomEvent('change'));
+    return true;
+  }
+
   get markdown() {
     return this.text;
   }
@@ -1354,6 +1390,13 @@ interface LineChange {
   starts: number[];
   newStart: number;
   newEnd: number;
+}
+
+export interface EditorProjectionSnapshot {
+  markdown: string;
+  html: string;
+  lines: string[];
+  lineStarts: number[];
 }
 
 /** @param {string[]} lines */

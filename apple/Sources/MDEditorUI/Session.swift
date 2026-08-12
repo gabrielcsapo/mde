@@ -11,16 +11,25 @@ public struct MarkdownSessionDocument: Sendable, Equatable {
 public final class MarkdownSession {
     public let editor: MarkdownTextView
     public let maxDocuments: Int
+    public let maxWarmDocuments: Int
     private var documents: [String: MarkdownSessionDocument] = [:]
+    private var warm: [String: NSAttributedString] = [:]
+    private var warmOrder: [String] = []
     private var order: [String] = []
     public private(set) var activeDocumentID: String?
 
-    public init(editor: MarkdownTextView, maxDocuments: Int = 16) {
+    public init(
+        editor: MarkdownTextView,
+        maxDocuments: Int = 16,
+        maxWarmDocuments: Int = 4
+    ) {
         self.editor = editor
         self.maxDocuments = max(1, maxDocuments)
+        self.maxWarmDocuments = max(0, min(self.maxDocuments, maxWarmDocuments))
     }
 
     public var openDocumentIDs: [String] { order }
+    public var warmDocumentIDs: [String] { warmOrder }
 
     public func open(id: String, markdown: String) throws {
         guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -35,7 +44,13 @@ public final class MarkdownSession {
         order.removeAll { $0 == id }
         order.append(id)
         activeDocumentID = id
-        editor.setMarkdown(document.markdown)
+        if let projection = warm[id],
+           editor.restoreProjection(markdown: document.markdown, projection: projection) {
+            warmOrder.removeAll { $0 == id }
+            warmOrder.append(id)
+        } else {
+            editor.setMarkdown(document.markdown)
+        }
         if let selection = document.selection, selection.upperBound <= editor.markdown.utf16.count {
             editor.selectedRange = selection
         }
@@ -52,6 +67,8 @@ public final class MarkdownSession {
     @discardableResult
     public func close(id: String) -> Bool {
         let existed = documents.removeValue(forKey: id) != nil
+        warm.removeValue(forKey: id)
+        warmOrder.removeAll { $0 == id }
         order.removeAll { $0 == id }
         if activeDocumentID == id { activeDocumentID = nil }
         return existed
@@ -68,12 +85,22 @@ public final class MarkdownSession {
         document.selection = editor.selectedRange
         document.touchedAt = Date.timeIntervalSinceReferenceDate
         documents[id] = document
+        if maxWarmDocuments > 0, let projection = editor.captureProjection() {
+            warm[id] = projection
+            warmOrder.removeAll { $0 == id }
+            warmOrder.append(id)
+            while warmOrder.count > maxWarmDocuments {
+                warm.removeValue(forKey: warmOrder.removeFirst())
+            }
+        }
     }
 
     private func evictInactive() {
         while order.count > maxDocuments,
               let candidate = order.first(where: { $0 != activeDocumentID }) {
             documents.removeValue(forKey: candidate)
+            warm.removeValue(forKey: candidate)
+            warmOrder.removeAll { $0 == candidate }
             order.removeAll { $0 == candidate }
         }
     }

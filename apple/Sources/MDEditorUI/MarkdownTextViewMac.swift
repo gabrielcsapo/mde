@@ -223,6 +223,37 @@ public final class MarkdownTextView: NSTextView {
         pluginsDidChangeMarkdown()
     }
 
+    /// A bounded session may retain this detached presentation. Widget attachments are
+    /// stripped so cached snapshots never retain resource views or resolver services.
+    func captureProjection() -> NSAttributedString? {
+        guard let storage = textStorage else { return nil }
+        let copy = NSMutableAttributedString(attributedString: storage)
+        copy.removeAttribute(
+            DecorationApplier.widgetAttachmentAttribute,
+            range: NSRange(location: 0, length: copy.length)
+        )
+        return copy
+    }
+
+    @discardableResult
+    func restoreProjection(markdown text: String, projection: NSAttributedString) -> Bool {
+        guard projection.string == text, let storage = textStorage else { return false }
+        updateLongParagraphLayout(in: text as NSString)
+        applier.reset()
+        widgetOverlays.values.forEach { $0.removeFromSuperview() }
+        widgetOverlays.removeAll()
+        isRewinding = true
+        storage.setAttributedString(projection)
+        isRewinding = false
+        applier.ingest(engine.reset(text))
+        usesViewportPainting = storage.length > Self.eagerPaintLimit || longParagraphAnchor != nil
+        paintedRanges = usesViewportPainting ? [] : [NSRange(location: 0, length: storage.length)]
+        scheduleViewportPaint()
+        scheduleWidgetLayout()
+        pluginsDidChangeMarkdown()
+        return true
+    }
+
     private static func longParagraph(in source: NSString) -> NSRange? {
         var location = 0
         while location < source.length {
