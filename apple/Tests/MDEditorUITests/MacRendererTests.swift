@@ -974,6 +974,28 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(cache.readyViewCount, 12)
     }
 
+    func testDecodedPixelMemoryEvictsOffscreenViewsBeforeCrossingTheBudget() {
+        let cache = ResourceCache()
+        cache.maxReadyViews = 100
+        cache.maxReadyViewMemoryBytes = 3 * 1024 * 1024
+        let resolver = MemoryCostResolver(bytesPerView: 1024 * 1024)
+        cache.resolver = resolver
+        cache.prioritize(["visible.jpg"])
+        for reference in ["visible.jpg", "offscreen-1.jpg", "offscreen-2.jpg", "offscreen-3.jpg"] {
+            _ = cache.state(for: ResourceRequest(
+                reference: reference,
+                roleName: "image",
+                source: "![x](\(reference))",
+                fittingWidth: 320
+            ))
+        }
+
+        XCTAssertEqual(cache.readyViewCount, 3)
+        XCTAssertLessThanOrEqual(cache.readyViewMemoryBytes, 3 * 1024 * 1024)
+        XCTAssertEqual(resolver.requests.filter { $0 == "visible.jpg" }.count, 1)
+        XCTAssertEqual(cache.known.count, 4)
+    }
+
     func testResourceReferenceIndexFollowsAnEditedDestination() throws {
         let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
         let applier = DecorationApplier(engine: engine, theme: Theme())
@@ -1604,6 +1626,35 @@ private final class ResolvingResolver: ResourceResolver {
         guesses += 1
         return CGSize(width: 100, height: 60)
     }
+}
+
+private final class MemoryCostResolver: ResourceResolver {
+    private(set) var requests = [String]()
+    private let bytesPerView: Int
+
+    init(bytesPerView: Int) { self.bytesPerView = bytesPerView }
+
+    func resolve(
+        _ request: ResourceRequest,
+        deliver _: @escaping (ResourceState) -> Void
+    ) -> ResourceState {
+        requests.append(request.reference)
+        return .ready(MemoryCostView(bytes: bytesPerView))
+    }
+
+    func reservedSize(_: ResourceRequest) -> CGSize { CGSize(width: 320, height: 180) }
+}
+
+private final class MemoryCostView: NSView, ResourceMemoryCostProviding {
+    let resourceMemoryCostBytes: Int
+
+    init(bytes: Int) {
+        resourceMemoryCostBytes = bytes
+        super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
 }
 
 private final class LinkRecorder: MarkdownTextViewDelegate {

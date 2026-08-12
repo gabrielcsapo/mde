@@ -54,6 +54,7 @@ public final class MarkdownTextView: NSTextView {
 
     /// Internal performance diagnostic used by the real-renderer regression suite.
     var retainedResourceViewCount: Int { applier.resources.readyViewCount }
+    var retainedResourceMemoryBytes: Int { applier.resources.readyViewMemoryBytes }
 
     public var theme: Theme {
         get { applier.theme }

@@ -900,8 +900,9 @@ final class MacMediaRendererBenchmarks: XCTestCase {
         }
 
         print(String(
-            format: "320-resource media journal ready %8.2f edit %8.2f scroll %8.2f ms requests %d retained %d",
-            ready, edit, scroll, resolver.requested.count, editor.retainedResourceViewCount
+            format: "320-resource media journal ready %8.2f edit %8.2f scroll %8.2f ms requests %d retained %d memory %d",
+            ready, edit, scroll, resolver.requested.count, editor.retainedResourceViewCount,
+            editor.retainedResourceMemoryBytes
         ))
         enforceBudget(
             ready,
@@ -928,6 +929,10 @@ final class MacMediaRendererBenchmarks: XCTestCase {
         if let raw = ProcessInfo.processInfo.environment["MDE_APPLE_MEDIA_READY_VIEW_BUDGET"],
            let budget = Int(raw) {
             XCTAssertLessThanOrEqual(editor.retainedResourceViewCount, budget)
+        }
+        if let raw = ProcessInfo.processInfo.environment["MDE_APPLE_MEDIA_READY_MEMORY_BUDGET_BYTES"],
+           let budget = Int(raw) {
+            XCTAssertLessThanOrEqual(editor.retainedResourceMemoryBytes, budget)
         }
         XCTAssertEqual(editor.markdown, source.replacingOccurrences(
             of: "Closing reflection", with: "xClosing reflection"

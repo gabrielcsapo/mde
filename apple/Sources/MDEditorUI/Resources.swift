@@ -22,6 +22,13 @@ public enum ResourceState {
     case failed(String)
 }
 
+/// Optional memory accounting supplied by decoded-image and generated-preview views.
+/// The cache uses this to enforce an aggregate decoded-pixel ceiling, not merely a
+/// count of native view objects.
+public protocol ResourceMemoryCostProviding {
+    var resourceMemoryCostBytes: Int { get }
+}
+
 /// Turns a reference in the document into a view.
 ///
 /// This exists because the document must stay a portable markdown string. A note
@@ -78,6 +85,8 @@ final class ResourceCache {
     /// resolver while `known` continues to reserve the correct box.
     var maxReadyViews = 32
     private(set) var readyViewCount = 0
+    var maxReadyViewMemoryBytes = 64 * 1024 * 1024
+    private(set) var readyViewMemoryBytes = 0
 
     /// Seed sizes remembered from a previous session.
     func remember(_ sizes: [String: CGSize]) {
@@ -98,6 +107,7 @@ final class ResourceCache {
     private var pending: [Pending] = []
     private var nextOrder: UInt64 = 0
     private var readyOrder: [String] = []
+    private var readyMemoryCosts: [String: Int] = [:]
     private var viewportReferences: Set<String> = []
     /// Invalidates deliveries belonging to a document that has since been reset.
     private var generation: UInt64 = 0
@@ -120,8 +130,10 @@ final class ResourceCache {
         inFlight.removeAll()
         pending.removeAll()
         readyOrder.removeAll()
+        readyMemoryCosts.removeAll()
         viewportReferences.removeAll()
         readyViewCount = 0
+        readyViewMemoryBytes = 0
         // `known` deliberately survives: it describes assets, not this document.
     }
 
@@ -229,6 +241,9 @@ final class ResourceCache {
         guard size.width > 0, size.height > 0 else { return }
         reserved[reference] = size
         known[reference] = size
+        readyMemoryCosts[reference] = max(
+            0, (view as? any ResourceMemoryCostProviding)?.resourceMemoryCostBytes ?? 0
+        )
         touchReady(reference)
         evictReadyViews()
     }
@@ -237,16 +252,20 @@ final class ResourceCache {
         readyOrder.removeAll { $0 == reference }
         readyOrder.append(reference)
         readyViewCount = readyOrder.count
+        readyViewMemoryBytes = readyMemoryCosts.values.reduce(0, +)
     }
 
     private func evictReadyViews() {
         let limit = max(1, maxReadyViews)
-        while readyViewCount > limit, !readyOrder.isEmpty {
+        let memoryLimit = max(1, maxReadyViewMemoryBytes)
+        while (readyViewCount > limit || readyViewMemoryBytes > memoryLimit), !readyOrder.isEmpty {
             let victim = readyOrder.firstIndex { !viewportReferences.contains($0) } ?? 0
             let reference = readyOrder.remove(at: victim)
             guard case .ready = states[reference] else { continue }
             states.removeValue(forKey: reference)
+            readyMemoryCosts.removeValue(forKey: reference)
             readyViewCount = readyOrder.count
+            readyViewMemoryBytes = readyMemoryCosts.values.reduce(0, +)
         }
     }
 

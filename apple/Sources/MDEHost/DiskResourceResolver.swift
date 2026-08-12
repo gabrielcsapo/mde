@@ -135,9 +135,12 @@ public final class DiskResourceResolver: CancellableResourceResolver {
 /// constraints. The editor hosts a widget by frame so that content with its own layout
 /// still works; self-imposed size constraints fight that and the image renders as a
 /// blank gap with no error anywhere.
-final class ImageResourceView: PlatformView {
+final class ImageResourceView: PlatformView, ResourceMemoryCostProviding {
     private let target: CGSize
     let decodedPixelSize: CGSize
+    var resourceMemoryCostBytes: Int {
+        max(0, Int(decodedPixelSize.width) * Int(decodedPixelSize.height) * 4)
+    }
 
     init(image: PlatformImage, maxWidth: CGFloat) {
         #if os(macOS)
