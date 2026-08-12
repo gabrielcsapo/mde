@@ -134,7 +134,9 @@ viewport-contained chunks, marks it read-only, and atomically restores the match
 snapshot before enabling input. This avoids both a blank opening screen and the more
 dangerous failure mode where the DOM accepts edits while the engine still describes a
 different document. The 5 MB gate measures source-visible latency, a next-frame
-main-thread probe, total readiness, post-activation editing, and source equality.
+main-thread probe, total readiness, post-activation editing, source equality, and the
+transferred snapshot size. Snapshot ranges use delta/variable-width records: the
+realistic 5 MB journal profile fell from 7.19 MB to 6.30 MB without changing readiness.
 
 **What was removed.** An earlier version also limited decoration to a window around the
 viewport above 256 KB. Measurement killed it. Because it could not compose with the

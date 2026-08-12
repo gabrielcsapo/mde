@@ -61,6 +61,7 @@ test.runIf(__MDE_PERF_EXTENDED__)('optional 5 MB browser profile', async () => {
   await new Promise((resolve) => requestAnimationFrame(resolve));
   const mainThreadProbe = performance.now() - mainThreadProbeStarted;
   await progressiveOpen;
+  const prepared = await preparedPromise;
   const progressiveReady = performance.now() - prepareStarted;
   const progressiveNodes = progressiveHost.querySelectorAll('*').length;
   const progressiveEditStarted = performance.now();
@@ -74,6 +75,7 @@ test.runIf(__MDE_PERF_EXTENDED__)('optional 5 MB browser profile', async () => {
   const report = {
     load, edit, teardown, nodes, sourceVisible, mainThreadProbe,
     progressiveReady, progressiveNodes, progressiveEdit,
+    progressiveSnapshotBytes: prepared.snapshot.byteLength,
   };
   console.log(`MDE_WEB_EXTENDED ${JSON.stringify(report)}`);
   await fetch('/__mde_perf_extended_report', {

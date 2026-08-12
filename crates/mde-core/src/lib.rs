@@ -109,14 +109,33 @@ impl<'a> SnapshotCursor<'a> {
     fn u64(&mut self) -> Result<u64, SnapshotError> {
         Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
     }
-    fn string(&mut self) -> Result<&'a str, SnapshotError> {
-        let length = self.u32()? as usize;
+    fn var_u32(&mut self) -> Result<u32, SnapshotError> {
+        let mut value = 0u32;
+        for shift in (0..35).step_by(7) {
+            let byte = self.u8()?;
+            let bits = u32::from(byte & 0x7f);
+            if shift == 28 && bits > 0x0f { return Err(SnapshotError("integer overflow")); }
+            value |= bits << shift;
+            if byte & 0x80 == 0 { return Ok(value); }
+        }
+        Err(SnapshotError("integer overflow"))
+    }
+    fn compact_string(&mut self) -> Result<&'a str, SnapshotError> {
+        let length = self.var_u32()? as usize;
         std::str::from_utf8(self.take(length)?).map_err(|_| SnapshotError("invalid UTF-8"))
     }
 }
 
-fn snapshot_put_string(out: &mut Vec<u8>, value: &str) {
-    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+fn snapshot_put_var_u32(out: &mut Vec<u8>, mut value: u32) {
+    while value >= 0x80 {
+        out.push((value as u8) | 0x80);
+        value >>= 7;
+    }
+    out.push(value as u8);
+}
+
+fn snapshot_put_compact_string(out: &mut Vec<u8>, value: &str) {
+    snapshot_put_var_u32(out, value.len() as u32);
     out.extend_from_slice(value.as_bytes());
 }
 
@@ -215,26 +234,35 @@ impl Engine {
     /// another engine with the same registry. The browser uses this to prepare large
     /// documents in a Worker while the main thread presents the source immediately.
     pub fn snapshot(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(self.text.as_str().len() + self.built.len() * 64);
+        let mut out = Vec::with_capacity(self.text.as_str().len() + self.built.len() * 32);
         out.extend_from_slice(b"MDES");
-        out.extend_from_slice(&1u32.to_le_bytes());
-        out.extend_from_slice(&(self.registry.role_count() as u32).to_le_bytes());
+        out.extend_from_slice(&2u32.to_le_bytes());
+        snapshot_put_var_u32(&mut out, self.registry.role_count() as u32);
         for role in 0..self.registry.role_count() as RoleId {
-            snapshot_put_string(&mut out, self.registry.role_name(role).unwrap_or(""));
+            snapshot_put_compact_string(&mut out, self.registry.role_name(role).unwrap_or(""));
         }
-        snapshot_put_string(&mut out, self.text.as_str());
-        out.extend_from_slice(&(self.built.len() as u32).to_le_bytes());
+        snapshot_put_compact_string(&mut out, self.text.as_str());
+        snapshot_put_var_u32(&mut out, self.built.len() as u32);
+        let mut previous_start = 0usize;
         for item in &self.built {
-            for value in [item.start, item.end, item.node.0, item.node.1, item.block.0, item.block.1] {
-                out.extend_from_slice(&(value as u32).to_le_bytes());
+            // Sorted and nested ranges are far cheaper as small distances than as six
+            // absolute 32-bit offsets, especially across a Worker boundary.
+            for value in [item.start - previous_start, item.end - item.start,
+                item.start - item.node.0, item.node.1 - item.end,
+                item.node.0 - item.block.0, item.block.1 - item.node.1] {
+                snapshot_put_var_u32(&mut out, value as u32);
             }
-            out.extend_from_slice(&item.role.to_le_bytes());
-            out.extend_from_slice(&[item.kind as u8, item.reveal as u8, item.depth, 0]);
+            previous_start = item.start;
+            snapshot_put_var_u32(&mut out, item.role);
+            out.extend_from_slice(&[item.kind as u8, item.reveal as u8, item.depth]);
             out.extend_from_slice(&item.identity.to_le_bytes());
             out.extend_from_slice(&item.key.to_le_bytes());
             match &item.payload {
-                Some(payload) => snapshot_put_string(&mut out, payload),
-                None => out.extend_from_slice(&u32::MAX.to_le_bytes()),
+                Some(payload) => {
+                    snapshot_put_var_u32(&mut out, payload.len() as u32 + 1);
+                    out.extend_from_slice(payload.as_bytes());
+                }
+                None => snapshot_put_var_u32(&mut out, 0),
             }
         }
         out
@@ -245,25 +273,35 @@ impl Engine {
     pub fn restore_snapshot(&mut self, bytes: &[u8]) -> Result<Patch, SnapshotError> {
         let mut cursor = SnapshotCursor { bytes, offset: 0 };
         if cursor.take(4)? != b"MDES" { return Err(SnapshotError("bad magic")); }
-        if cursor.u32()? != 1 { return Err(SnapshotError("unsupported version")); }
-        let role_count = cursor.u32()? as usize;
+        if cursor.u32()? != 2 { return Err(SnapshotError("unsupported version")); }
+        let role_count = cursor.var_u32()? as usize;
         if role_count != self.registry.role_count() {
             return Err(SnapshotError("registry role count differs"));
         }
         for role in 0..role_count as RoleId {
-            if cursor.string()? != self.registry.role_name(role).unwrap_or("") {
+            if cursor.compact_string()? != self.registry.role_name(role).unwrap_or("") {
                 return Err(SnapshotError("registry role names differ"));
             }
         }
-        let source = cursor.string()?.to_owned();
-        let count = cursor.u32()? as usize;
+        let source = cursor.compact_string()?.to_owned();
+        let count = cursor.var_u32()? as usize;
         let mut built = Vec::with_capacity(count);
+        let mut previous_start = 0usize;
         for _ in 0..count {
-            let start = cursor.u32()? as usize;
-            let end = cursor.u32()? as usize;
-            let node = (cursor.u32()? as usize, cursor.u32()? as usize);
-            let block = (cursor.u32()? as usize, cursor.u32()? as usize);
-            let role = cursor.u32()?;
+            let start = previous_start.checked_add(cursor.var_u32()? as usize)
+                .ok_or(SnapshotError("range overflow"))?;
+            let end = start.checked_add(cursor.var_u32()? as usize)
+                .ok_or(SnapshotError("range overflow"))?;
+            let node = (
+                start.checked_sub(cursor.var_u32()? as usize).ok_or(SnapshotError("range overflow"))?,
+                end.checked_add(cursor.var_u32()? as usize).ok_or(SnapshotError("range overflow"))?,
+            );
+            let block = (
+                node.0.checked_sub(cursor.var_u32()? as usize).ok_or(SnapshotError("range overflow"))?,
+                node.1.checked_add(cursor.var_u32()? as usize).ok_or(SnapshotError("range overflow"))?,
+            );
+            previous_start = start;
+            let role = cursor.var_u32()?;
             let kind = match cursor.u8()? {
                 0 => Kind::Style,
                 1 => Kind::Conceal,
@@ -281,14 +319,13 @@ impl Engine {
                 _ => return Err(SnapshotError("unknown reveal mode")),
             };
             let depth = cursor.u8()?;
-            let _padding = cursor.u8()?;
             let identity = cursor.u64()?;
             let key = cursor.u64()?;
-            let payload_length = cursor.u32()?;
-            let payload = if payload_length == u32::MAX {
+            let payload_length = cursor.var_u32()?;
+            let payload = if payload_length == 0 {
                 None
             } else {
-                let raw = cursor.take(payload_length as usize)?;
+                let raw = cursor.take(payload_length as usize - 1)?;
                 let value = std::str::from_utf8(raw).map_err(|_| SnapshotError("invalid payload"))?;
                 Some(Arc::from(value))
             };
@@ -1312,6 +1349,21 @@ mod tests {
         let mut corrupt = snapshot;
         corrupt[0] = b'X';
         assert!(Engine::from_toml("").unwrap().restore_snapshot(&corrupt).is_err());
+    }
+
+    #[test]
+    fn prepared_snapshot_compacts_repeated_document_ranges() {
+        let source = "## Journal\n\n**Rendered** prose with [link](https://example.dev).\n\n"
+            .repeat(2_000);
+        let mut engine = Engine::from_toml("").unwrap();
+        engine.reset(&source);
+        let snapshot = engine.snapshot();
+
+        // The source is necessarily present once. Compact range records must remain
+        // well below the old fixed 48-byte record shape on decoration-heavy files.
+        let metadata_bytes = snapshot.len() - source.len();
+        assert!(metadata_bytes < engine.decorations().len() * 32);
+        assert_eq!(&snapshot[4..8], &2u32.to_le_bytes());
     }
 
     #[test]
