@@ -791,6 +791,11 @@ final class MacRendererBenchmarks: XCTestCase {
             try session.open(id: id, markdown: corpus.text + "\n<!-- journal \(index) -->")
             drainMainQueue()
         }
+        // Saving the fourth active document completes the warm set. Measure only the
+        // steady-state rapid switching that used to recopy every projection.
+        XCTAssertTrue(try session.switchTo(id: ids[0]))
+        drainMainQueue()
+        let capturesAfterWarming = session.projectionCaptureCount
 
         var samples: [Double] = []
         for index in 0 ..< 24 {
@@ -802,9 +807,10 @@ final class MacRendererBenchmarks: XCTestCase {
         let p95 = percentile(samples, 0.95)
         let memoryGrowth = max(0, residentMemoryBytes() - memoryBefore)
         print(String(
-            format: "warm 100KB document switch p95 %8.2f ms memory growth %lld bytes",
-            p95, memoryGrowth
+            format: "warm 100KB document switch p95 %8.2f ms memory growth %lld bytes captures %d",
+            p95, memoryGrowth, session.projectionCaptureCount - capturesAfterWarming
         ))
+        XCTAssertEqual(session.projectionCaptureCount, capturesAfterWarming)
         XCTAssertLessThanOrEqual(session.warmDocumentIDs.count, 4)
         XCTAssertTrue(editor.markdown.contains("<!-- journal"))
         enforceBudget(

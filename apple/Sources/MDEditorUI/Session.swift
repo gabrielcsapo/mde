@@ -17,6 +17,7 @@ public final class MarkdownSession {
     private var warmOrder: [String] = []
     private var order: [String] = []
     public private(set) var activeDocumentID: String?
+    internal private(set) var projectionCaptureCount = 0
 
     public init(
         editor: MarkdownTextView,
@@ -85,7 +86,15 @@ public final class MarkdownSession {
         document.selection = editor.selectedRange
         document.touchedAt = Date.timeIntervalSinceReferenceDate
         documents[id] = document
-        if maxWarmDocuments > 0, let projection = editor.captureProjection() {
+        // A restored warm projection is already an immutable snapshot of this exact
+        // source. Re-copying its entire attributed string on every switch creates
+        // document-sized transient allocations even when the user changed nothing.
+        // Preserve it and only capture again after the source actually diverges.
+        if maxWarmDocuments > 0, warm[id]?.string == document.markdown {
+            warmOrder.removeAll { $0 == id }
+            warmOrder.append(id)
+        } else if maxWarmDocuments > 0, let projection = editor.captureProjection() {
+            projectionCaptureCount += 1
             warm[id] = projection
             warmOrder.removeAll { $0 == id }
             warmOrder.append(id)

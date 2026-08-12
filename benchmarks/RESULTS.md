@@ -114,7 +114,7 @@ Seven additional host-level phases were measured and gated:
 | React external controlled update p95 | 34.8 ms | 16.7 ms |
 | React local controlled acknowledgement p95 | implicit in replay | 0.1 ms |
 | Warm 100 KB document switch p95 | cold-only | 10–12 ms |
-| AppKit warm 100 KB document switch p95 | cold-only | 52 ms |
+| AppKit warm 100 KB document switch p95 | cold-only | 63 ms |
 
 Resource work is now concurrency-bounded and viewport-prioritized on web and Apple,
 with cancellation at the cache and disk-operation layers. AppKit additionally retains
@@ -128,6 +128,12 @@ React now reconciles genuinely external `value` updates in the layout phase. Its
 resolves on the exact applied editor change rather than adding two animation frames of
 polling overhead; the controlled matrix p95 is 16.7 ms, while a locally-originated value
 acknowledgement remains a no-op at 0.1 ms p95.
+
+Native warm sessions now recognize an unchanged restored projection and retain that
+immutable snapshot instead of copying the full attributed document again on every
+switch. A 40-switch correctness test and the release benchmark assert zero projection
+captures after warm-up; the 100 KB switch gate remains 63 ms p95 with roughly 50 MiB
+total growth for four retained projections.
 
 The reference disk resolver downscales images to their display pixel size, caps retained
 decoded media at 64 MiB, and now persists video posters and bounded audio waveforms.

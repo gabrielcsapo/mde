@@ -121,6 +121,25 @@ final class MacRendererTests: XCTestCase {
         XCTAssertLessThanOrEqual(session.warmDocumentIDs.count, 2)
     }
 
+    func testRapidWarmSwitchesDoNotRecopyUnchangedProjections() throws {
+        let session = MarkdownSession(editor: editor, maxDocuments: 4, maxWarmDocuments: 4)
+        let source = String(repeating: "A **journal** paragraph.\n\n", count: 500)
+        for index in 0 ..< 4 {
+            try session.open(id: "note-\(index)", markdown: source + "\(index)")
+        }
+        XCTAssertTrue(try session.switchTo(id: "note-0"))
+        let capturesAfterWarming = session.projectionCaptureCount
+
+        for index in 0 ..< 40 {
+            XCTAssertTrue(try session.switchTo(id: "note-\(index % 4)"))
+        }
+
+        XCTAssertEqual(session.projectionCaptureCount, capturesAfterWarming)
+        editor.textStorage?.replaceCharacters(in: NSRange(location: 0, length: 0), with: "x")
+        XCTAssertTrue(try session.switchTo(id: "note-1"))
+        XCTAssertEqual(session.projectionCaptureCount, capturesAfterWarming + 1)
+    }
+
     func testCommandsMatchPortableSourceTransformationsAndUndo() {
         XCTAssertEqual(
             markdownCommand(.bold, markdown: "hello", selection: NSRange(location: 0, length: 5)),
