@@ -1079,6 +1079,28 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(applier.ranges(referencing: replacement).count, 1)
     }
 
+    func testChangingThemeInvalidatesCachedPaintAttributes() throws {
+        let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
+        let applier = DecorationApplier(engine: engine, theme: Theme())
+        let source = "# Heading\n\n**strong**\n"
+        let storage = NSTextStorage(string: source)
+        applier.ingest(engine.reset(source))
+        applier.repaint(NSRange(location: 0, length: storage.length), in: storage)
+        let heading = try XCTUnwrap(applier.decorations.first { $0.role == Role.heading })
+
+        var changed = applier.theme
+        changed.textColor = .systemRed
+        changed.lineSpacing = 11
+        applier.theme = changed
+        applier.repaint(NSRange(location: 0, length: storage.length), in: storage)
+
+        XCTAssertEqual(storage.attribute(.foregroundColor, at: heading.range.location + 2,
+                                         effectiveRange: nil) as? NSColor, .systemRed)
+        let paragraph = try XCTUnwrap(storage.attribute(.paragraphStyle, at: 0,
+                                                        effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(paragraph.lineSpacing, 11)
+    }
+
     func testDiskImagesDecodeToTheDisplayedPixelBudget() throws {
         let resolver = DiskResourceResolver(root: SampleAssets.install())
         let request = ResourceRequest(

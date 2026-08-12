@@ -787,6 +787,11 @@ Three decisions are worth stating:
   stable across edits (§3.3): a key changes exactly when its node's own source changes,
   so the cache invalidates itself and there is no staleness rule to get wrong. Bounded at
   256 views, evicting entries that are no longer live first.
+- ~~Native repaint recreated theme dictionaries and trait fonts per decoration.~~ The
+  Apple applier now caches base and role/heading attribute sets for the lifetime of a
+  theme and invalidates both caches atomically when the theme changes. On the 1 MB
+  AppKit profile, initial viewport paint fell from 42.77 ms to 39.63 ms and full layout
+  from 735.89 ms to 703.47 ms; the pathological-edit p95 stayed under 50 ms.
 - ~~`reservedSize` is a guess, so a wrong guess shifts the document once.~~ Resolved
   sizes are now measured and kept (`resourceSizes` on every host). A host that persists
   them and seeds them on open turns "shifts once per launch" into "shifts once per asset,

@@ -32,7 +32,21 @@ final class DecorationApplier {
     private static let localizedParagraphThreshold = 16 * 1024
 
     let engine: MarkdownEngine
-    var theme: Theme
+    var theme: Theme {
+        didSet {
+            baseAttributes = theme.baseAttributes
+            roleAttributes.removeAll(keepingCapacity: true)
+        }
+    }
+    /// Theme resolution creates paragraph styles, trait fonts, and dictionaries. Those
+    /// values are immutable until `theme` changes, so allocating them once per painted
+    /// decoration only feeds Foundation's autorelease pools on large documents.
+    private struct ThemeAttributeKey: Hashable {
+        let role: UInt32
+        let headingLevel: Int
+    }
+    private var baseAttributes: [NSAttributedString.Key: Any]
+    private var roleAttributes: [ThemeAttributeKey: [NSAttributedString.Key: Any]] = [:]
     /// Strong on purpose. A provider is a service the editor owns, not a delegate:
     /// hosts assign a freshly constructed one inline (`editor.widgetProvider =
     /// HostWidgets()`), and a weak reference would drop it before the first paint.
@@ -108,6 +122,7 @@ final class DecorationApplier {
     init(engine: MarkdownEngine, theme: Theme) {
         self.engine = engine
         self.theme = theme
+        baseAttributes = theme.baseAttributes
     }
 
     func reset() {
@@ -316,7 +331,7 @@ final class DecorationApplier {
 
         isRepainting = true
         storage.beginEditing()
-        storage.setAttributes(theme.baseAttributes, range: scope)
+        storage.setAttributes(baseAttributes, range: scope)
 
         let ordered = decorations(intersecting: scope)
             .filter { NSIntersectionRange($0.range, scope).length > 0 }
@@ -368,11 +383,18 @@ final class DecorationApplier {
             let level = d.role == Role.heading
                 ? (d.depth > 0 ? Int(d.depth) : headingLevel(at: d.range, in: ns))
                 : 0
-            let attrs = theme.attributes(
-                role: d.role,
-                roleName: engine.roleName(d.role),
-                headingLevel: level
-            )
+            let cacheKey = ThemeAttributeKey(role: d.role, headingLevel: level)
+            let attrs: [NSAttributedString.Key: Any]
+            if let cached = roleAttributes[cacheKey] {
+                attrs = cached
+            } else {
+                attrs = theme.attributes(
+                    role: d.role,
+                    roleName: engine.roleName(d.role),
+                    headingLevel: level
+                )
+                roleAttributes[cacheKey] = attrs
+            }
             if !attrs.isEmpty { storage.addAttributes(attrs, range: range) }
             #if os(macOS)
             // TextKit 1 paints a background attached to a newline across the remaining
