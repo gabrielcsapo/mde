@@ -539,7 +539,7 @@ final class MacRendererBenchmarks: XCTestCase {
         guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
             throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
         }
-        let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 850)
+        let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 1_700)
         let (window, editor) = makeEditor()
         editor.setMarkdown(source)
         XCTAssertTrue(window.makeFirstResponder(editor))
@@ -567,7 +567,7 @@ final class MacRendererBenchmarks: XCTestCase {
         let p95 = percentile(totals, 0.95)
         let slowest = samples.max(by: { $0.total < $1.total })!
         print(String(
-            format: "32KB giant Unicode paragraph p50 %8.3f p95 %8.3f ms",
+            format: "64KB no-newline Unicode paragraph p50 %8.3f p95 %8.3f ms",
             percentile(totals, 0.50),
             p95
         ))
@@ -579,12 +579,12 @@ final class MacRendererBenchmarks: XCTestCase {
         XCTAssertLessThanOrEqual(
             p95,
             250,
-            "32 KB AppKit pathological edit must stay perceptibly interactive"
+            "64 KB AppKit pathological edit must stay perceptibly interactive"
         )
         enforceBudget(
             p95,
             environment: "MDE_APPLE_GIANT_PARAGRAPH_BUDGET_MS",
-            metric: "32 KB native giant Unicode paragraph edit p95"
+            metric: "64 KB native no-newline Unicode paragraph edit p95"
         )
         _ = window
     }
@@ -593,7 +593,7 @@ final class MacRendererBenchmarks: XCTestCase {
         guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
             throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
         }
-        let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 850)
+        let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 1_700)
         let engine = try XCTUnwrap(MarkdownEngine(manifest: HostExtensions.manifest))
         _ = engine.reset(source)
         let at = source.utf16.count / 2
@@ -605,7 +605,7 @@ final class MacRendererBenchmarks: XCTestCase {
                 documentLength: expectedLength
             )
         }
-        print(String(format: "32KB giant Unicode paragraph core only %8.3f ms", update))
+        print(String(format: "64KB no-newline Unicode paragraph core only %8.3f ms", update))
         XCTAssertLessThanOrEqual(update, 50, "the shared core should leave AppKit headroom")
     }
 

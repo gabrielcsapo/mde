@@ -314,7 +314,11 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   editor1MB.clearLayer('performance-plugin');
 
   const endurance = timedEdits(editor100KB, Math.floor(editor100KB.markdown.length * 0.50), 100);
-  const giantSource = 'word **strong** @same résumé 日本語 🎉 '.repeat(850);
+  // One minified/no-newline block is the parser and renderer's deliberately hostile
+  // shape: there is no safe CommonMark block boundary to use for a regional reparse.
+  // Keep this at 64 KB so the routine gate catches nonlinear work before the optional
+  // multi-megabyte profile has to.
+  const giantSource = 'word **strong** @same résumé 日本語 🎉 '.repeat(1700);
   const giantEditor = makeEditor();
   giantEditor.setMarkdown(giantSource);
   const giantParagraphEdit = median(
@@ -403,7 +407,7 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(typewriter100KB, '100 KB typewriter enable').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.typewriter100KB,
   );
-  expect(giantParagraphEdit, '32 KB giant Unicode paragraph edit').toBeLessThanOrEqual(
+  expect(giantParagraphEdit, '64 KB no-newline Unicode paragraph edit').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.giantParagraph,
   );
   expect(scroll1MB, '1 MB two-frame scroll').toBeLessThanOrEqual(__MDE_PERF_BUDGETS__.scroll1MB);

@@ -302,7 +302,10 @@ enum PerformanceTestMode {
         _ editor: MarkdownTextView,
         completion: @escaping ([EditSample], Bool) -> Void
     ) {
-        let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 850)
+        // No newline means the shared parser cannot prove a smaller CommonMark block
+        // boundary. This is the routine pathological gate; multi-megabyte shapes stay
+        // in the opt-in extended profile.
+        let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 1_700)
         editor.setMarkdown(source)
         DispatchQueue.main.async {
             let expected = NSMutableString(string: source)

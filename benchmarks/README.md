@@ -6,7 +6,7 @@ for the costs most likely to regress:
 
 - core edit latency at 100 KB, 1 MB, and 5 MB;
 - localized core selection/reveal and one-span plugin-layer latency at 1 MB and 5 MB;
-- the adversarial 32 KB Unicode single-paragraph edit;
+- the adversarial 64 KB Unicode no-newline/single-paragraph edit;
 - real-browser cold load, positional and sustained edit p95, giant Unicode paragraph,
   typewriter, scroll, DOM size, JS heap, and React warm-core mount costs;
 - a 72-resource journal with 48 images, 8 videos, and 16 audio attachments in Chromium;

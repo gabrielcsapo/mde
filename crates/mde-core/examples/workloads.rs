@@ -375,10 +375,10 @@ fn main() {
         return;
     }
     if arguments.iter().any(|argument| argument == "--giant-only") {
-        let giant = one_shot("32KB giant paragraph", &giant_paragraph(32 * 1024), 10);
+        let giant = one_shot("64KB giant paragraph", &giant_paragraph(64 * 1024), 10);
         if check {
             enforce_budget(
-                "32KB giant paragraph",
+                "64KB giant paragraph",
                 giant,
                 "MDE_CORE_GIANT_PARAGRAPH_BUDGET_MS",
             );
@@ -397,10 +397,10 @@ fn main() {
     );
     // These intentionally disable or greatly widen regional parsing. Keep them large
     // enough to expose scaling without making a routine performance run take minutes.
-    let giant = one_shot("32KB giant paragraph", &giant_paragraph(32 * 1024), 3);
+    let giant = one_shot("64KB giant paragraph", &giant_paragraph(64 * 1024), 3);
     if check {
         enforce_budget(
-            "32KB giant paragraph",
+            "64KB giant paragraph",
             giant,
             "MDE_CORE_GIANT_PARAGRAPH_BUDGET_MS",
         );
