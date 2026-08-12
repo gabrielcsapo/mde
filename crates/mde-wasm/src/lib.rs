@@ -99,6 +99,9 @@ pub unsafe extern "C" fn mde_reset(e: *mut Engine) -> u32 {
 /// Serialize the current parsed document into the output scratch buffer. The bytes can
 /// be transferred from a Worker and restored by `mde_snapshot_restore` without a second
 /// main-thread parse.
+///
+/// # Safety
+/// `e` must be null or a live pointer returned by `mde_engine_new`.
 #[no_mangle]
 pub unsafe extern "C" fn mde_snapshot(e: *const Engine) -> u32 {
     let Some(e) = e.as_ref() else { return 0 };
@@ -107,6 +110,9 @@ pub unsafe extern "C" fn mde_snapshot(e: *const Engine) -> u32 {
 }
 
 /// Restore a prepared snapshot from the input buffer.
+///
+/// # Safety
+/// `e` must be null or a live pointer returned by `mde_engine_new`.
 #[no_mangle]
 pub unsafe extern "C" fn mde_snapshot_restore(e: *mut Engine) -> u32 {
     let Some(e) = e.as_mut() else { return STATUS_BAD_ARGUMENT };
