@@ -70,8 +70,12 @@ public extension MarkdownTextView {
     func execute(_ command: MarkdownCommand, selection: NSRange? = nil) -> Bool {
         let result = markdownCommand(command, markdown: markdown, selection: selection ?? selectedRange)
         closeUndoGroup()
-        guard let textStorage else { return false }
-        textStorage.replaceCharacters(in: result.range, with: result.text)
+        #if os(macOS)
+        guard let storage = textStorage else { return false }
+        #else
+        let storage = textStorage
+        #endif
+        storage.replaceCharacters(in: result.range, with: result.text)
         closeUndoGroup()
         selectedRange = result.selection
         return true
