@@ -825,7 +825,9 @@ final class MacRendererBenchmarks: XCTestCase {
         }
         let memoryBefore = residentMemoryBytes()
         let (window, editor) = makeEditor()
-        let session = MarkdownSession(editor: editor, maxDocuments: 6, maxWarmDocuments: 4)
+        let session = MarkdownSession(
+            editor: editor, maxDocuments: 6, maxWarmDocuments: 4, maxWarmBytes: 2 * 1024 * 1024
+        )
         let ids = (0 ..< 4).map { "journal-\($0)" }
         for (index, id) in ids.enumerated() {
             try session.open(id: id, markdown: corpus.text + "\n<!-- journal \(index) -->")
@@ -852,6 +854,7 @@ final class MacRendererBenchmarks: XCTestCase {
         ))
         XCTAssertEqual(session.projectionCaptureCount, capturesAfterWarming)
         XCTAssertLessThanOrEqual(session.warmDocumentIDs.count, 4)
+        XCTAssertLessThanOrEqual(session.warmProjectionBytes, 2 * 1024 * 1024)
         XCTAssertTrue(editor.markdown.contains("<!-- journal"))
         enforceBudget(
             p95,

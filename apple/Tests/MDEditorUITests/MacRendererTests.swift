@@ -140,6 +140,22 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(session.projectionCaptureCount, capturesAfterWarming + 1)
     }
 
+    func testWarmSessionProjectionsAreBoundedByAggregateBytes() throws {
+        let session = MarkdownSession(
+            editor: editor, maxDocuments: 8, maxWarmDocuments: 8, maxWarmBytes: 80_000
+        )
+        let note = String(repeating: "A **journal** paragraph.\n", count: 1_000)
+        for index in 0 ..< 8 {
+            try session.open(id: "note-\(index)", markdown: note + "\(index)")
+        }
+        session.saveActive()
+
+        XCTAssertLessThan(session.warmDocumentIDs.count, 8)
+        XCTAssertLessThanOrEqual(session.warmProjectionBytes, 80_000)
+        XCTAssertTrue(try session.switchTo(id: "note-0"), "eviction removed source state")
+        XCTAssertEqual(editor.markdown, note + "0")
+    }
+
     func testCommandsMatchPortableSourceTransformationsAndUndo() {
         XCTAssertEqual(
             markdownCommand(.bold, markdown: "hello", selection: NSRange(location: 0, length: 5)),

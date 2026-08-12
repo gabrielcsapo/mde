@@ -135,6 +135,10 @@ switch. A 40-switch correctness test and the release benchmark assert zero proje
 captures after warm-up; the 100 KB switch gate remains 63 ms p95 with roughly 50 MiB
 total growth for four retained projections.
 
+Warm native projections are now bounded by both document count and aggregate UTF-16
+storage bytes (16 MiB by default). Evicted entries retain their source and selection,
+so reopening degrades to an ordinary cold projection instead of losing the document.
+
 The reference disk resolver downscales images to their display pixel size, caps retained
 decoded media at 64 MiB, and now persists video posters and bounded audio waveforms.
 Resolver tests reopen a fresh cache instance and prove the preview is read from disk
