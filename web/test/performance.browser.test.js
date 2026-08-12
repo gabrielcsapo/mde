@@ -222,6 +222,10 @@ function runEditorMatrix(spec, corpora) {
     expected = expected.slice(0, at) + replacement + expected.slice(end);
   }
   expect(editor.markdown, 'web endurance source').toBe(expected);
+  const entry = live.pop();
+  entry.editor.destroy();
+  entry.engine.free();
+  document.body.replaceChildren();
   return {
     byCorpus,
     p50: median(samples),
@@ -324,11 +328,15 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   const giantParagraphEdit = median(
     timedEdits(giantEditor, Math.floor(giantSource.length / 2), 5),
   );
-  const scroll1MB = await new Promise((resolve) => {
-    const started = performance.now();
-    editor1MB.root.scrollTop = editor1MB.root.scrollHeight;
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now() - started)));
-  });
+  const scrollSamples = [];
+  for (const destination of [editor1MB.root.scrollHeight, 0, editor1MB.root.scrollHeight]) {
+    scrollSamples.push(await new Promise((resolve) => {
+      const started = performance.now();
+      editor1MB.root.scrollTop = destination;
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now() - started)));
+    }));
+  }
+  const scroll1MB = median(scrollSamples);
   const domNodes1MB = editor1MB.root.querySelectorAll('*').length;
   const usedHeap1MB = (/** @type {any} */ (performance)).memory?.usedJSHeapSize ?? null;
 
