@@ -102,7 +102,14 @@ struct MediaPreviewGenerator: MediaPreviewGenerating {
 
     func audioWaveform(url: URL, maximumPixels: Int) -> CGImage? {
         let asset = AVURLAsset(url: url)
-        guard let track = asset.tracks(withMediaType: .audio).first,
+        let loaded = LockedAudioTrack()
+        let ready = DispatchSemaphore(value: 0)
+        Task.detached {
+            loaded.value = try? await asset.loadTracks(withMediaType: .audio).first
+            ready.signal()
+        }
+        ready.wait()
+        guard let track = loaded.value,
               let reader = try? AVAssetReader(asset: asset)
         else { return nil }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
@@ -157,5 +164,15 @@ struct MediaPreviewGenerator: MediaPreviewGenerating {
         }
         context.strokePath()
         return context.makeImage()
+    }
+}
+
+private final class LockedAudioTrack: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: AVAssetTrack?
+
+    var value: AVAssetTrack? {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
     }
 }
