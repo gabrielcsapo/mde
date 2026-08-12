@@ -2091,6 +2091,10 @@ function makeEditor(options = {}) {
     const event = new InputEvent('beforeinput', {
       inputType: 'insertFromDrop', dataTransfer: transfer, bubbles: true, cancelable: true,
     });
+    // WebKit ignores `dataTransfer` in the synthetic InputEvent constructor even
+    // though real beforeinput drop events expose it. Install the same read-only value
+    // so this tests the editor path instead of the browser's test-construction quirk.
+    if (!event.dataTransfer) Object.defineProperty(event, 'dataTransfer', { value: transfer });
     e.root.dispatchEvent(event);
 
     assertEqual(event.defaultPrevented, true);
