@@ -414,6 +414,17 @@ export class DomApplier {
     const el = document.createElement('span');
     el.className = 'mde-line';
 
+    // A minified/no-newline paste has no smaller CommonMark region. Segmenting tens of
+    // thousands of decorations into DOM runs on every keystroke is therefore pure
+    // renderer amplification. Keep the exact editable source as one node; the engine
+    // still owns and updates the complete decoration model, so returning to bounded
+    // paragraphs immediately restores normal presentation without reparsing drift.
+    if (lineEnd - lineStart > 32 * 1024) {
+      el.classList.add('mde-line-pathological');
+      el.appendChild(document.createTextNode(this.text.slice(lineStart, lineEnd)));
+      return el;
+    }
+
     // Ties break on `layer`, so a host layer paints over what the parse decided —
     // a focus-mode dim has to beat a heading's own colour.
     const covering = this.covering(lineStart, lineEnd)

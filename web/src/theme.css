@@ -50,6 +50,7 @@
    carries — a concealed `##` is also a heading, and both are single-class selectors, so
    without this the heading's font-size silently wins on source order. */
 .mde-line { line-height: 1.6; }
+.mde-line-pathological { font: inherit; }
 
 /* A block widget's continuation lines: concealed source only, so no leading at all.
    `font-size: 0` as well as `line-height: 0` — the block box's strut is sized from the

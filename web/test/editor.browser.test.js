@@ -838,6 +838,20 @@ function makeEditor(options = {}) {
     assertEqual(domText(e.root), e.markdown, 'DOM diverged on a single huge line');
   });
 
+  test('a pathological line stays one editable node while decorations remain exact', () => {
+    const e = makeEditor();
+    const source = 'word **strong** @same résumé 日本語 🎉 '.repeat(1700);
+    e.setMarkdown(source);
+    const before = e.decorations.length;
+    const line = e.root.querySelector('.mde-line-pathological');
+    assert(line, 'the hostile line expanded into styled run DOM');
+    assertEqual(line.childNodes.length, 1);
+    e.replaceRange(source.length / 2, source.length / 2, 'x');
+    assertEqual(domText(e.root), e.markdown);
+    assert(e.decorations.length >= before - 2, 'the compact host lost the core model');
+    assertEqual(e.root.querySelector('.mde-line-pathological')?.childNodes.length, 1);
+  });
+
   test('thousands of unclosed markers do not break rendering', () => {
     for (const text of ['*'.repeat(5000), '['.repeat(5000), '`'.repeat(5000)]) {
       const e = makeEditor();
