@@ -21,6 +21,11 @@
   -webkit-font-smoothing: antialiased;
 }
 
+.mde-progressive-source {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Keep every source character in the contenteditable tree for native selection, IME,
    spellcheck, and accessibility, while letting the browser skip layout and paint for
    distant groups. `auto` remembers the real height after first exposure, avoiding the

@@ -24,6 +24,7 @@ import {
   loadCore,
   markdownCommand,
   executeMarkdownCommand,
+  prepareDocument,
 } from '../dist/index.js';
 // Deliberately imported from `../extensions/`, not `../src/`: these are not part of the
 // editor, and testing them here is the check that they never needed to be.
@@ -2007,4 +2008,43 @@ function makeEditor(options = {}) {
     }));
     assertEqual(e.markdown, 'tail\n\n', 'the Enter must not be dropped');
     assertEqual(domText(e.root), e.markdown);
+  });
+
+  test('a worker-prepared document is source-first, atomic, and editable after activation', async () => {
+    const e = makeEditor();
+    const source = '# Prepared\n\n' + 'Line with **bold**, @gabe, and 日本語 🎉.\n'.repeat(4_000);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const prepared = prepareDocument(source, {
+      wasm: '/dist/mde.wasm', manifest: encodeManifest(manifestSpec),
+    });
+
+    const opening = e.setMarkdownProgressively(source, gate.then(() => prepared));
+    assertEqual(e.markdown, source);
+    assertEqual(domText(e.root), source);
+    assertEqual(e.root.contentEditable, 'false');
+    assertEqual(e.root.getAttribute('aria-busy'), 'true');
+    release();
+    assertEqual(await opening, true);
+    assertEqual(e.root.contentEditable, 'plaintext-only');
+    assertEqual(e.root.hasAttribute('aria-busy'), false);
+    assertEqual(domText(e.root), source);
+    assert(e.decorations.length > 10_000, 'prepared decorations were not restored');
+
+    const at = source.indexOf('bold');
+    e.replaceRange(at, at, 'x');
+    assertEqual(e.markdown, source.slice(0, at) + 'x' + source.slice(at));
+    assertEqual(domText(e.root), e.markdown);
+  });
+
+  test('a superseded progressive open cannot replace the newer document', async () => {
+    const e = makeEditor();
+    let release;
+    const stale = new Promise((resolve) => { release = resolve; });
+    const opening = e.setMarkdownProgressively('old', stale);
+    e.setMarkdown('new');
+    release({ markdown: 'old', snapshot: new Uint8Array(), durationMs: 0 });
+    assertEqual(await opening, false);
+    assertEqual(e.markdown, 'new');
+    assertEqual(domText(e.root), 'new');
   });

@@ -96,6 +96,32 @@ pub unsafe extern "C" fn mde_reset(e: *mut Engine) -> u32 {
     STATUS_OK
 }
 
+/// Serialize the current parsed document into the output scratch buffer. The bytes can
+/// be transferred from a Worker and restored by `mde_snapshot_restore` without a second
+/// main-thread parse.
+#[no_mangle]
+pub unsafe extern "C" fn mde_snapshot(e: *const Engine) -> u32 {
+    let Some(e) = e.as_ref() else { return 0 };
+    *scratch() = e.snapshot();
+    scratch().len() as u32
+}
+
+/// Restore a prepared snapshot from the input buffer.
+#[no_mangle]
+pub unsafe extern "C" fn mde_snapshot_restore(e: *mut Engine) -> u32 {
+    let Some(e) = e.as_mut() else { return STATUS_BAD_ARGUMENT };
+    match e.restore_snapshot(input()) {
+        Ok(patch) => {
+            write_patch(&patch);
+            STATUS_OK
+        }
+        Err(_) => {
+            write_patch(&mde_core::Patch::default());
+            STATUS_BAD_ARGUMENT
+        }
+    }
+}
+
 /// Apply a single edit replacing `[start, end)` (UTF-16 units) with the UTF-8 text in
 /// the input buffer. `expected_len` of `u32::MAX` skips the desync check.
 ///

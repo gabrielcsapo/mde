@@ -75,6 +75,51 @@ struct RevealScope {
     built_index: usize,
 }
 
+/// A prepared-document snapshot was truncated, corrupt, or produced for a different
+/// extension registry. Snapshots are an optimization only: callers can always fall
+/// back to [`Engine::reset`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotError(&'static str);
+
+impl std::fmt::Display for SnapshotError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid prepared document: {}", self.0)
+    }
+}
+
+impl std::error::Error for SnapshotError {}
+
+struct SnapshotCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> SnapshotCursor<'a> {
+    fn take(&mut self, count: usize) -> Result<&'a [u8], SnapshotError> {
+        let end = self.offset.checked_add(count).ok_or(SnapshotError("size overflow"))?;
+        let value = self.bytes.get(self.offset..end).ok_or(SnapshotError("truncated data"))?;
+        self.offset = end;
+        Ok(value)
+    }
+
+    fn u8(&mut self) -> Result<u8, SnapshotError> { Ok(self.take(1)?[0]) }
+    fn u32(&mut self) -> Result<u32, SnapshotError> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
+    fn u64(&mut self) -> Result<u64, SnapshotError> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+    }
+    fn string(&mut self) -> Result<&'a str, SnapshotError> {
+        let length = self.u32()? as usize;
+        std::str::from_utf8(self.take(length)?).map_err(|_| SnapshotError("invalid UTF-8"))
+    }
+}
+
+fn snapshot_put_string(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
 pub struct Engine {
     text: Text,
     registry: Registry,
@@ -164,6 +209,126 @@ impl Engine {
         self.layers.clear();
         self.clamp_selection();
         self.reparse()
+    }
+
+    /// Serialize the parsed state needed to begin editing this exact document in
+    /// another engine with the same registry. The browser uses this to prepare large
+    /// documents in a Worker while the main thread presents the source immediately.
+    pub fn snapshot(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.text.as_str().len() + self.built.len() * 64);
+        out.extend_from_slice(b"MDES");
+        out.extend_from_slice(&1u32.to_le_bytes());
+        out.extend_from_slice(&(self.registry.role_count() as u32).to_le_bytes());
+        for role in 0..self.registry.role_count() as RoleId {
+            snapshot_put_string(&mut out, self.registry.role_name(role).unwrap_or(""));
+        }
+        snapshot_put_string(&mut out, self.text.as_str());
+        out.extend_from_slice(&(self.built.len() as u32).to_le_bytes());
+        for item in &self.built {
+            for value in [item.start, item.end, item.node.0, item.node.1, item.block.0, item.block.1] {
+                out.extend_from_slice(&(value as u32).to_le_bytes());
+            }
+            out.extend_from_slice(&item.role.to_le_bytes());
+            out.extend_from_slice(&[item.kind as u8, item.reveal as u8, item.depth, 0]);
+            out.extend_from_slice(&item.identity.to_le_bytes());
+            out.extend_from_slice(&item.key.to_le_bytes());
+            match &item.payload {
+                Some(payload) => snapshot_put_string(&mut out, payload),
+                None => out.extend_from_slice(&u32::MAX.to_le_bytes()),
+            }
+        }
+        out
+    }
+
+    /// Restore a snapshot made by [`Engine::snapshot`]. The returned patch is a full
+    /// set of additions, exactly like `reset`, so an empty renderer can ingest it.
+    pub fn restore_snapshot(&mut self, bytes: &[u8]) -> Result<Patch, SnapshotError> {
+        let mut cursor = SnapshotCursor { bytes, offset: 0 };
+        if cursor.take(4)? != b"MDES" { return Err(SnapshotError("bad magic")); }
+        if cursor.u32()? != 1 { return Err(SnapshotError("unsupported version")); }
+        let role_count = cursor.u32()? as usize;
+        if role_count != self.registry.role_count() {
+            return Err(SnapshotError("registry role count differs"));
+        }
+        for role in 0..role_count as RoleId {
+            if cursor.string()? != self.registry.role_name(role).unwrap_or("") {
+                return Err(SnapshotError("registry role names differ"));
+            }
+        }
+        let source = cursor.string()?.to_owned();
+        let count = cursor.u32()? as usize;
+        let mut built = Vec::with_capacity(count);
+        for _ in 0..count {
+            let start = cursor.u32()? as usize;
+            let end = cursor.u32()? as usize;
+            let node = (cursor.u32()? as usize, cursor.u32()? as usize);
+            let block = (cursor.u32()? as usize, cursor.u32()? as usize);
+            let role = cursor.u32()?;
+            let kind = match cursor.u8()? {
+                0 => Kind::Style,
+                1 => Kind::Conceal,
+                2 => Kind::InlineWidget,
+                3 => Kind::BlockWidget,
+                4 => Kind::Gutter,
+                5 => Kind::Hit,
+                _ => return Err(SnapshotError("unknown decoration kind")),
+            };
+            let reveal = match cursor.u8()? {
+                0 => Reveal::Never,
+                1 => Reveal::CaretInNode,
+                2 => Reveal::CaretInLine,
+                3 => Reveal::CaretInBlock,
+                _ => return Err(SnapshotError("unknown reveal mode")),
+            };
+            let depth = cursor.u8()?;
+            let _padding = cursor.u8()?;
+            let identity = cursor.u64()?;
+            let key = cursor.u64()?;
+            let payload_length = cursor.u32()?;
+            let payload = if payload_length == u32::MAX {
+                None
+            } else {
+                let raw = cursor.take(payload_length as usize)?;
+                let value = std::str::from_utf8(raw).map_err(|_| SnapshotError("invalid payload"))?;
+                Some(Arc::from(value))
+            };
+            if role as usize >= role_count
+                || start >= end
+                || end > source.len()
+                || node.0 > start
+                || node.1 < end
+                || node.1 > source.len()
+                || block.0 > node.0
+                || block.1 < node.1
+                || block.1 > source.len()
+                || ![start, end, node.0, node.1, block.0, block.1]
+                    .into_iter().all(|offset| source.is_char_boundary(offset))
+            {
+                return Err(SnapshotError("decoration range is invalid"));
+            }
+            built.push(Built {
+                start, end, node, block, kind, role, reveal, depth, identity, key, payload,
+            });
+        }
+        if cursor.offset != bytes.len() { return Err(SnapshotError("trailing data")); }
+        if built.windows(2).any(|pair| {
+            (pair[0].start, std::cmp::Reverse(pair[0].end), pair[0].kind as u8)
+                > (pair[1].start, std::cmp::Reverse(pair[1].end), pair[1].kind as u8)
+        }) {
+            return Err(SnapshotError("decorations are not sorted"));
+        }
+
+        self.text = Text::new(source);
+        self.history.clear();
+        self.layers.clear();
+        self.selection = None;
+        self.built = built;
+        self.emitted.clear();
+        self.regions = region::Regions::scan(self.text.as_str(), &self.registry);
+        self.keys = self.built.iter().map(|item| (item.key, ())).collect();
+        self.rebuild_payloads();
+        self.rebuild_reveal_index();
+        Ok(self.emit())
     }
 
     /// Apply platform-side edits and record them in the undo history.
@@ -1099,6 +1264,54 @@ mod tests {
         );
         assert!(second.removed.is_empty());
         assert_eq!(e.decorations().len(), first.added.len());
+    }
+
+    #[test]
+    fn prepared_snapshot_restores_exact_source_decorations_and_payloads() {
+        let manifest = r#"
+            [[inline]]
+            name = "mention"
+            syntax = { kind = "pattern", regex = "@[a-z]+" }
+            render = "inline_widget"
+            reveal = "caret_in_node"
+        "#;
+        let source = "# Journal\n\n![photo](assets/a.jpg) and @gabe with **bold**.\n";
+        let mut prepared = Engine::from_toml(manifest).unwrap();
+        let expected = prepared.reset(source);
+        let snapshot = prepared.snapshot();
+
+        let mut restored = Engine::from_toml(manifest).unwrap();
+        let actual = restored.restore_snapshot(&snapshot).unwrap();
+        assert_eq!(restored.text(), source);
+        assert_eq!(actual.added, expected.added);
+        assert_eq!(restored.decorations(), prepared.decorations());
+        for decoration in restored.decorations() {
+            assert_eq!(restored.payload(decoration.key), prepared.payload(decoration.key));
+        }
+        let at = source.find("bold").unwrap() as u32;
+        assert!(restored.edit(
+            &[Edit { start: at, end: at, text: "x".into() }],
+            Some(source.encode_utf16().count() as u32 + 1),
+            1,
+        ).is_ok());
+    }
+
+    #[test]
+    fn prepared_snapshot_rejects_wrong_registry_and_corruption() {
+        let mut source = Engine::from_toml("").unwrap();
+        source.reset("**safe**");
+        let snapshot = source.snapshot();
+        let other = r#"
+            [[inline]]
+            name = "mention"
+            syntax = { kind = "pattern", regex = "@[a-z]+" }
+            render = "style"
+        "#;
+        assert!(Engine::from_toml(other).unwrap().restore_snapshot(&snapshot).is_err());
+        assert!(Engine::from_toml("").unwrap().restore_snapshot(&snapshot[..8]).is_err());
+        let mut corrupt = snapshot;
+        corrupt[0] = b'X';
+        assert!(Engine::from_toml("").unwrap().restore_snapshot(&corrupt).is_err());
     }
 
     #[test]

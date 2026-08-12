@@ -20,6 +20,7 @@ import type {
   InstalledPlugin,
   PluginAnalysisRun,
 } from './plugins.js';
+import type { PreparedDocument } from './preparation.js';
 
 /**
  * Walk the document text, skipping presentation-only subtrees.
@@ -120,6 +121,7 @@ export class MarkdownEditor extends EventTarget {
   private resourcePriorityFrame: number | null;
   private virtualizationFrame: number | null;
   private virtualizesDocument: boolean;
+  private progressiveToken: number;
 
   /**
    * @param {HTMLElement} host
@@ -199,6 +201,7 @@ export class MarkdownEditor extends EventTarget {
     this.resourcePriorityFrame = null;
     this.virtualizationFrame = null;
     this.virtualizesDocument = false;
+    this.progressiveToken = 0;
     this.root.addEventListener('scroll', () => {
       this.scheduleResourcePriorities();
       this.scheduleVirtualization();
@@ -252,11 +255,76 @@ export class MarkdownEditor extends EventTarget {
 
   /** @param {string} text */
   setMarkdown(text: string): void {
+    this.progressiveToken++;
+    this.root.setAttribute('contenteditable', 'plaintext-only');
+    this.root.removeAttribute('aria-busy');
+    delete this.root.dataset.mdeStatus;
     this.text = text;
     this.applier.reset();
     this.applier.ingest(this.engine.reset(text));
     this.renderAll();
     this.dispatchEvent(new CustomEvent('change'));
+  }
+
+  /**
+   * Present the exact source immediately, then atomically install worker-prepared
+   * engine state. The source projection is read-only until activation, so a keystroke
+   * can never race an engine that still describes the previous document.
+   */
+  async setMarkdownProgressively(
+    text: string,
+    prepared: PreparedDocument | Promise<PreparedDocument>,
+  ): Promise<boolean> {
+    const token = ++this.progressiveToken;
+    this.text = text;
+    this.applier.reset();
+    this.lines = text.split('\n');
+    this.lineStarts = lineStarts(this.lines);
+    this.lineEls = new Array(this.lines.length).fill(null);
+    this.chunkEls = [];
+    this.activeChunk = null;
+    this.virtualizesDocument = this.lines.length > 64;
+    const fragment = document.createDocumentFragment();
+    for (let first = 0; first < this.lines.length; first += 64) {
+      const last = Math.min(this.lines.length - 1, first + 63);
+      const projection = this.makeViewportChunk(this.virtualizesDocument);
+      projection.classList.add('mde-progressive-source', 'mde-chunk-virtual');
+      projection.dataset.mdeChunk = String(this.chunkEls.length);
+      projection.appendChild(document.createTextNode(text.slice(
+        this.lineStarts[first], this.lineEnd(last, this.lines, this.lineStarts),
+      )));
+      this.chunkEls.push(projection);
+      fragment.appendChild(projection);
+    }
+    this.root.replaceChildren(fragment);
+    this.root.setAttribute('contenteditable', 'false');
+    this.root.setAttribute('aria-busy', 'true');
+    this.root.dataset.mdeStatus = 'preparing';
+    this.dispatchEvent(new CustomEvent('progress', { detail: { phase: 'source' } }));
+
+    let result: PreparedDocument;
+    try {
+      result = await prepared;
+      if (token !== this.progressiveToken || this.destroyed) return false;
+      if (result.markdown !== text) throw new Error('Prepared document does not match the requested Markdown');
+      this.applier.ingest(this.engine.restoreSnapshot(result.snapshot));
+      this.applier.text = text;
+      this.root.setAttribute('contenteditable', 'plaintext-only');
+      this.root.removeAttribute('aria-busy');
+      delete this.root.dataset.mdeStatus;
+      this.renderAll();
+      this.dispatchEvent(new CustomEvent('progress', {
+        detail: { phase: 'ready', preparationMs: result.durationMs },
+      }));
+      this.dispatchEvent(new CustomEvent('change'));
+      return true;
+    } catch (error) {
+      if (token !== this.progressiveToken || this.destroyed) return false;
+      this.root.setAttribute('contenteditable', 'plaintext-only');
+      this.root.removeAttribute('aria-busy');
+      delete this.root.dataset.mdeStatus;
+      throw error;
+    }
   }
 
   /** Capture a detached, resource-task-free presentation for bounded session reuse. */

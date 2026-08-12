@@ -244,6 +244,22 @@ export class Engine {
     return this.readPatch();
   }
 
+  /** Export exact parsed state for transfer to another engine with the same manifest. */
+  snapshot(): Uint8Array {
+    const length = this.core.exports.mde_snapshot(this.handle);
+    const pointer = this.core.exports.mde_scratch_ptr();
+    return new Uint8Array(this.core.exports.memory.buffer, pointer, length).slice();
+  }
+
+  /** Restore exact parsed state prepared by another engine with the same manifest. */
+  restoreSnapshot(snapshot: Uint8Array | ArrayBuffer): Patch {
+    const bytes = snapshot instanceof Uint8Array ? snapshot : new Uint8Array(snapshot);
+    this.writeInput(bytes);
+    const status = this.core.exports.mde_snapshot_restore(this.handle);
+    if (status !== STATUS_OK) throw new EngineError(status);
+    return this.readPatch();
+  }
+
   /**
    * Report an edit the host already applied.
    *

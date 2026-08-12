@@ -107,6 +107,8 @@ Seven additional host-level phases were measured and gated:
 | Browser 64 KB no-newline edit | 78 ms | 7 ms |
 | Browser 5 MB edit | 65 ms | 38 ms |
 | Browser 5 MB DOM elements | 821,332 | 4,640 |
+| Browser 5 MB progressive source visible | synchronous open | 3.1 ms |
+| Browser 5 MB progressive ready | synchronous open | 507 ms |
 | AppKit 1 MB edit | 18.7 ms | 8.0 ms |
 | AppKit 5 MB edit | 82.0 ms | 29.6 ms |
 | React local controlled acknowledgement p95 | implicit in replay | 0.1 ms |

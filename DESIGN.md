@@ -126,6 +126,16 @@ Measured in the current release core profile:
 
 Even 5 MB now stays far below one frame at the core level.
 
+**Cold opening is separately progressive on the web.** A synchronous `setMarkdown`
+remains available and preserves its immediate editable contract. For large documents,
+`prepareDocument` builds the exact Rust state in a Worker and exports a validated
+binary snapshot. `setMarkdownProgressively` first publishes the full source in compact,
+viewport-contained chunks, marks it read-only, and atomically restores the matching
+snapshot before enabling input. This avoids both a blank opening screen and the more
+dangerous failure mode where the DOM accepts edits while the engine still describes a
+different document. The 5 MB gate measures source-visible latency, a next-frame
+main-thread probe, total readiness, post-activation editing, and source equality.
+
 **What was removed.** An earlier version also limited decoration to a window around the
 viewport above 256 KB. Measurement killed it. Because it could not compose with the
 incremental splice, turning it on *disabled* the optimization that was actually doing

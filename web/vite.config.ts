@@ -14,6 +14,7 @@ const browserInstances = requestedBrowsers.map((name) => {
 });
 
 export default defineConfig({
+  base: './',
   // This workspace contains the `web/react/` package. Without exact aliases Vite's
   // dependency optimiser can mistake that directory for the bare `react` package when
   // a browser test lives beneath it, producing two runtimes (or bundling the adapter as
@@ -51,6 +52,9 @@ export default defineConfig({
       edit5MB: Number(process.env.MDE_WEB_5MB_EDIT_BUDGET_MS ?? 250),
       teardown5MB: Number(process.env.MDE_WEB_5MB_TEARDOWN_BUDGET_MS ?? 1000),
       maxNodes5MB: Number(process.env.MDE_WEB_5MB_DOM_NODE_BUDGET ?? 900000),
+      sourceVisible5MB: Number(process.env.MDE_WEB_5MB_SOURCE_VISIBLE_BUDGET_MS ?? 75),
+      mainThreadProbe5MB: Number(process.env.MDE_WEB_5MB_MAIN_THREAD_PROBE_BUDGET_MS ?? 50),
+      progressiveReady5MB: Number(process.env.MDE_WEB_5MB_PROGRESSIVE_READY_BUDGET_MS ?? 1800),
     }),
     __MDE_PERF_BUDGETS__: JSON.stringify({
       load100KB: Number(process.env.MDE_WEB_100KB_LOAD_BUDGET_MS ?? 100),

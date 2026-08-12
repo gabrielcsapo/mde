@@ -15,6 +15,20 @@ const editor = new MarkdownEditor(
 editor.setMarkdown('# Hello\n');
 ```
 
+For multi-megabyte documents, prepare the exact Rust state in a Worker while the
+editor presents the full source immediately. The source projection remains read-only
+until activation, so input cannot race an engine describing another document:
+
+```ts
+import { prepareDocument } from '@mde/web';
+
+const prepared = prepareDocument(markdown, { wasm: '/assets/mde.wasm' });
+await editor.setMarkdownProgressively(markdown, prepared);
+```
+
+Prepared snapshots are tied to the exact Markdown and encoded manifest. A mismatch is
+rejected rather than silently rendering the wrong decoration state.
+
 Commands and bounded multi-document sessions are framework-neutral:
 
 ```ts

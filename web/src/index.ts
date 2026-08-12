@@ -7,6 +7,7 @@ export { composeManifests, encodeManifest } from './manifest.js';
 export { composePluginManifests, definePlugin, pluginLayerName } from './plugins.js';
 export { ResourceCache } from './resources.js';
 export { MarkdownSession } from './session.js';
+export { prepareDocument } from './preparation.js';
 export { executeMarkdownCommand, markdownCommand } from './commands.js';
 export { IGNORE_ATTR, mergeRanges } from './applier.js';
 export type {
@@ -41,5 +42,6 @@ export type {
 } from './plugins.js';
 export type { ResourceRequest, ResourceResolver, ResourceState } from './resources.js';
 export type { SessionDocument } from './session.js';
+export type { PreparedDocument, PrepareDocumentOptions } from './preparation.js';
 export type { CommandResult, MarkdownCommand } from './commands.js';
 export type { WidgetProvider, WidgetRequest } from './widgets.js';
