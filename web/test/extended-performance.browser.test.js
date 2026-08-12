@@ -37,6 +37,11 @@ test.runIf(__MDE_PERF_EXTENDED__)('optional 5 MB browser profile', async () => {
   const teardown = performance.now() - started;
 
   console.log(`MDE_WEB_EXTENDED ${JSON.stringify({ load, edit, teardown, nodes })}`);
+  await fetch('/__mde_perf_extended_report', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ load, edit, teardown, nodes }, null, 2),
+  });
   expect(editor.markdown).toBe(source.slice(0, source.length / 2) + 'x' + source.slice(source.length / 2));
   expect(load).toBeLessThanOrEqual(__MDE_EXTENDED_BUDGETS__.load5MB);
   expect(edit).toBeLessThanOrEqual(__MDE_EXTENDED_BUDGETS__.edit5MB);

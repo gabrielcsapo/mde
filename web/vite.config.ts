@@ -108,6 +108,20 @@ export default defineConfig({
             response.writeHead(204).end();
           });
         });
+        server.middlewares.use('/__mde_perf_extended_report', (request, response, next) => {
+          if (request.method !== 'POST') {
+            next();
+            return;
+          }
+          const chunks: Buffer[] = [];
+          request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+          request.on('end', async () => {
+            const directory = `${here}../target/performance`;
+            await mkdir(directory, { recursive: true });
+            await writeFile(`${directory}/web-extended-metrics.json`, Buffer.concat(chunks));
+            response.writeHead(204).end();
+          });
+        });
       },
       async writeBundle() {
         await copyFile(`${here}mde.wasm`, `${here}dist/mde.wasm`);

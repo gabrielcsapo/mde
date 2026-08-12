@@ -1095,6 +1095,29 @@ function makeEditor(options = {}) {
     assert(e.chunkEls[100] === distantChunk, 'a local edit rebuilt a distant layout group');
   });
 
+  test('large-document compact chunks preserve source and hydrate for selection', async () => {
+    const e = makeEditor();
+    const source = Array.from({ length: 5000 }, (_, index) => `line ${index} **bold**`).join('\n');
+    e.setMarkdown(source);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    const compact = e.root.querySelectorAll('.mde-chunk-virtual');
+    assert(compact.length > 60, 'distant chunks were still fully materialized');
+    assertEqual(domText(e.root), source, 'virtualization removed source text');
+    assert(
+      e.root.querySelectorAll('*').length < 1500,
+      'compact rendering retained the full styled DOM',
+    );
+
+    const target = source.indexOf('line 4000') + 5;
+    e.root.focus();
+    e.setSelectionRange({ start: target, end: target + 4 });
+    assertEqual(e.selectionRange(), { start: target, end: target + 4 });
+    const chunk = e.chunkEls[Math.floor(e.lineIndexAt(target, e.lineStarts) / 64)];
+    assert(!chunk.classList.contains('mde-chunk-virtual'), 'selected source did not hydrate');
+    assertEqual(domText(e.root), source, 'hydration changed the Markdown projection');
+  });
+
   test('plain source does not allocate redundant run wrappers', () => {
     const e = makeEditor();
     e.setMarkdown('plain source\nnext line');

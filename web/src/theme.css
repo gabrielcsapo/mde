@@ -34,6 +34,14 @@
   contain-intrinsic-block-size: none;
 }
 
+/* Large documents keep distant chunks as one source text node. This preserves native
+   find/copy/accessibility and exact offsets while avoiding tens of thousands of styled
+   run elements. The chunk hydrates back into ordinary line DOM before interaction. */
+.mde-chunk-virtual {
+  display: block;
+  line-height: 1.6;
+}
+
 /* Collapsing a range without removing the characters: a hairline glyph. Exactly the
    trick the Apple renderers use, and for the same reason — the character count must
    stay 1:1 with the source so every offset in the system stays honest. The characters

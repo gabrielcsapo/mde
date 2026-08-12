@@ -109,7 +109,7 @@ export class MarkdownEditor extends EventTarget {
   text: string;
   lines: string[];
   lineStarts: number[];
-  lineEls: HTMLElement[];
+  lineEls: Array<HTMLElement | null>;
   chunkEls: HTMLElement[];
   activeChunk: HTMLElement | null;
   suppressSelection: boolean;
@@ -118,6 +118,8 @@ export class MarkdownEditor extends EventTarget {
   destroyed: boolean;
   private plugins: Map<string, InstalledPlugin>;
   private resourcePriorityFrame: number | null;
+  private virtualizationFrame: number | null;
+  private virtualizesDocument: boolean;
 
   /**
    * @param {HTMLElement} host
@@ -195,7 +197,12 @@ export class MarkdownEditor extends EventTarget {
     // Before the browser gets to place a caret — see `onMouseDown`.
     this.root.addEventListener('mousedown', (e) => this.onMouseDown(e), listener);
     this.resourcePriorityFrame = null;
-    this.root.addEventListener('scroll', () => this.scheduleResourcePriorities(), listener);
+    this.virtualizationFrame = null;
+    this.virtualizesDocument = false;
+    this.root.addEventListener('scroll', () => {
+      this.scheduleResourcePriorities();
+      this.scheduleVirtualization();
+    }, listener);
 
     // This is the only listener that is not on `root`: `selectionchange` fires on the
     // document, so it outlives the element and would keep a detached editor alive. The
@@ -232,6 +239,7 @@ export class MarkdownEditor extends EventTarget {
     }
     this.events.abort();
     if (this.resourcePriorityFrame !== null) cancelAnimationFrame(this.resourcePriorityFrame);
+    if (this.virtualizationFrame !== null) cancelAnimationFrame(this.virtualizationFrame);
     this.applier.reset();
     if (this.previousContentEditable === null) this.root.removeAttribute('contenteditable');
     else this.root.setAttribute('contenteditable', this.previousContentEditable);
@@ -662,6 +670,17 @@ export class MarkdownEditor extends EventTarget {
     for (let chunk = 0; chunk < this.chunkEls.length; chunk++) {
       const el = this.chunkEls[chunk];
       if (this.root.childNodes[chunk] !== el) return false;
+      if (el.classList.contains('mde-chunk-virtual')) {
+        const first = chunk * 64;
+        const last = Math.min(this.lines.length - 1, first + 63);
+        const source = this.text.slice(
+          this.lineStarts[first],
+          this.lineEnd(last, this.lines, this.lineStarts),
+        );
+        if (el.childNodes.length !== 1 || el.textContent !== source) return false;
+        line = last + 1;
+        continue;
+      }
       for (const child of el.children) {
         if (child !== this.lineEls[line++]) return false;
       }
@@ -672,7 +691,7 @@ export class MarkdownEditor extends EventTarget {
   onSelectionChange() {
     if (this.suppressSelection) return;
     const range = this.selectionRange();
-    this.activateChunk(range?.start ?? null);
+    this.activateChunk(range?.start ?? null, range);
     this.applyPatch(this.engine.setSelection(range), null, range);
     // Hosts that decorate from the caret's position — a focus mode, a live outline —
     // recompute here and push a layer (DESIGN §5.3).
@@ -824,20 +843,34 @@ export class MarkdownEditor extends EventTarget {
     }
   }
 
-  renderAll() {
+  renderAll(reuseLineModel = false) {
     this.applier.text = this.text;
-    this.lines = this.text.split('\n');
+    if (!reuseLineModel) this.lines = this.text.split('\n');
     this.lineEls = [];
     this.chunkEls = [];
     this.activeChunk = null;
-    this.lineStarts = lineStarts(this.lines);
+    if (!reuseLineModel) this.lineStarts = lineStarts(this.lines);
+    this.virtualizesDocument = this.lines.length > 2048;
     const frag = document.createDocumentFragment();
     let chunk: HTMLElement | null = null;
     for (let i = 0; i < this.lines.length; i++) {
       if (i % 64 === 0) {
         chunk = this.makeViewportChunk();
+        chunk.dataset.mdeChunk = String(this.chunkEls.length);
         this.chunkEls.push(chunk);
         frag.appendChild(chunk);
+      }
+      if (this.virtualizesDocument && i >= 128) {
+        this.lineEls.push(null);
+        if (i % 64 === 0) {
+          const last = Math.min(this.lines.length - 1, i + 63);
+          chunk!.classList.add('mde-chunk-virtual');
+          chunk!.appendChild(document.createTextNode(this.text.slice(
+            this.lineStarts[i],
+            this.lineEnd(last, this.lines, this.lineStarts),
+          )));
+        }
+        continue;
       }
       const el = this.applier.buildLine(
         this.lineStarts[i],
@@ -848,6 +881,7 @@ export class MarkdownEditor extends EventTarget {
     }
     this.root.replaceChildren(frag);
     this.scheduleResourcePriorities();
+    this.scheduleVirtualization();
   }
 
   /** Promote media in and just around the visible containment chunks. */
@@ -858,11 +892,14 @@ export class MarkdownEditor extends EventTarget {
       const resources = this.applier.resources;
       if (!resources || this.lineEls.length === 0) return;
       const rootRect = this.root.getBoundingClientRect();
+      const viewportTop = Math.max(rootRect.top, 0);
+      const viewportBottom = Math.min(rootRect.bottom, globalThis.innerHeight);
+      const viewportHeight = Math.max(1, viewportBottom - viewportTop);
       let first = 0;
       let last = Math.min(this.lineEls.length - 1, 127);
       for (let index = 0; index < this.chunkEls.length; index++) {
         const rect = this.chunkEls[index].getBoundingClientRect();
-        if (rect.bottom >= rootRect.top - rootRect.height) {
+        if (rect.bottom >= viewportTop - viewportHeight) {
           first = Math.max(0, index * 64 - 64);
           break;
         }
@@ -870,7 +907,7 @@ export class MarkdownEditor extends EventTarget {
       for (let index = Math.floor(first / 64); index < this.chunkEls.length; index++) {
         const rect = this.chunkEls[index].getBoundingClientRect();
         last = Math.min(this.lineEls.length - 1, index * 64 + 127);
-        if (rect.top > rootRect.bottom + rootRect.height) break;
+        if (rect.top > viewportBottom + viewportHeight) break;
       }
       const from = this.lineStarts[first] ?? 0;
       const to = this.lineEnd(last, this.lines, this.lineStarts);
@@ -890,7 +927,11 @@ export class MarkdownEditor extends EventTarget {
   }
 
   /** Keep the chunk containing the native caret out of layout skipping. */
-  activateChunk(offset: number | null): void {
+  activateChunk(offset: number | null, preserve: SelectionRange | null = null): void {
+    if (offset !== null && this.virtualizesDocument) {
+      const chunkIndex = Math.floor(this.lineIndexAt(offset, this.lineStarts) / 64);
+      this.hydrateChunk(chunkIndex, preserve);
+    }
     const next = offset === null || this.lineEls.length === 0
       ? null
       : this.lineEls[this.lineIndexAt(offset, this.lineStarts)]?.parentElement ?? null;
@@ -898,6 +939,64 @@ export class MarkdownEditor extends EventTarget {
     this.activeChunk?.classList.remove('mde-viewport-active');
     next?.classList.add('mde-viewport-active');
     this.activeChunk = next;
+  }
+
+  scheduleVirtualization(): void {
+    if (!this.virtualizesDocument || this.virtualizationFrame !== null) return;
+    this.virtualizationFrame = requestAnimationFrame(() => {
+      this.virtualizationFrame = null;
+      const rootRect = this.root.getBoundingClientRect();
+      const viewportTop = Math.max(rootRect.top, 0);
+      const viewportBottom = Math.min(rootRect.bottom, globalThis.innerHeight);
+      const viewportHeight = Math.max(1, viewportBottom - viewportTop);
+      const visible = new Set<number>();
+      for (let index = 0; index < this.chunkEls.length; index++) {
+        const rect = this.chunkEls[index].getBoundingClientRect();
+        if (rect.bottom >= viewportTop - viewportHeight && rect.top <= viewportBottom + viewportHeight) {
+          visible.add(index);
+          this.hydrateChunk(index);
+        }
+      }
+      const active = this.activeChunk ? this.chunkEls.indexOf(this.activeChunk) : -1;
+      if (active >= 0) visible.add(active);
+      for (let index = 0; index < this.chunkEls.length; index++) {
+        if (!visible.has(index)) this.virtualizeChunk(index);
+      }
+      this.scheduleResourcePriorities();
+    });
+  }
+
+  hydrateChunk(index: number, preserve: SelectionRange | null = null): void {
+    const chunk = this.chunkEls[index];
+    if (!chunk?.classList.contains('mde-chunk-virtual')) return;
+    const selection = preserve ?? this.selectionRange();
+    const first = index * 64;
+    const last = Math.min(this.lines.length - 1, first + 63);
+    const fragment = document.createDocumentFragment();
+    for (let line = first; line <= last; line++) {
+      const element = this.applier.buildLine(
+        this.lineStarts[line],
+        this.lineEnd(line, this.lines, this.lineStarts),
+      );
+      this.lineEls[line] = element;
+      fragment.appendChild(element);
+    }
+    chunk.classList.remove('mde-chunk-virtual');
+    chunk.replaceChildren(fragment);
+    if (selection && document.activeElement === this.root) this.setSelectionRange(selection);
+  }
+
+  virtualizeChunk(index: number): void {
+    const chunk = this.chunkEls[index];
+    if (!chunk || chunk.classList.contains('mde-chunk-virtual') || chunk === this.activeChunk) return;
+    const first = index * 64;
+    const last = Math.min(this.lines.length - 1, first + 63);
+    for (let line = first; line <= last; line++) this.lineEls[line] = null;
+    chunk.classList.add('mde-chunk-virtual');
+    chunk.replaceChildren(document.createTextNode(this.text.slice(
+      this.lineStarts[first],
+      this.lineEnd(last, this.lines, this.lineStarts),
+    )));
   }
 
   /** Replace line nodes without disturbing untouched containment groups. */
@@ -987,6 +1086,23 @@ export class MarkdownEditor extends EventTarget {
   /** Apply one already-computed local line splice to the DOM. */
   renderLineChange(change: LineChange, caret: SelectionRange | null): void {
     this.applier.text = this.text;
+    if (this.virtualizesDocument) {
+      this.lines = change.lines;
+      this.lineStarts = change.starts;
+      const oldCount = change.lastOld - change.first + 1;
+      const newCount = change.lastNew - change.first + 1;
+      if (oldCount !== newCount) {
+        this.renderAll(true);
+      } else {
+        const firstChunk = Math.floor(change.first / 64);
+        const lastChunk = Math.floor(change.lastNew / 64);
+        for (let chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++) {
+          this.rebuildChunk(chunkIndex);
+        }
+      }
+      if (caret) this.setSelectionRange(caret);
+      return;
+    }
     const rebuilt = [];
     for (let i = change.first; i <= change.lastNew; i++) {
       rebuilt.push(
@@ -1001,6 +1117,30 @@ export class MarkdownEditor extends EventTarget {
     this.lines = change.lines;
     this.lineStarts = change.starts;
     if (caret) this.setSelectionRange(caret);
+  }
+
+  rebuildChunk(index: number): void {
+    const chunk = this.chunkEls[index];
+    if (!chunk) return;
+    const first = index * 64;
+    const last = Math.min(this.lines.length - 1, first + 63);
+    if (chunk.classList.contains('mde-chunk-virtual')) {
+      chunk.replaceChildren(document.createTextNode(this.text.slice(
+        this.lineStarts[first],
+        this.lineEnd(last, this.lines, this.lineStarts),
+      )));
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (let line = first; line <= last; line++) {
+      const element = this.applier.buildLine(
+        this.lineStarts[line],
+        this.lineEnd(line, this.lines, this.lineStarts),
+      );
+      this.lineEls[line] = element;
+      fragment.appendChild(element);
+    }
+    chunk.replaceChildren(fragment);
   }
 
   /**
@@ -1038,6 +1178,22 @@ export class MarkdownEditor extends EventTarget {
 
     lastOld = Math.min(lastOld, this.lines.length - 1);
     lastNew = Math.min(lastNew, newLines.length - 1);
+
+    if (this.virtualizesDocument) {
+      const firstChunk = Math.floor(first / 64);
+      const lastChunk = Math.floor(lastNew / 64);
+      for (let chunk = firstChunk; chunk <= lastChunk; chunk++) this.hydrateChunk(chunk, caret);
+      for (let line = first; line <= lastNew; line++) {
+        const previous = this.lineEls[line];
+        if (!previous) continue;
+        const rebuilt = this.applier.buildLine(starts[line], this.lineEnd(line, newLines, starts));
+        previous.replaceWith(rebuilt);
+        this.lineEls[line] = rebuilt;
+      }
+      if (caret) this.setSelectionRange(caret);
+      this.scheduleVirtualization();
+      return;
+    }
 
     /** @type {HTMLElement[]} */
     const rebuilt = [];
@@ -1145,7 +1301,11 @@ export class MarkdownEditor extends EventTarget {
     // documents that turns a local edit into seconds of synchronous style/layout. The
     // active chunk matters only while native input is focused; programmatic edits and
     // background session updates do not need to wake it.
-    if (document.activeElement === this.root) this.activateChunk(range.start);
+    if (this.virtualizesDocument) {
+      this.hydrateChunk(Math.floor(this.lineIndexAt(range.start, this.lineStarts) / 64), range);
+      this.hydrateChunk(Math.floor(this.lineIndexAt(range.end, this.lineStarts) / 64), range);
+    }
+    if (document.activeElement === this.root) this.activateChunk(range.start, range);
     /** @param {number} target */
     const locate = (target) => {
       // The line model already maps absolute offsets to one bounded DOM subtree.
