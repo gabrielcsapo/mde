@@ -31,6 +31,17 @@ Run the same command as scheduled CI:
 ./scripts/test-performance.sh
 ```
 
+Run the opt-in 5 MB Rust, browser, AppKit, and iOS Swift/core bridge profile with:
+
+```sh
+./scripts/test-performance-extended.sh
+```
+
+The iOS leg measures the complete Swift-to-Rust bridge at 5 MB. UIKit first paint stays
+covered by the routine enforced 1 MB renderer gate: even a sparse 2 MB full layout can
+exceed three minutes in the simulator, so expanding that renderer ceiling remains an
+explicit TextKit scalability project rather than a silently relaxed budget.
+
 Reports are written to `target/performance/`. The ceilings include hosted-runner
 headroom; they are guards against material or algorithmic regressions, not claims that
 every machine has identical latency.

@@ -1,4 +1,5 @@
 import MDEditorUI
+import MDECore
 import UIKit
 import Darwin.Mach
 
@@ -14,11 +15,16 @@ enum PerformanceTestMode {
     }
     static var isEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("--mde-performance-tests")
+            || ProcessInfo.processInfo.arguments.contains("--mde-performance-extended")
     }
 
     static func run(_ editor: MarkdownTextView) {
         guard isEnabled else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            if ProcessInfo.processInfo.arguments.contains("--mde-performance-extended") {
+                runExtended(editor)
+                return
+            }
             runEditMatrix(editor) { matrixMetrics, matrixChecks in
                 runStandardWorkloads(editor) { standardMetrics, standardChecks in
                     runMediaJournal(editor) { mediaMetrics, mediaChecks in
@@ -34,6 +40,34 @@ enum PerformanceTestMode {
                 }
             }
         }
+    }
+
+    private static func runExtended(_: MarkdownTextView) {
+        let source = extendedCorpus(bytes: 5 * 1024 * 1024)
+        let memoryBefore = residentMemoryBytes()
+        guard let engine = MarkdownEngine() else {
+            finish(metrics: [:], checks: ["extended5MBEngineCreated": false])
+            return
+        }
+        let started = DispatchTime.now().uptimeNanoseconds
+        _ = engine.reset(source)
+        let load = elapsed(since: started)
+        let at = source.utf16.count / 2
+        let editStarted = DispatchTime.now().uptimeNanoseconds
+        let patch = try? engine.apply(
+            [TextEdit(range: NSRange(location: at, length: 0), text: "x")],
+            documentLength: source.utf16.count + 1
+        )
+        finish(
+            metrics: [
+                "extended5MBBridgeLoadMs": load,
+                "extended5MBBridgeEditMs": elapsed(since: editStarted),
+                "extended5MBBridgeMemoryGrowthBytes": Double(max(
+                    0, Int64(residentMemoryBytes()) - Int64(memoryBefore)
+                )),
+            ],
+            checks: ["extended5MBBridgeEditApplied": patch != nil]
+        )
     }
 
     private struct EditMatrix: Decodable {
@@ -452,6 +486,16 @@ enum PerformanceTestMode {
 
         """
         let repeated = String(repeating: paragraph, count: bytes / paragraph.utf8.count + 1)
+        return String(repeated.prefix(bytes))
+    }
+
+    private static func extendedCorpus(bytes: Int) -> String {
+        // Real journals contain large stretches of prose between structural nodes.
+        // Keeping syntax sparse prices TextKit storage/layout at 5 MB without turning
+        // the opt-in profile into hundreds of thousands of artificial attributed runs.
+        let prose = String(repeating: "A journal paragraph with ordinary searchable text. ", count: 10)
+        let block = "## Journal checkpoint\n\n\(prose)\n\n**summary** @gabe [source](https://example.dev)\n\n"
+        let repeated = String(repeating: block, count: bytes / block.utf8.count + 1)
         return String(repeated.prefix(bytes))
     }
 

@@ -39,6 +39,13 @@ export default defineConfig({
   },
   define: {
     __MDE_PERF__: JSON.stringify(process.env.MDE_PERF === '1'),
+    __MDE_PERF_EXTENDED__: JSON.stringify(process.env.MDE_PERF_EXTENDED === '1'),
+    __MDE_EXTENDED_BUDGETS__: JSON.stringify({
+      load5MB: Number(process.env.MDE_WEB_5MB_LOAD_BUDGET_MS ?? 4000),
+      edit5MB: Number(process.env.MDE_WEB_5MB_EDIT_BUDGET_MS ?? 250),
+      teardown5MB: Number(process.env.MDE_WEB_5MB_TEARDOWN_BUDGET_MS ?? 1000),
+      maxNodes5MB: Number(process.env.MDE_WEB_5MB_DOM_NODE_BUDGET ?? 900000),
+    }),
     __MDE_PERF_BUDGETS__: JSON.stringify({
       load100KB: Number(process.env.MDE_WEB_100KB_LOAD_BUDGET_MS ?? 100),
       load1MB: Number(process.env.MDE_WEB_1MB_LOAD_BUDGET_MS ?? 750),

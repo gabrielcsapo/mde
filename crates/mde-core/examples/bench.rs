@@ -237,7 +237,8 @@ fn main() {
     println!("all times in milliseconds; n = iterations, med = median\n");
 
     let check = args.iter().any(|arg| arg == "--check");
-    for &(label, bytes) in SIZES {
+    let extended = args.iter().any(|arg| arg == "--extended");
+    for &(label, bytes) in SIZES.iter().filter(|(_, bytes)| extended || *bytes <= 1024 * 1024) {
         let result = run(label, bytes);
         if check {
             for (metric, value) in [

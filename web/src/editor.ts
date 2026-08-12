@@ -739,10 +739,10 @@ export class MarkdownEditor extends EventTarget {
     const lineChange = this.spliceLineModel(start, end, text);
     // The core accepted the edit; only now publish the matching JS mirror.
     this.text = next;
-    this.applyPatch(patch, { start, end: start + text.length }, {
-      start: start + text.length,
-      end: start + text.length,
-    }, lineChange);
+    const caret = document.activeElement === this.root
+      ? { start: start + text.length, end: start + text.length }
+      : null;
+    this.applyPatch(patch, { start, end: start + text.length }, caret, lineChange);
     this.dispatchEvent(new CustomEvent('change'));
   }
 
@@ -1073,7 +1073,12 @@ export class MarkdownEditor extends EventTarget {
   setSelectionRange(range: SelectionRange): void {
     // WebKit can otherwise accept the DOM range but place subsequent native input at
     // the start of a content-visibility subtree.
-    this.activateChunk(range.start);
+    // Mutating the active containment class forces Chromium to reconsider layout for
+    // every preceding skipped chunk before a DOM Range can be installed. On very large
+    // documents that turns a local edit into seconds of synchronous style/layout. The
+    // active chunk matters only while native input is focused; programmatic edits and
+    // background session updates do not need to wake it.
+    if (document.activeElement === this.root) this.activateChunk(range.start);
     /** @param {number} target */
     const locate = (target) => {
       // The line model already maps absolute offsets to one bounded DOM subtree.

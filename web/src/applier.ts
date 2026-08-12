@@ -219,12 +219,10 @@ export class DomApplier {
     // two-entry patch dominated the otherwise sub-microsecond core update. Keep the
     // already-materialised index incrementally only for genuinely tiny, position-stable
     // patches; edits and bulk analysis layers retain the cheaper lazy rebuild path.
-    const changed = patch.removed.length + patch.added.length;
+    const changed = patch.removed.length + patch.added.length + patch.moved.length;
     const incrementalIndex =
       !this.indexStale &&
-      changed <= 16 &&
-      patch.shifted.length === 0 &&
-      patch.moved.length === 0;
+      changed <= 16;
     const removedKeys = incrementalIndex ? new Set(patch.removed) : null;
     let removedLongest = false;
     for (const key of patch.removed) {
@@ -245,7 +243,13 @@ export class DomApplier {
       this.sorted = this.sorted.filter((decoration) => !removedKeys.has(decoration.key));
     }
     for (const shift of patch.shifted) {
-      for (const d of this.live.values()) {
+      // A compact shift moves one already-sorted suffix by the same delta, so its
+      // order cannot change. Mutating that suffix in place avoids invalidating and
+      // re-sorting hundreds of thousands of decorations after a 5 MB local edit.
+      const shifted = incrementalIndex
+        ? this.sorted.slice(lowerBound(this.sorted, shift.start))
+        : this.live.values();
+      for (const d of shifted) {
         if (d.start < shift.start) continue;
         d.start += shift.delta;
         d.end += shift.delta;
@@ -270,7 +274,15 @@ export class DomApplier {
       this.references.set(reference, keys);
     }
     if (incrementalIndex) {
-      for (const decoration of patch.added) {
+      const movedKeys = new Set(patch.moved.map((move) => move.key));
+      if (movedKeys.size > 0) {
+        this.sorted = this.sorted.filter((decoration) => !movedKeys.has(decoration.key));
+      }
+      const inserted = [
+        ...patch.moved.map((move) => this.live.get(move.key)).filter(Boolean),
+        ...patch.added,
+      ];
+      for (const decoration of inserted) {
         let lo = 0;
         let hi = this.sorted.length;
         while (lo < hi) {
