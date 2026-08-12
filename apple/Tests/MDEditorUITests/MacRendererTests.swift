@@ -90,6 +90,45 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(editor.markdown, source, "the storage must never diverge from the source")
     }
 
+    func testSessionSwitchingIsBoundedAndPreservesSource() throws {
+        let session = MarkdownSession(editor: editor, maxDocuments: 2)
+        try session.open(id: "one", markdown: "first note")
+        storage.replaceCharacters(in: NSRange(location: 5, length: 0), with: " edited")
+        drainMainQueue()
+        try session.open(id: "two", markdown: "second note")
+        try session.open(id: "three", markdown: "third note")
+        XCTAssertEqual(session.openDocumentIDs, ["two", "three"])
+        XCTAssertFalse(try session.switchTo(id: "one"))
+        XCTAssertTrue(try session.switchTo(id: "two"))
+        XCTAssertEqual(editor.markdown, "second note")
+    }
+
+    func testCommandsMatchPortableSourceTransformationsAndUndo() {
+        XCTAssertEqual(
+            markdownCommand(.bold, markdown: "hello", selection: NSRange(location: 0, length: 5)),
+            MarkdownCommandResult(
+                range: NSRange(location: 0, length: 5),
+                text: "**hello**",
+                selection: NSRange(location: 2, length: 5)
+            )
+        )
+        editor.setMarkdown("hello")
+        editor.selectedRange = NSRange(location: 0, length: 5)
+        XCTAssertTrue(editor.execute(.bold))
+        drainMainQueue()
+        XCTAssertEqual(editor.markdown, "**hello**")
+        XCTAssertTrue(editor.performUndo())
+        XCTAssertEqual(editor.markdown, "hello")
+        XCTAssertEqual(
+            markdownCommand(
+                .orderedList,
+                markdown: "one\ntwo",
+                selection: NSRange(location: 0, length: 7)
+            ).text,
+            "1. one\n2. two"
+        )
+    }
+
     func testAPathologicalParagraphUsesTheResponsiveIncrementalLayout() throws {
         let source = String(repeating: "word **strong** @same résumé 日本語 🎉 ", count: 850)
 

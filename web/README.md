@@ -15,6 +15,18 @@ const editor = new MarkdownEditor(
 editor.setMarkdown('# Hello\n');
 ```
 
+Commands and bounded multi-document sessions are framework-neutral:
+
+```ts
+import { MarkdownSession, executeMarkdownCommand } from '@mde/web';
+
+const session = new MarkdownSession(editor, { maxDocuments: 12 });
+session.open('today', '# Today\n');
+executeMarkdownCommand(editor, 'bold');
+session.open('yesterday', '# Yesterday\n'); // saves Today before switching
+session.switchTo('today');
+```
+
 React is deliberately not a dependency or bundled entry point. Use `@mde/react` for the
 React adapter. Optional extensions are separate imports:
 
@@ -75,10 +87,13 @@ context.on('change', () => {
     'lint',
     ({ markdown, signal }) => lintWorker.run(markdown, { signal }),
     (spans) => context.setLayer('lint', spans),
-    { delayMs: 100 },
+    { delayMs: 100, budgetMs: 16 },
   );
 });
 ```
+
+Every analysis emits `plugindiagnostic` with its duration, budget status, sequence, and
+cancellation state; compatibility reports include those diagnostics.
 
 Plugin packages can verify the portable lifecycle without depending on a particular
 test framework:

@@ -767,8 +767,8 @@ Three decisions are worth stating:
 6. ~~macOS renderer sharing the Swift package~~ — done (§7)
 7. ~~Web renderer over `contenteditable`~~ — done (§7)
 8. ~~Performance: incremental reparse, prefilter, fast hashing~~ — done (§2.2)
-9. Commands / toolbar API beyond the reference apps' bold + undo
-10. Multi-document session model
+9. ~~Commands / toolbar API beyond the reference apps' bold + undo~~ — done on web and Apple
+10. ~~Multi-document session model~~ — bounded source/selection snapshots on web and Apple
 
 ---
 

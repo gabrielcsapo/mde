@@ -14,6 +14,7 @@ import {
   IGNORE_ATTR,
   Kind,
   MarkdownEditor,
+  MarkdownSession,
   ResourceCache,
   Role,
   composeManifests,
@@ -21,6 +22,8 @@ import {
   diffText,
   encodeManifest,
   loadCore,
+  markdownCommand,
+  executeMarkdownCommand,
 } from '../dist/index.js';
 // Deliberately imported from `../extensions/`, not `../src/`: these are not part of the
 // editor, and testing them here is the check that they never needed to be.
@@ -867,6 +870,42 @@ function makeEditor(options = {}) {
       assertEqual(e.markdown, text + 'x');
       assertEqual(domText(e.root), e.markdown, 'DOM diverged after editing');
     }
+  });
+
+  test('a bounded session saves and restores source and selection', () => {
+    const e = makeEditor();
+    const session = new MarkdownSession(e, { maxDocuments: 2 });
+    session.open('one', 'first note');
+    e.replaceRange(5, 5, ' edited');
+    session.open('two', 'second note');
+    session.open('three', 'third note');
+
+    assertEqual(session.openDocumentIds, ['two', 'three']);
+    assertEqual(session.switchTo('one'), false, 'the oldest inactive document was not evicted');
+    assertEqual(session.switchTo('two'), true);
+    assertEqual(e.markdown, 'second note');
+    assertEqual(session.snapshot('three').markdown, 'third note');
+  });
+
+  test('commands are pure, selection-aware, and undo as one step', () => {
+    assertEqual(markdownCommand('bold', 'hello', { start: 0, end: 5 }), {
+      start: 0, end: 5, text: '**hello**', selection: { start: 2, end: 7 },
+    });
+    const e = makeEditor();
+    e.setMarkdown('hello');
+    e.root.focus();
+    e.setSelectionRange({ start: 0, end: 5 });
+    assert(executeMarkdownCommand(e, 'bold'));
+    assertEqual(e.markdown, '**hello**');
+    e.undo();
+    assertEqual(e.markdown, 'hello');
+  });
+
+  test('block commands transform every selected line', () => {
+    assertEqual(markdownCommand('ordered-list', 'one\ntwo', { start: 0, end: 7 }).text,
+      '1. one\n2. two');
+    assertEqual(markdownCommand('task-list', 'one\ntwo', { start: 0, end: 7 }).text,
+      '- [ ] one\n- [ ] two');
   });
 
   test('a programmatic edit is valid before the first setMarkdown call', () => {
