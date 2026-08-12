@@ -486,6 +486,7 @@ public final class MarkdownTextView: NSTextView {
             max(max(top, bottom) + paintRadius, from + minimumPaint)
         )
         let range = NSRange(location: from, length: max(0, to - from))
+        applier.resources.prioritize(applier.references(intersecting: range))
         guard !paintedRanges.contains(where: {
             $0.location <= range.location && $0.upperBound >= range.upperBound
         }) else { return }

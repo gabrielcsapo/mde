@@ -12,6 +12,8 @@ export interface ResourceRequest {
   source: string;
   /** Aborted when the editor replaces the document or is destroyed. */
   signal: AbortSignal;
+  /** Lower values start first. Hosts may promote references as they approach view. */
+  priority?: number;
 }
 export type ResourceState =
   | { state: 'loading' }
@@ -50,12 +52,21 @@ export class ResourceCache {
   known: Map<string, { width: number; height: number }>;
   generation: number;
   controller: AbortController;
+  maxConcurrent: number;
+  active: Map<string, number>;
+  pending: Array<{ request: ResourceRequest; generation: number; order: number }>;
+  nextOrder: number;
+  peakConcurrent: number;
 
   /**
    * @param {ResourceResolver|null} resolver
    * @param {(reference: string) => void} onResolved repaint hook
    */
-  constructor(resolver: ResourceResolver | null, onResolved: (reference: string) => void) {
+  constructor(
+    resolver: ResourceResolver | null,
+    onResolved: (reference: string) => void,
+    options: { maxConcurrent?: number } = {},
+  ) {
     this.resolver = resolver;
     this.onResolved = onResolved;
     /** @type {Map<string, ResourceState>} */
@@ -75,6 +86,11 @@ export class ResourceCache {
     /** Invalidates completions belonging to a document that has since been reset. */
     this.generation = 0;
     this.controller = new AbortController();
+    this.maxConcurrent = Math.max(1, Math.floor(options.maxConcurrent ?? 6));
+    this.active = new Map();
+    this.pending = [];
+    this.nextOrder = 0;
+    this.peakConcurrent = 0;
   }
 
   reset() {
@@ -83,6 +99,8 @@ export class ResourceCache {
     this.generation++;
     this.states.clear();
     this.reserved.clear();
+    this.active.clear();
+    this.pending.length = 0;
     // `known` deliberately survives: it describes assets, not this document.
   }
 
@@ -103,7 +121,7 @@ export class ResourceCache {
 
   /**
    * The element to show right now. Kicks off resolution on first sight of a reference.
-   * @param {{reference: string|null, roleName: string|null, source: string}} req
+   * @param {{reference: string|null, roleName: string|null, source: string, priority?: number}} req
    * @returns {HTMLElement|null}
    */
   view(req) {
@@ -115,6 +133,7 @@ export class ResourceCache {
       roleName: req.roleName,
       source: req.source,
       signal: this.controller.signal,
+      priority: Number.isFinite(req.priority) ? req.priority : 100,
     };
     const known = this.states.get(req.reference);
     if (!known) {
@@ -124,12 +143,36 @@ export class ResourceCache {
         this.known.get(req.reference) ?? this.resolver.reservedSize(request),
       );
       this.states.set(req.reference, { state: 'loading' });
-      this.start(request, this.generation);
+      this.pending.push({ request, generation: this.generation, order: this.nextOrder++ });
+      this.pump();
       return placeholder(basename(req.reference), false, this.reserved.get(req.reference));
     }
     if (known.state === 'ready') return known.view;
     if (known.state === 'failed') return placeholder(known.message, true, null);
     return placeholder(basename(req.reference), false, this.reserved.get(req.reference));
+  }
+
+  /** Promote queued references as they approach the viewport without restarting work. */
+  prioritize(references: Iterable<string>, priority = 0) {
+    const wanted = new Set(references);
+    for (const item of this.pending) {
+      if (wanted.has(item.request.reference)) item.request.priority = priority;
+    }
+    this.pump();
+  }
+
+  pump() {
+    if (!this.resolver) return;
+    this.pending.sort((a, b) =>
+      (a.request.priority ?? 100) - (b.request.priority ?? 100) || a.order - b.order
+    );
+    while (this.active.size < this.maxConcurrent && this.pending.length > 0) {
+      const item = this.pending.shift();
+      if (!item || item.generation !== this.generation || item.request.signal.aborted) continue;
+      this.active.set(item.request.reference, item.generation);
+      this.peakConcurrent = Math.max(this.peakConcurrent, this.active.size);
+      void this.start(item.request, item.generation);
+    }
   }
 
   /**
@@ -154,16 +197,21 @@ export class ResourceCache {
     // A reset between request and response means this document is gone. Checking only
     // for the reference is insufficient: the next document may already be loading the
     // same path, in which case the old completion must not overwrite its new request.
-    if (generation !== this.generation || !this.states.has(request.reference)) return;
-    this.states.set(request.reference, result);
-    if (result.state === 'ready') {
-      const size = measure(result.view, this.reserved.get(request.reference));
-      if (size) {
-        this.reserved.set(request.reference, size);
-        this.known.set(request.reference, size);
-      }
+    if (this.active.get(request.reference) === generation) {
+      this.active.delete(request.reference);
     }
-    this.onResolved(request.reference);
+    if (generation === this.generation && this.states.has(request.reference)) {
+      this.states.set(request.reference, result);
+      if (result.state === 'ready') {
+        const size = measure(result.view, this.reserved.get(request.reference));
+        if (size) {
+          this.reserved.set(request.reference, size);
+          this.known.set(request.reference, size);
+        }
+      }
+      this.onResolved(request.reference);
+    }
+    this.pump();
   }
 }
 

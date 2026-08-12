@@ -75,7 +75,7 @@ export default defineConfig({
       mediaJournalReady: Number(process.env.MDE_WEB_MEDIA_JOURNAL_READY_BUDGET_MS ?? 2000),
       mediaJournalEdit: Number(process.env.MDE_WEB_MEDIA_JOURNAL_EDIT_BUDGET_MS ?? 100),
       mediaJournalScroll: Number(process.env.MDE_WEB_MEDIA_JOURNAL_SCROLL_BUDGET_MS ?? 100),
-      maxMediaJournalNodes: Number(process.env.MDE_WEB_MEDIA_JOURNAL_DOM_NODE_BUDGET ?? 5000),
+      maxMediaJournalNodes: Number(process.env.MDE_WEB_MEDIA_JOURNAL_DOM_NODE_BUDGET ?? 6500),
     }),
   },
   publicDir: false,

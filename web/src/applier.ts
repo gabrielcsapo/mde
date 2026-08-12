@@ -363,6 +363,18 @@ export class DomApplier {
     return mergeRanges(out);
   }
 
+  /** Resource references intersecting a source range, for viewport scheduling. */
+  /** @returns {Set<string>} */
+  referencesInRange(from: number, to: number): Set<string> {
+    const references = new Set<string>();
+    for (const decoration of this.covering(from, to)) {
+      if (decoration.end <= from || decoration.start >= to) continue;
+      const reference = this.referenceByKey.get(decoration.key);
+      if (reference) references.add(reference);
+    }
+    return references;
+  }
+
   /** The smallest `Hit` decoration containing `offset`, if any. */
   /** @param {number} offset */
   hit(offset) {

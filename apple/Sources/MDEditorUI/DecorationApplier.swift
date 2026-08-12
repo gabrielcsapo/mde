@@ -278,6 +278,16 @@ final class DecorationApplier {
         return Self.merged(ranges)
     }
 
+    /// References intersecting a source range, used to prioritize viewport media.
+    func references(intersecting range: NSRange) -> Set<String> {
+        var result = Set<String>()
+        for decoration in decorations(intersecting: range)
+        where NSIntersectionRange(decoration.range, range).length > 0 {
+            if let reference = referenceByKey[decoration.key] { result.insert(reference) }
+        }
+        return result
+    }
+
     /// Reset the affected scope to base attributes, then lay every live decoration back
     /// over it. Ordinary paragraphs repaint as a unit. Pathologically long paragraphs
     /// use the already-complete dirty range, avoiding seconds of redundant TextKit work.

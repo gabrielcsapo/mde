@@ -1302,9 +1302,48 @@ function makeEditor(options = {}) {
     }
     cache.reset();
 
-    assertEqual(signals.length, 320);
+    assertEqual(signals.length, 6, 'the scheduler started more than its concurrency limit');
     assert(signals.every((signal) => signal.aborted), 'a replaced document kept media work alive');
     assertEqual(cache.states.size, 0);
+  });
+
+  test('resource scheduling is bounded and drains in priority order', async () => {
+    const started = [];
+    const pending = new Map();
+    const cache = new ResourceCache(
+      {
+        resolve: ({ reference }) => new Promise((deliver) => {
+          started.push(reference);
+          pending.set(reference, deliver);
+        }),
+        reservedSize: () => ({ width: 160, height: 90 }),
+      },
+      () => {},
+      { maxConcurrent: 2 },
+    );
+    for (let index = 0; index < 5; index++) {
+      cache.view({
+        reference: `asset-${index}.jpg`,
+        roleName: 'image',
+        source: `![${index}](asset-${index}.jpg)`,
+      });
+    }
+    cache.prioritize(['asset-4.jpg']);
+    assertEqual(started, ['asset-0.jpg', 'asset-1.jpg']);
+    assertEqual(cache.peakConcurrent, 2);
+
+    pending.get('asset-0.jpg')({ state: 'failed', message: 'expected' });
+    await Promise.resolve();
+    await Promise.resolve();
+    assertEqual(started, ['asset-0.jpg', 'asset-1.jpg', 'asset-4.jpg']);
+
+    for (const reference of ['asset-1.jpg', 'asset-4.jpg', 'asset-2.jpg', 'asset-3.jpg']) {
+      pending.get(reference)?.({ state: 'failed', message: 'expected' });
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    assertEqual(started.length, 5);
+    assertEqual(cache.active.size, 0);
   });
 
   test('hundreds of resources reuse duplicates and isolate failures', async () => {
@@ -1331,8 +1370,10 @@ function makeEditor(options = {}) {
         source: `![${index}](asset-${unique}.jpg)`,
       });
     }
-    await Promise.resolve();
-    await Promise.resolve();
+    while (cache.active.size > 0 || cache.pending.length > 0) {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
 
     assertEqual(requested, 320, 'duplicate references started duplicate loads');
     assertEqual(cache.states.size, 320);

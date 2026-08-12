@@ -117,6 +117,7 @@ export class MarkdownEditor extends EventTarget {
   onDocumentSelectionChange: () => void;
   destroyed: boolean;
   private plugins: Map<string, InstalledPlugin>;
+  private resourcePriorityFrame: number | null;
 
   /**
    * @param {HTMLElement} host
@@ -193,6 +194,8 @@ export class MarkdownEditor extends EventTarget {
     this.root.addEventListener('click', (e) => this.onClick(e), listener);
     // Before the browser gets to place a caret — see `onMouseDown`.
     this.root.addEventListener('mousedown', (e) => this.onMouseDown(e), listener);
+    this.resourcePriorityFrame = null;
+    this.root.addEventListener('scroll', () => this.scheduleResourcePriorities(), listener);
 
     // This is the only listener that is not on `root`: `selectionchange` fires on the
     // document, so it outlives the element and would keep a detached editor alive. The
@@ -228,6 +231,7 @@ export class MarkdownEditor extends EventTarget {
       }
     }
     this.events.abort();
+    if (this.resourcePriorityFrame !== null) cancelAnimationFrame(this.resourcePriorityFrame);
     this.applier.reset();
     if (this.previousContentEditable === null) this.root.removeAttribute('contenteditable');
     else this.root.setAttribute('contenteditable', this.previousContentEditable);
@@ -843,6 +847,35 @@ export class MarkdownEditor extends EventTarget {
       chunk!.appendChild(el);
     }
     this.root.replaceChildren(frag);
+    this.scheduleResourcePriorities();
+  }
+
+  /** Promote media in and just around the visible containment chunks. */
+  scheduleResourcePriorities(): void {
+    if (this.resourcePriorityFrame !== null) return;
+    this.resourcePriorityFrame = requestAnimationFrame(() => {
+      this.resourcePriorityFrame = null;
+      const resources = this.applier.resources;
+      if (!resources || this.lineEls.length === 0) return;
+      const rootRect = this.root.getBoundingClientRect();
+      let first = 0;
+      let last = Math.min(this.lineEls.length - 1, 127);
+      for (let index = 0; index < this.chunkEls.length; index++) {
+        const rect = this.chunkEls[index].getBoundingClientRect();
+        if (rect.bottom >= rootRect.top - rootRect.height) {
+          first = Math.max(0, index * 64 - 64);
+          break;
+        }
+      }
+      for (let index = Math.floor(first / 64); index < this.chunkEls.length; index++) {
+        const rect = this.chunkEls[index].getBoundingClientRect();
+        last = Math.min(this.lineEls.length - 1, index * 64 + 127);
+        if (rect.top > rootRect.bottom + rootRect.height) break;
+      }
+      const from = this.lineStarts[first] ?? 0;
+      const to = this.lineEnd(last, this.lines, this.lineStarts);
+      resources.prioritize(this.applier.referencesInRange(from, to));
+    });
   }
 
   /** A block formatting context the browser may skip when it is outside the viewport. */

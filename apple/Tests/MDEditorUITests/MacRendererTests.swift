@@ -889,9 +889,34 @@ final class MacRendererTests: XCTestCase {
 
         cache.reset()
 
-        XCTAssertEqual(resolver.requested.count, 320)
-        XCTAssertEqual(resolver.cancelled.count, 320)
-        XCTAssertTrue(resolver.cancelled.contains("asset-319.jpg"))
+        XCTAssertEqual(resolver.requested.count, 6, "resource work exceeded its concurrency cap")
+        XCTAssertEqual(resolver.cancelled.count, 6)
+        XCTAssertTrue(resolver.cancelled.isSubset(of: resolver.requested))
+    }
+
+    func testResourceSchedulerIsBoundedAndDrainsPromotedWorkFirst() {
+        let cache = ResourceCache()
+        cache.maxConcurrent = 2
+        let resolver = OrderedDeferredResolver()
+        cache.resolver = resolver
+        for index in 0 ..< 5 {
+            _ = cache.state(for: ResourceRequest(
+                reference: "asset-\(index).jpg",
+                roleName: "image",
+                source: "![\(index)](asset-\(index).jpg)",
+                fittingWidth: 320
+            ))
+        }
+        cache.prioritize(["asset-4.jpg"])
+        XCTAssertEqual(resolver.requested, ["asset-0.jpg", "asset-1.jpg"])
+        XCTAssertEqual(cache.peakConcurrent, 2)
+
+        resolver.finish("asset-0.jpg")
+        XCTAssertEqual(resolver.requested, ["asset-0.jpg", "asset-1.jpg", "asset-4.jpg"])
+        for reference in ["asset-1.jpg", "asset-4.jpg", "asset-2.jpg", "asset-3.jpg"] {
+            resolver.finish(reference)
+        }
+        XCTAssertEqual(resolver.requested.count, 5)
     }
 
     func testResourceReferenceIndexFollowsAnEditedDestination() throws {
@@ -1620,6 +1645,26 @@ private final class CancellableDeferredResolver: CancellableResourceResolver {
 
     func cancel(_ references: Set<String>) {
         cancelled.formUnion(references)
+    }
+}
+
+private final class OrderedDeferredResolver: ResourceResolver {
+    private(set) var requested = [String]()
+    private var deliveries = [String: (ResourceState) -> Void]()
+
+    func resolve(
+        _ request: ResourceRequest,
+        deliver: @escaping (ResourceState) -> Void
+    ) -> ResourceState {
+        requested.append(request.reference)
+        deliveries[request.reference] = deliver
+        return .loading
+    }
+
+    func reservedSize(_: ResourceRequest) -> CGSize { CGSize(width: 160, height: 90) }
+
+    func finish(_ reference: String) {
+        deliveries.removeValue(forKey: reference)?(.failed("expected"))
     }
 }
 

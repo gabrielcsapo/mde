@@ -14,12 +14,18 @@ import UIKit
 /// `![a chart](chart.png)` — twenty-six characters — and the megabytes live wherever
 /// the host keeps them. The same shape works for a remote URL, a video, a
 /// content-addressed blob store, or a document previewer; only this class changes.
-public final class DiskResourceResolver: ResourceResolver {
+public final class DiskResourceResolver: CancellableResourceResolver {
     private let root: URL
-    private let queue = DispatchQueue(label: "dev.mde.resources", qos: .userInitiated)
+    private let queue: OperationQueue
+    private let lock = NSLock()
+    private var operations: [String: Operation] = [:]
 
-    public init(root: URL) {
+    public init(root: URL, maxConcurrentLoads: Int = 4) {
         self.root = root
+        queue = OperationQueue()
+        queue.name = "dev.mde.resources"
+        queue.qualityOfService = .userInitiated
+        queue.maxConcurrentOperationCount = max(1, maxConcurrentLoads)
     }
 
     public func resolve(
@@ -34,18 +40,34 @@ public final class DiskResourceResolver: ResourceResolver {
         let displayScale = UIScreen.main.scale
         #endif
 
-        queue.async {
+        let operation = BlockOperation()
+        operation.addExecutionBlock { [weak operation, weak self] in
+            guard let self, operation?.isCancelled == false else { return }
             let state = Self.load(
                 url: url,
                 reference: request.reference,
                 width: width,
                 displayScale: displayScale
             )
-            DispatchQueue.main.async { deliver(state) }
+            guard operation?.isCancelled == false else { return }
+            DispatchQueue.main.async { [weak self, weak operation] in
+                guard let self, operation?.isCancelled == false else { return }
+                self.lock.withLock { _ = self.operations.removeValue(forKey: request.reference) }
+                deliver(state)
+            }
         }
+        lock.withLock { operations[request.reference] = operation }
+        queue.addOperation(operation)
         // Loading is genuinely off the main thread — the editor reserves space and
         // repaints just this node when the bytes land.
         return .loading
+    }
+
+    public func cancel(_ references: Set<String>) {
+        let cancelled: [Operation] = lock.withLock {
+            references.compactMap { operations.removeValue(forKey: $0) }
+        }
+        cancelled.forEach { $0.cancel() }
     }
 
     public func reservedSize(_ request: ResourceRequest) -> CGSize {

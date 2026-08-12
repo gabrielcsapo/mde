@@ -69,6 +69,10 @@ final class ResourceCache {
     /// Called with the reference when a pending resource resolves, so the host can
     /// repaint exactly the nodes that point at it.
     var onResolved: ((String) -> Void)?
+    /// Decode/network work is intentionally bounded. A journal with hundreds of media
+    /// references must not turn one layout pass into hundreds of simultaneous tasks.
+    var maxConcurrent = 6
+    private(set) var peakConcurrent = 0
 
     /// Seed sizes remembered from a previous session.
     func remember(_ sizes: [String: CGSize]) {
@@ -80,6 +84,14 @@ final class ResourceCache {
     private var states: [String: ResourceState] = [:]
     private var reserved: [String: CGSize] = [:]
     private var inFlight: Set<String> = []
+    private struct Pending {
+        let request: ResourceRequest
+        let generation: UInt64
+        let order: UInt64
+        var priority: Int
+    }
+    private var pending: [Pending] = []
+    private var nextOrder: UInt64 = 0
     /// Invalidates deliveries belonging to a document that has since been reset.
     private var generation: UInt64 = 0
 
@@ -99,6 +111,7 @@ final class ResourceCache {
         states.removeAll()
         reserved.removeAll()
         inFlight.removeAll()
+        pending.removeAll()
         // `known` deliberately survives: it describes assets, not this document.
     }
 
@@ -115,31 +128,75 @@ final class ResourceCache {
         // A size we have seen before beats anything the resolver can guess.
         reserved[request.reference] = known[request.reference] ?? resolver.reservedSize(request)
 
+        states[request.reference] = .loading
+        pending.append(Pending(
+            request: request,
+            generation: generation,
+            order: nextOrder,
+            priority: 100
+        ))
+        nextOrder &+= 1
+        pump()
+        return states[request.reference] ?? .loading
+    }
+
+    /// Move queued references ahead of speculative offscreen work.
+    func prioritize(_ references: Set<String>, priority: Int = 0) {
+        for index in pending.indices where references.contains(pending[index].request.reference) {
+            pending[index].priority = priority
+        }
+        pump()
+    }
+
+    private func pump() {
+        guard resolver != nil else { return }
+        pending.sort { lhs, rhs in
+            lhs.priority == rhs.priority ? lhs.order < rhs.order : lhs.priority < rhs.priority
+        }
+        while inFlight.count < max(1, maxConcurrent), !pending.isEmpty {
+            let item = pending.removeFirst()
+            guard item.generation == generation else { continue }
+            start(item)
+        }
+    }
+
+    private func start(_ item: Pending) {
+        guard let resolver else { return }
+        let request = item.request
+        let reference = request.reference
+        let fitting = request.fittingWidth
+        inFlight.insert(reference)
+        peakConcurrent = max(peakConcurrent, inFlight.count)
+
         // Guard against a resolver that delivers synchronously: `deliver` may run
         // before `resolve` returns, in which case the return value is stale and must
         // not overwrite the delivered state.
         var settled = false
-        let requestGeneration = generation
-        inFlight.insert(request.reference)
-        let reference = request.reference
-        let fitting = request.fittingWidth
         let immediate = resolver.resolve(request) { [weak self] state in
             guard let self,
-                  self.generation == requestGeneration,
+                  self.generation == item.generation,
                   self.inFlight.contains(reference)
             else { return }
             settled = true
-            self.inFlight.remove(reference)
-            self.states[reference] = state
-            self.record(state, for: reference, fitting: fitting)
-            self.onResolved?(reference)
+            self.finish(state, reference: reference, fitting: fitting)
         }
         if !settled {
-            states[request.reference] = immediate
-            record(immediate, for: request.reference, fitting: fitting)
-            if case .loading = immediate {} else { inFlight.remove(request.reference) }
+            states[reference] = immediate
+            record(immediate, for: reference, fitting: fitting)
+            if case .loading = immediate {} else {
+                inFlight.remove(reference)
+                onResolved?(reference)
+                pump()
+            }
         }
-        return states[request.reference] ?? .loading
+    }
+
+    private func finish(_ state: ResourceState, reference: String, fitting: CGFloat) {
+        inFlight.remove(reference)
+        states[reference] = state
+        record(state, for: reference, fitting: fitting)
+        onResolved?(reference)
+        pump()
     }
 
     /// Learn the size of anything that actually resolved.
