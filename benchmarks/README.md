@@ -21,7 +21,8 @@ for the costs most likely to regress:
 - indexed lookup among 10,000 resource references; and
 - one shared edit matrix across Rust, JS, React, UIKit, and AppKit: 10 KB, 100 KB,
   500 KB, and 1 MB documents; start/middle/end positions; character insert/delete,
-  32-character replacement, structural newline, 1 KB paste/delete, and a 100-edit
+  32-character replacement, emoji/CJK/combining-text commits, structural newline,
+  1 KB paste/delete, 8 KB dictation and multiline paste, and a 100-edit
   endurance session. Every host asserts the exact resulting Markdown.
   Browser heap and Apple process-footprint growth are bounded across the run.
 

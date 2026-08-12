@@ -11,8 +11,13 @@
     { "name": "insert-character", "deleteUtf16": 0, "text": "x" },
     { "name": "delete-character", "deleteUtf16": 1, "text": "" },
     { "name": "replace-word", "deleteUtf16": 32, "text": "replacement-value" },
+    { "name": "insert-emoji", "deleteUtf16": 0, "text": "👩🏽‍💻" },
+    { "name": "replace-cjk", "deleteUtf16": 12, "text": "日記の更新" },
+    { "name": "insert-combining", "deleteUtf16": 0, "text": "é" },
     { "name": "insert-newline", "deleteUtf16": 0, "text": "\n" },
     { "name": "paste-1KB", "deleteUtf16": 0, "textPattern": "journal paste block ", "textUtf8Bytes": 1024 },
+    { "name": "dictation-8KB", "deleteUtf16": 64, "textPattern": "transcribed journal entry. ", "textUtf8Bytes": 8192 },
+    { "name": "paste-multiline-8KB", "deleteUtf16": 0, "textPattern": "line one\nline two\n\n", "textUtf8Bytes": 8192 },
     { "name": "delete-1KB", "deleteUtf16": 1024, "text": "" }
   ],
   "endurance": {

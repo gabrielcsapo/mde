@@ -1763,6 +1763,45 @@ function makeEditor(options = {}) {
     assertEqual(event.defaultPrevented, false, 'plain characters are not intercepted');
   });
 
+  test('an IME composition commit preserves Unicode and undo grouping', () => {
+    const e = makeEditor();
+    e.setMarkdown('Journal: []\n');
+    e.root.focus();
+    e.setSelectionRange({ start: 10, end: 10 });
+    e.root.dispatchEvent(new CompositionEvent('compositionstart', { data: '' }));
+    // Browsers own the interim composition DOM. Recreate the committed mutation then
+    // route the resulting input through the same common-prefix/suffix reconciliation.
+    const line = e.lineEls[0];
+    line.textContent = 'Journal: [日本語👩🏽‍💻]\n';
+    e.root.dispatchEvent(new CompositionEvent('compositionend', { data: '日本語👩🏽‍💻' }));
+    e.root.dispatchEvent(new InputEvent('input', {
+      inputType: 'insertCompositionText', data: '日本語👩🏽‍💻', bubbles: true,
+    }));
+
+    assertEqual(e.markdown, 'Journal: [日本語👩🏽‍💻]\n');
+    assertEqual(domText(e.root), e.markdown);
+    e.undo();
+    assertEqual(e.markdown, 'Journal: []\n', 'one IME commit was split across undo steps');
+  });
+
+  test('multiline drop is normalized through one engine edit', () => {
+    const e = makeEditor();
+    e.setMarkdown('before after\n');
+    e.root.focus();
+    e.setSelectionRange({ start: 7, end: 7 });
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', 'photo caption\r\nsecond line');
+    const event = new InputEvent('beforeinput', {
+      inputType: 'insertFromDrop', dataTransfer: transfer, bubbles: true, cancelable: true,
+    });
+    e.root.dispatchEvent(event);
+
+    assertEqual(event.defaultPrevented, true);
+    assertEqual(e.markdown, 'before photo caption\nsecond lineafter\n');
+    e.undo();
+    assertEqual(e.markdown, 'before after\n');
+  });
+
   test('a browser-mangled DOM is renormalised instead of diverging', () => {
     const e = makeEditor();
     e.setMarkdown('alpha\nbeta\n');
