@@ -184,6 +184,18 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(editor.markdown, storage.string)
     }
 
+    func testOrdinaryLargeEditKeepsTheKnownNonPathologicalState() {
+        let source = String(repeating: "ordinary paragraph\n", count: 20_000)
+        editor.setMarkdown(source)
+        let tail = storage.length - 2
+
+        storage.replaceCharacters(in: NSRange(location: tail, length: 0), with: "x")
+        drainMainQueue()
+
+        XCTAssertFalse(editor.isOptimizingLongParagraph)
+        XCTAssertEqual(editor.markdown, storage.string)
+    }
+
     func testReplacingAWidgetDocumentWithShortTextDropsStalePresentationRanges() {
         editor.setMarkdown("| A | B |\n| --- | --- |\n| one | [two](https://example.dev) |\n")
         forceLayout()

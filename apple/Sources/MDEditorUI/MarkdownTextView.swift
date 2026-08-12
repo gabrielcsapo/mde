@@ -264,6 +264,8 @@ public final class MarkdownTextView: UITextView {
                 setLongParagraphLayout(anchor: paragraph.location)
                 return
             }
+            setLongParagraphLayout(anchor: nil)
+            return
         }
         setLongParagraphLayout(anchor: Self.longParagraph(in: source)?.location)
     }
@@ -430,10 +432,19 @@ public final class MarkdownTextView: UITextView {
                 continue
             }
         }
-        if usesViewportPainting, alsoDirty != nil { paintedRanges.removeAll() }
-        for range in dirty {
-            applier.repaint(range, in: textStorage)
-            rememberPainted(range)
+        if usesViewportPainting {
+            invalidatePainted(dirty)
+            if let alsoDirty, isRangeNearViewport(alsoDirty) {
+                applier.repaint(alsoDirty, in: textStorage)
+                rememberPainted(alsoDirty)
+            } else {
+                for range in dirty where isRangeNearViewport(range) {
+                    applier.repaint(range, in: textStorage)
+                    rememberPainted(range)
+                }
+            }
+        } else {
+            for range in dirty { applier.repaint(range, in: textStorage) }
         }
         scheduleViewportPaint()
         if patch.added.contains(where: {
@@ -442,6 +453,39 @@ public final class MarkdownTextView: UITextView {
             layoutWidgetOverlays()
         } else {
             scheduleWidgetLayout()
+        }
+    }
+
+    private func isRangeNearViewport(_ range: NSRange) -> Bool {
+        let origin = CGPoint(x: textContainerInset.left, y: textContainerInset.top)
+        let viewport = bounds
+            .insetBy(dx: -bounds.width, dy: -bounds.height)
+            .offsetBy(dx: -origin.x, dy: -origin.y)
+        let glyphs = layoutManager.glyphRange(forBoundingRect: viewport, in: textContainer)
+        let characters = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        return NSIntersectionRange(range, characters).length > 0
+    }
+
+    private func invalidatePainted(_ dirty: [NSRange]) {
+        for cut in dirty {
+            paintedRanges = paintedRanges.flatMap { existing -> [NSRange] in
+                let overlap = NSIntersectionRange(existing, cut)
+                guard overlap.length > 0 else { return [existing] }
+                var remaining = [NSRange]()
+                if overlap.location > existing.location {
+                    remaining.append(NSRange(
+                        location: existing.location,
+                        length: overlap.location - existing.location
+                    ))
+                }
+                if overlap.upperBound < existing.upperBound {
+                    remaining.append(NSRange(
+                        location: overlap.upperBound,
+                        length: existing.upperBound - overlap.upperBound
+                    ))
+                }
+                return remaining
+            }
         }
     }
 

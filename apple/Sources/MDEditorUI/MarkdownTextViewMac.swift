@@ -270,6 +270,11 @@ public final class MarkdownTextView: NSTextView {
                 setLongParagraphLayout(anchor: paragraph.location)
                 return
             }
+            // `setMarkdown` already proved there was no pathological paragraph. An
+            // edit to this ordinary paragraph cannot create one elsewhere, so do not
+            // rescan the entire multi-megabyte document after every keystroke.
+            setLongParagraphLayout(anchor: nil)
+            return
         }
         setLongParagraphLayout(anchor: Self.longParagraph(in: source)?.location)
     }
@@ -424,13 +429,59 @@ public final class MarkdownTextView: NSTextView {
         // Disjoint ranges, not a bounding box: see `dirtyRanges`.
         let dirty = applier.dirtyRanges(for: patch, alsoDirty: alsoDirty)
         applier.ingest(patch)
-        if usesViewportPainting, alsoDirty != nil { paintedRanges.removeAll() }
-        for range in dirty {
-            applier.repaint(range, in: storage)
-            rememberPainted(range)
+        if usesViewportPainting {
+            invalidatePainted(dirty)
+            if let alsoDirty, isRangeNearViewport(alsoDirty) {
+                // NSTextStorage already shifted untouched attributes with the edit.
+                // Paint the edited source immediately; distant identity/key churn is
+                // reconciled when that range enters the viewport.
+                applier.repaint(alsoDirty, in: storage)
+                rememberPainted(alsoDirty)
+            } else {
+                for range in dirty where isRangeNearViewport(range) {
+                    applier.repaint(range, in: storage)
+                    rememberPainted(range)
+                }
+            }
+        } else {
+            for range in dirty { applier.repaint(range, in: storage) }
         }
         scheduleViewportPaint()
         scheduleWidgetLayout()
+    }
+
+    private func isRangeNearViewport(_ range: NSRange) -> Bool {
+        guard let layoutManager, let textContainer else { return true }
+        let origin = textContainerOrigin
+        let viewport = visibleRect
+            .insetBy(dx: -bounds.width, dy: -bounds.height)
+            .offsetBy(dx: -origin.x, dy: -origin.y)
+        let glyphs = layoutManager.glyphRange(forBoundingRect: viewport, in: textContainer)
+        let characters = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        return NSIntersectionRange(range, characters).length > 0
+    }
+
+    private func invalidatePainted(_ dirty: [NSRange]) {
+        for cut in dirty {
+            paintedRanges = paintedRanges.flatMap { existing -> [NSRange] in
+                let overlap = NSIntersectionRange(existing, cut)
+                guard overlap.length > 0 else { return [existing] }
+                var remaining = [NSRange]()
+                if overlap.location > existing.location {
+                    remaining.append(NSRange(
+                        location: existing.location,
+                        length: overlap.location - existing.location
+                    ))
+                }
+                if overlap.upperBound < existing.upperBound {
+                    remaining.append(NSRange(
+                        location: overlap.upperBound,
+                        length: existing.upperBound - overlap.upperBound
+                    ))
+                }
+                return remaining
+            }
+        }
     }
 
     private func repaintAll() {
