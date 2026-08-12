@@ -94,3 +94,32 @@ live document and exposes cumulative-state regressions.
 The same run measured no retained Chromium heap growth, about 19 MiB of iOS footprint
 growth, and about 134 MiB on AppKit after cycling four full layout trees; explicit
 ceilings now catch unbounded retention alongside latency regressions.
+
+## Rendering and lifecycle pass — 2026-08-12
+
+Seven additional host-level phases were measured and gated:
+
+| Workload | Previous | Current |
+| --- | ---: | ---: |
+| Browser 1 MB cold load | 218 ms | 114 ms |
+| Browser 1 MB DOM elements | 137,734 | 1,057 |
+| Browser mixed edit matrix p95 | 51.1 ms | 8.4 ms |
+| Browser 64 KB no-newline edit | 78 ms | 7 ms |
+| Browser 5 MB edit | 65 ms | 38 ms |
+| Browser 5 MB DOM elements | 821,332 | 4,640 |
+| AppKit 1 MB edit | 18.7 ms | 8.0 ms |
+| AppKit 5 MB edit | 82.0 ms | 29.6 ms |
+| React local controlled acknowledgement p95 | implicit in replay | 0.1 ms |
+| Warm 100 KB document switch p95 | cold-only | 10–12 ms |
+
+Resource work is now concurrency-bounded and viewport-prioritized on web and Apple,
+with cancellation at the cache and disk-operation layers. Bounded warm projections
+speed recent document switching without retaining resource tasks or claiming that one
+engine's undo history can be transferred to another document.
+
+The new 30-cycle lifecycle gate measured 61 ms maximum browser open/edit/scroll work,
+67 ms maximum browser frame gap, zero retained editor nodes and no reported heap growth.
+The release AppKit loop measured 202 ms maximum work and about 107 MiB resident-memory
+growth, below its 256 MiB ceiling. These are energy proxies rather than direct battery
+measurements: bounded main-thread stalls, decode concurrency, retained views, and
+allocation growth are the controllable costs the library can enforce in CI.

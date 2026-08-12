@@ -114,17 +114,17 @@ there — 3.5 ms on 100 KB of prose with zero matches, 26× the parse itself. On
 running them through SipHash again was pure overhead. `fasthash.rs` is a multiply-xorshift
 that costs a few instructions; it cut diffing by ~36% at 1 MB.
 
-Measured, per keystroke, on an M2:
+Measured in the current release core profile:
 
 | document | before | after |
 |---|---|---|
-| 10 KB | 1.3 ms | **0.21 ms** |
-| 100 KB | 18.0 ms | **1.99 ms** |
-| 500 KB | ~52 ms | **10.3 ms** |
-| 1 MB | 137 ms | **22.9 ms** |
-| 5 MB | ~3 460 ms | **132 ms** |
+| 10 KB | 1.3 ms | **0.024 ms** |
+| 100 KB | 18.0 ms | **0.036 ms** |
+| 500 KB | ~52 ms | **0.187 ms** |
+| 1 MB | 137 ms | **0.413 ms** |
+| 5 MB | ~3 460 ms | **2.32 ms** |
 
-500 KB now fits inside a 60 fps frame at the core level, against ~120 KB before.
+Even 5 MB now stays far below one frame at the core level.
 
 **What was removed.** An earlier version also limited decoration to a window around the
 viewport above 256 KB. Measurement killed it. Because it could not compose with the
@@ -739,13 +739,25 @@ Three decisions are worth stating:
 - `contenteditable="plaintext-only"` is well supported in Chrome and Safari but only
   landed in Firefox recently; a fallback that intercepts `beforeinput` would be needed
   for older Firefox.
-- The web host re-renders whole lines, so the same minified-paste case degrades to
-  O(line) per keystroke there.
 - Soft-wrap interaction with `Gutter` depth on deeply nested quotes is unspecified.
   Gutters are currently drawn as the themed marker character rather than true margin
   content.
 
 ### Closed
+
+- ~~The web host expanded every large document into styled line/run DOM.~~ Distant
+  64-line chunks now retain the exact source as one compact text node and hydrate before
+  selection or editing. A 1 MB document fell from 137,734 elements to about 1,057.
+- ~~A minified/no-newline paste amplified every core edit into thousands of browser
+  runs.~~ Lines above 32 KiB retain one exact editable source node while the core keeps
+  the complete decoration model; splitting the input into bounded paragraphs restores
+  ordinary presentation immediately.
+- ~~Media layout started every decode/fetch simultaneously.~~ Resource caches now cap
+  concurrency, promote viewport references, collapse duplicates, and cancel discarded
+  work. The shipping disk resolver uses cancellable bounded operations too.
+- ~~Multi-document switching always rebuilt presentation from scratch.~~ Sessions retain
+  a separately bounded, resource-task-free projection cache. The single engine remains
+  authoritative, so switching never pretends undo histories can be transferred.
 
 - ~~Host-drawn widget views rebuild on every re-layout.~~ They are now cached by
   decoration key in `DecorationApplier` and `DomApplier`. This is safe *because* keys are

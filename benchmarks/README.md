@@ -8,7 +8,8 @@ for the costs most likely to regress:
 - localized core selection/reveal and one-span plugin-layer latency at 1 MB and 5 MB;
 - the adversarial 64 KB Unicode no-newline/single-paragraph edit;
 - real-browser cold load, positional and sustained edit p95, giant Unicode paragraph,
-  typewriter, scroll, DOM size, JS heap, and React warm-core mount costs;
+  typewriter, scroll, virtualized DOM size, JS heap, warm-session switching, React
+  warm-core mount, and controlled acknowledgement costs;
 - a 320-resource journal with 240 images, 32 videos, and 48 audio attachments in Chromium;
 - UIKit 1 MB load/first-paint/edit p95, giant paragraph, 100×10 table, and the same
   320-resource journal in the iPhone simulator;
@@ -19,6 +20,8 @@ for the costs most likely to regress:
 - AppKit positional and sustained edit p95;
 - AppKit projection, edit, and scroll costs for the same media-heavy journal; and
 - indexed lookup among 10,000 resource references; and
+- repeated open/edit/scroll/close lifecycle latency, frame-gap, retained-node, and
+  process/heap-growth gates; and
 - one shared edit matrix across Rust, JS, React, UIKit, and AppKit: 10 KB, 100 KB,
   500 KB, and 1 MB documents; start/middle/end positions; character insert/delete,
   32-character replacement, emoji/CJK/combining-text commits, structural newline,
@@ -32,7 +35,8 @@ Run the same command as scheduled CI:
 ./scripts/test-performance.sh
 ```
 
-Run the opt-in 5 MB Rust, browser, AppKit, and iOS Swift/core bridge profile with:
+Run the opt-in 5 MB Rust, browser, AppKit, iOS Swift/core bridge, and repeated lifecycle
+profiles with:
 
 ```sh
 ./scripts/test-performance-extended.sh
@@ -58,8 +62,9 @@ and sustained p95 values are also enforced by their renderer suites.
 `target/bench-corpus`; browser tests receive those files from the Vitest server, AppKit
 reads them directly, and the iOS build embeds the same bytes. React measures controlled
 `value` updates separately from the framework-free JS editor. The 5 MB corpus remains an
-extended core/load workload because materializing its entire renderer tree measures
-memory and cold-open policy more than ordinary editing.
+extended load workload. Browser chunks are source-preserving and virtualized; Apple
+retains complete storage with viewport painting. Both therefore measure the shipping
+cold-open policy instead of an artificial full presentation tree.
 
 AppKit workloads run in separate test processes. Full-document TextKit measurements
 create substantial transient allocator pressure; process isolation prevents one corpus
