@@ -75,6 +75,7 @@ budgets = {
     "mediaReadyMs": float(os.environ["MDE_IOS_MEDIA_JOURNAL_READY_BUDGET_MS"]),
     "mediaEditMs": float(os.environ["MDE_IOS_MEDIA_JOURNAL_EDIT_BUDGET_MS"]),
     "mediaScrollMs": float(os.environ["MDE_IOS_MEDIA_JOURNAL_SCROLL_BUDGET_MS"]),
+    "backgroundTransitionMs": float(os.environ["MDE_IOS_BACKGROUND_TRANSITION_BUDGET_MS"]),
 }
 over = [f"{name} {metrics.get(name, float('inf')):.2f}>{budget:.2f}ms"
         for name, budget in budgets.items() if metrics.get(name, float('inf')) > budget]
@@ -94,5 +95,6 @@ print("UIKit shared edit matrix: "
 print("UIKit media journal: "
       f"ready {metrics['mediaReadyMs']:.2f} ms, edit {metrics['mediaEditMs']:.2f} ms, "
       f"scroll {metrics['mediaScrollMs']:.2f} ms, "
+      f"background {metrics['backgroundTransitionMs']:.2f} ms, "
       f"views {int(metrics['mediaViewCount'])}")
 PY

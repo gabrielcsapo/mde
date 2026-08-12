@@ -98,6 +98,7 @@ public final class MarkdownTextView: NSTextView {
     private var hasReportedSelection = false
     private var widgetOverlays: [UInt64: WidgetContainer] = [:]
     private var widgetLayoutScheduled = false
+    private var presentationSuspended = false
     var pluginInstallations: [MarkdownPluginInstallation] = []
 
     deinit {
@@ -197,6 +198,23 @@ public final class MarkdownTextView: NSTextView {
     // MARK: - Document
 
     public var markdown: String { string }
+
+    /// Stops speculative paint/layout and cancels pending resources while the host app
+    /// is backgrounded. Source and the engine remain live and resume without reopening.
+    public func suspendPresentation() {
+        guard !presentationSuspended else { return }
+        presentationSuspended = true
+        applier.resources.suspend()
+        widgetOverlays.values.forEach { $0.removeFromSuperview() }
+        widgetOverlays.removeAll()
+    }
+
+    public func resumePresentation() {
+        guard presentationSuspended else { return }
+        presentationSuspended = false
+        applier.resources.resume()
+        refreshPainting()
+    }
 
     /// Every decoration currently in effect, reveal already applied. Useful for hosts
     /// that want to act on the document's structure — collect all task checkboxes,
@@ -532,7 +550,7 @@ public final class MarkdownTextView: NSTextView {
     }
 
     private func scheduleViewportPaint() {
-        guard usesViewportPainting, !viewportPaintScheduled else { return }
+        guard !presentationSuspended, usesViewportPainting, !viewportPaintScheduled else { return }
         viewportPaintScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -593,7 +611,7 @@ public final class MarkdownTextView: NSTextView {
     }
 
     private func scheduleWidgetLayout() {
-        guard !widgetLayoutScheduled else { return }
+        guard !presentationSuspended, !widgetLayoutScheduled else { return }
         widgetLayoutScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }

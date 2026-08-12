@@ -1362,6 +1362,44 @@ function makeEditor(options = {}) {
     assertEqual(cache.states.size, 0);
   });
 
+  test('background suspension cancels speculative media and resumes on demand', async () => {
+    const signals = [];
+    const cache = new ResourceCache(
+      {
+        resolve: ({ signal }) => {
+          signals.push(signal);
+          return new Promise(() => {});
+        },
+        reservedSize: () => ({ width: 160, height: 90 }),
+      },
+      () => {},
+      { maxConcurrent: 2 },
+    );
+    const request = {
+      reference: 'background.jpg', roleName: 'image', source: '![x](background.jpg)',
+    };
+    cache.view(request);
+    cache.suspend();
+    assert(signals[0].aborted, 'backgrounding kept a decode alive');
+    cache.view(request);
+    assertEqual(signals.length, 1, 'a suspended cache started new work');
+
+    cache.resume();
+    cache.view(request);
+    assertEqual(signals.length, 2, 'resuming did not restart visible media');
+  });
+
+  test('editor background transitions preserve exact source', async () => {
+    const e = makeEditor();
+    e.setMarkdown('# Day 1\n\nA **journal** entry.\n');
+    e.suspend();
+    assert(e.root.hasAttribute('data-mde-suspended'));
+    e.resume();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    assertEqual(e.markdown, '# Day 1\n\nA **journal** entry.\n');
+    assert(!e.root.hasAttribute('data-mde-suspended'));
+  });
+
   test('resource scheduling is bounded and drains in priority order', async () => {
     const started = [];
     const pending = new Map();

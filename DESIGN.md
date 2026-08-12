@@ -365,6 +365,11 @@ requested pixel width. Reopening a media-heavy journal therefore reads compact p
 instead of reopening every AVFoundation decoder. Waveform analysis samples a fixed
 maximum amount of audio, so preview generation remains bounded for multi-hour recordings.
 
+Hosts should call `suspend()` on web or `suspendPresentation()` on Apple when an app
+moves to the background, then the matching resume method on return. Suspension cancels
+queued resource work and speculative projection while retaining the exact source and
+engine state; resume does not reopen or reparse the document.
+
 `ResourceResolver` and `WidgetProvider` are held **strongly**. They are services the
 editor owns, not delegates, and hosts naturally write
 `editor.resourceResolver = DiskResourceResolver(root: …)` — a weak reference silently

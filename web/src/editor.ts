@@ -122,6 +122,7 @@ export class MarkdownEditor extends EventTarget {
   private virtualizationFrame: number | null;
   private virtualizesDocument: boolean;
   private progressiveToken: number;
+  private presentationSuspended: boolean;
 
   /**
    * @param {HTMLElement} host
@@ -202,6 +203,7 @@ export class MarkdownEditor extends EventTarget {
     this.virtualizationFrame = null;
     this.virtualizesDocument = false;
     this.progressiveToken = 0;
+    this.presentationSuspended = false;
     this.root.addEventListener('scroll', () => {
       this.scheduleResourcePriorities();
       this.scheduleVirtualization();
@@ -249,6 +251,27 @@ export class MarkdownEditor extends EventTarget {
     for (const name of this.defaultAttributes) this.root.removeAttribute(name);
     if (!this.rootHadEditorClass) this.root.classList.remove('mde-editor');
     this.root.replaceChildren();
+  }
+
+  /** Pause speculative rendering and resource work while a host app is backgrounded. */
+  suspend(): void {
+    if (this.destroyed || this.presentationSuspended) return;
+    this.presentationSuspended = true;
+    if (this.resourcePriorityFrame !== null) cancelAnimationFrame(this.resourcePriorityFrame);
+    if (this.virtualizationFrame !== null) cancelAnimationFrame(this.virtualizationFrame);
+    this.resourcePriorityFrame = null;
+    this.virtualizationFrame = null;
+    this.applier.resources?.suspend();
+    this.root.dataset.mdeSuspended = '';
+  }
+
+  /** Resume the current source without reparsing it or rebuilding the engine. */
+  resume(): void {
+    if (this.destroyed || !this.presentationSuspended) return;
+    this.presentationSuspended = false;
+    this.applier.resources?.resume();
+    delete this.root.dataset.mdeSuspended;
+    this.renderAll(true);
   }
 
   // MARK: - Document
@@ -990,7 +1013,7 @@ export class MarkdownEditor extends EventTarget {
 
   /** Promote media in and just around the visible containment chunks. */
   scheduleResourcePriorities(): void {
-    if (this.resourcePriorityFrame !== null) return;
+    if (this.presentationSuspended || this.resourcePriorityFrame !== null) return;
     this.resourcePriorityFrame = requestAnimationFrame(() => {
       this.resourcePriorityFrame = null;
       const resources = this.applier.resources;
@@ -1046,7 +1069,7 @@ export class MarkdownEditor extends EventTarget {
   }
 
   scheduleVirtualization(): void {
-    if (!this.virtualizesDocument || this.virtualizationFrame !== null) return;
+    if (this.presentationSuspended || !this.virtualizesDocument || this.virtualizationFrame !== null) return;
     this.virtualizationFrame = requestAnimationFrame(() => {
       this.virtualizationFrame = null;
       const rootRect = this.root.getBoundingClientRect();

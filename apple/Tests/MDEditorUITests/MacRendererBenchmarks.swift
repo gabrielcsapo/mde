@@ -742,15 +742,14 @@ final class MacRendererBenchmarks: XCTestCase {
         guard ProcessInfo.processInfo.environment["MDE_BENCH_LIFECYCLE"] == "1" else {
             throw XCTSkip("set MDE_BENCH_LIFECYCLE=1 to run lifecycle benchmarks")
         }
-        let source = String(
-            repeating: "# Journal\n\n**Rendered** entry with [link](https://example.dev) and 日本語 🎉.\n\n",
-            count: 1_400
-        )
+        let source = oneYearJournalSource()
         let memoryBefore = residentMemoryBytes()
         var maximum = 0.0
+        var maximumBackgroundTransition = 0.0
         for cycle in 0 ..< 30 {
             autoreleasepool {
                 let (window, editor) = makeEditor()
+                editor.resourceResolver = MediaJournalResolver()
                 maximum = max(maximum, timed {
                     editor.setMarkdown(source)
                     let storage = editor.textStorage!
@@ -759,24 +758,65 @@ final class MacRendererBenchmarks: XCTestCase {
                     editor.scrollRangeToVisible(NSRange(location: storage.length - 1, length: 0))
                     drainMainQueue()
                 })
+                let transition = timed {
+                    for _ in 0 ..< 3 {
+                        editor.suspendPresentation()
+                        editor.resumePresentation()
+                        drainMainQueue()
+                    }
+                } / 3
+                maximumBackgroundTransition = max(maximumBackgroundTransition, transition)
+                XCTAssertEqual(editor.markdown.utf16.count, source.utf16.count + 1)
                 window.contentView = nil
                 if cycle.isMultiple(of: 10) { drainMainQueue() }
             }
         }
         let memoryGrowth = max(0, residentMemoryBytes() - memoryBefore)
         print(String(
-            format: "30-cycle native lifecycle max %8.2f ms memory growth %lld bytes",
-            maximum, memoryGrowth
+            format: "30-cycle journal lifecycle max %8.2f ms background %8.2f ms memory growth %lld bytes",
+            maximum, maximumBackgroundTransition, memoryGrowth
         ))
         enforceBudget(
             maximum,
             environment: "MDE_APPLE_LIFECYCLE_OPERATION_BUDGET_MS",
             metric: "native lifecycle operation"
         )
+        enforceBudget(
+            maximumBackgroundTransition,
+            environment: "MDE_APPLE_BACKGROUND_TRANSITION_BUDGET_MS",
+            metric: "native journal background transition"
+        )
         if let raw = ProcessInfo.processInfo.environment["MDE_APPLE_LIFECYCLE_MEMORY_GROWTH_BUDGET_BYTES"],
            let budget = UInt64(raw) {
             XCTAssertLessThanOrEqual(memoryGrowth, budget)
         }
+    }
+
+    private func oneYearJournalSource() -> String {
+        var entries = [String]()
+        for day in 1 ... 365 {
+            let media: String
+            if day.isMultiple(of: 7) {
+                media = "\n![Week \((day + 6) / 7)](journal/photo-\(day).jpg)\n"
+            } else if day.isMultiple(of: 11) {
+                media = "\n![Voice note \(day)](journal/audio-\(day).m4a)\n"
+            } else if day.isMultiple(of: 17) {
+                media = "\n![Moment \(day)](journal/video-\(day).mp4)\n"
+            } else {
+                media = ""
+            }
+            let month = String(format: "%02d", (day - 1) / 28 + 1)
+            let date = String(format: "%02d", (day - 1) % 28 + 1)
+            entries.append("""
+            ## 2026-\(month)-\(date)
+
+            Today included **focused work**, a [saved reference](https://example.dev/day/\(day)), and searchable observations. \(String(repeating: "Ordinary journal prose keeps this representative. ", count: 8))
+            \(media)
+            - [\(day.isMultiple(of: 3) ? "x" : " ")] daily reflection
+            - energy: \(day % 5)
+            """)
+        }
+        return "# One year journal\n\n" + entries.joined(separator: "\n\n") + "\n"
     }
 
     func testBenchmarkWarmSessionSwitching() throws {

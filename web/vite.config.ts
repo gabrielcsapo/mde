@@ -45,6 +45,9 @@ export default defineConfig({
     __MDE_LIFECYCLE_BUDGETS__: JSON.stringify({
       maxOperation: Number(process.env.MDE_WEB_LIFECYCLE_OPERATION_BUDGET_MS ?? 150),
       maxFrameGap: Number(process.env.MDE_WEB_LIFECYCLE_FRAME_GAP_BUDGET_MS ?? 250),
+      maxBackgroundTransition: Number(
+        process.env.MDE_WEB_BACKGROUND_TRANSITION_BUDGET_MS ?? 100,
+      ),
       heapGrowth: Number(process.env.MDE_WEB_LIFECYCLE_HEAP_GROWTH_BUDGET_BYTES ?? 80000000),
     }),
     __MDE_EXTENDED_BUDGETS__: JSON.stringify({

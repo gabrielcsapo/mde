@@ -111,6 +111,7 @@ final class ResourceCache {
     private var viewportReferences: Set<String> = []
     /// Invalidates deliveries belonging to a document that has since been reset.
     private var generation: UInt64 = 0
+    private var suspended = false
 
     /// Sizes learned from resources that have already resolved, keyed by reference.
     ///
@@ -137,12 +138,34 @@ final class ResourceCache {
         // `known` deliberately survives: it describes assets, not this document.
     }
 
+    func suspend() {
+        guard !suspended else { return }
+        suspended = true
+        if !inFlight.isEmpty {
+            (resolver as? any CancellableResourceResolver)?.cancel(inFlight)
+        }
+        generation &+= 1
+        states = states.filter { _, state in
+            if case .loading = state { return false }
+            return true
+        }
+        inFlight.removeAll()
+        pending.removeAll()
+    }
+
+    func resume() { suspended = false }
+
     func state(for request: ResourceRequest) -> ResourceState {
         if let cached = states[request.reference] {
             if case .ready = cached { touchReady(request.reference) }
             return cached
         }
         guard let resolver else { return .failed("no resolver") }
+        guard !suspended else {
+            reserved[request.reference] = known[request.reference]
+                ?? resolver.reservedSize(request)
+            return .loading
+        }
 
         // Widget substitution can run before the text container has been laid out, when
         // its width is still zero. Resolving then bakes that width into the result — an
@@ -176,7 +199,7 @@ final class ResourceCache {
     }
 
     private func pump() {
-        guard resolver != nil else { return }
+        guard resolver != nil, !suspended else { return }
         pending.sort { lhs, rhs in
             lhs.priority == rhs.priority ? lhs.order < rhs.order : lhs.priority < rhs.priority
         }

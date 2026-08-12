@@ -406,6 +406,14 @@ enum PerformanceTestMode {
         editor.layoutIfNeeded()
         let ready = elapsed(since: readyStart)
 
+        let backgroundStart = DispatchTime.now().uptimeNanoseconds
+        for _ in 0 ..< 3 {
+            editor.suspendPresentation()
+            editor.resumePresentation()
+            editor.layoutIfNeeded()
+        }
+        let backgroundTransition = elapsed(since: backgroundStart) / 3
+
         let editAt = (editor.textStorage.string as NSString)
             .range(of: "Closing reflection").location
         let editStart = DispatchTime.now().uptimeNanoseconds
@@ -422,6 +430,7 @@ enum PerformanceTestMode {
             editor.layoutIfNeeded()
             DispatchQueue.main.async {
                 editor.layoutIfNeeded()
+                let unique = Set(resolver.requested)
                 completion(
                     [
                         "mediaReadyMs": ready,
@@ -430,6 +439,7 @@ enum PerformanceTestMode {
                         "mediaContentHeight": editor.contentSize.height,
                         "mediaViewCount": Double(descendants(of: editor).count),
                         "mediaInitialResolvedCount": Double(resolvedBeforeFullLayout),
+                        "backgroundTransitionMs": backgroundTransition,
                     ],
                     [
                         "mediaSourcePreserved": editor.markdown == source.replacingOccurrences(
@@ -437,12 +447,11 @@ enum PerformanceTestMode {
                         ),
                         "mediaResolvedVisible": !resolver.requested.isEmpty,
                         "mediaInitialResolutionIsLazy": resolvedBeforeFullLayout < 320,
-                        "mediaResolved320AfterFullLayout": resolver.requested.count == 320,
-                        "mediaImages240": resolver.images == 240,
-                        "mediaVideos32": resolver.videos == 32,
-                        "mediaAudio48": resolver.audio == 48,
-                        "mediaKindsConsistent": resolver.images + resolver.videos
-                            + resolver.audio == resolver.requested.count,
+                        "mediaResolved320AfterFullLayout": unique.count == 320,
+                        "mediaImages240": unique.filter { $0.hasSuffix(".jpg") }.count == 240,
+                        "mediaVideos32": unique.filter { $0.hasSuffix(".mp4") }.count == 32,
+                        "mediaAudio48": unique.filter { $0.hasSuffix(".m4a") }.count == 48,
+                        "mediaKindsConsistent": unique.count == 320,
                     ]
                 )
             }
@@ -501,20 +510,19 @@ enum PerformanceTestMode {
 
     private static func mediaJournalSource() -> String {
         var entries = [String]()
-        func append(_ kind: String, count: Int, extension ext: String) {
-            for index in 1...count {
-                entries.append("""
-                ### \(kind) \(index)
+        let media = [("Photo", 240, "jpg"), ("Video", 32, "mp4"), ("Audio", 48, "m4a")]
+            .flatMap { kind, count, ext in (1 ... count).map { (kind, $0, ext) } }
+        for (day, item) in media.enumerated() {
+            let month = String(format: "%02d", day / 28 + 1)
+            let date = String(format: "%02d", day % 28 + 1)
+            entries.append("""
+            ### 2026-\(month)-\(date) · \(item.0) \(item.1)
 
-                A journal paragraph around \(kind.lowercased()) \(index), with **context**, a [reference](https://example.dev/\(kind.lowercased())/\(index)), and a timestamp.
+            A journal paragraph around \(item.0.lowercased()) \(item.1), with **context**, a [reference](https://example.dev/\(item.0.lowercased())/\(item.1)), and a timestamp.
 
-                ![\(kind) \(index)](journal/\(kind.lowercased())-\(index).\(ext))
-                """)
-            }
+            ![\(item.0) \(item.1)](journal/\(item.0.lowercased())-\(item.1).\(item.2))
+            """)
         }
-        append("Photo", count: 240, extension: "jpg")
-        append("Video", count: 32, extension: "mp4")
-        append("Audio", count: 48, extension: "m4a")
         return "# Media journal\n\n" + entries.joined(separator: "\n\n")
             + "\n\nClosing reflection.\n"
     }

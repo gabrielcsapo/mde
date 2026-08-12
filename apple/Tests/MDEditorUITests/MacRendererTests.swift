@@ -943,6 +943,34 @@ final class MacRendererTests: XCTestCase {
         XCTAssertTrue(resolver.cancelled.isSubset(of: resolver.requested))
     }
 
+    func testBackgroundSuspensionCancelsResourcesAndRestartsOnDemand() {
+        let cache = ResourceCache()
+        let resolver = CancellableDeferredResolver()
+        cache.resolver = resolver
+        let request = ResourceRequest(
+            reference: "background.jpg", roleName: "image",
+            source: "![x](background.jpg)", fittingWidth: 320
+        )
+        _ = cache.state(for: request)
+        cache.suspend()
+        XCTAssertEqual(resolver.cancelled, ["background.jpg"])
+        _ = cache.state(for: request)
+        XCTAssertEqual(resolver.requested, ["background.jpg"])
+
+        cache.resume()
+        _ = cache.state(for: request)
+        XCTAssertEqual(resolver.requested, ["background.jpg", "background.jpg"])
+    }
+
+    func testEditorBackgroundTransitionPreservesExactSource() {
+        let source = "# Day 1\n\nA **journal** entry.\n"
+        editor.setMarkdown(source)
+        editor.suspendPresentation()
+        editor.resumePresentation()
+        drainMainQueue()
+        XCTAssertEqual(editor.markdown, source)
+    }
+
     func testResourceSchedulerIsBoundedAndDrainsPromotedWorkFirst() {
         let cache = ResourceCache()
         cache.maxConcurrent = 2

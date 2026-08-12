@@ -57,6 +57,7 @@ export class ResourceCache {
   pending: Array<{ request: ResourceRequest; generation: number; order: number }>;
   nextOrder: number;
   peakConcurrent: number;
+  suspended: boolean;
 
   /**
    * @param {ResourceResolver|null} resolver
@@ -91,6 +92,7 @@ export class ResourceCache {
     this.pending = [];
     this.nextOrder = 0;
     this.peakConcurrent = 0;
+    this.suspended = false;
   }
 
   reset() {
@@ -102,6 +104,24 @@ export class ResourceCache {
     this.active.clear();
     this.pending.length = 0;
     // `known` deliberately survives: it describes assets, not this document.
+  }
+
+  /** Stop queued host work while the containing app is backgrounded. */
+  suspend() {
+    if (this.suspended) return;
+    this.suspended = true;
+    this.controller.abort();
+    this.controller = new AbortController();
+    this.generation++;
+    for (const [reference, state] of this.states) {
+      if (state.state === 'loading') this.states.delete(reference);
+    }
+    this.active.clear();
+    this.pending.length = 0;
+  }
+
+  resume() {
+    this.suspended = false;
   }
 
   /**
@@ -135,6 +155,15 @@ export class ResourceCache {
       signal: this.controller.signal,
       priority: Number.isFinite(req.priority) ? req.priority : 100,
     };
+    if (this.suspended) {
+      if (!this.reserved.has(req.reference)) {
+        this.reserved.set(
+          req.reference,
+          this.known.get(req.reference) ?? this.resolver.reservedSize(request),
+        );
+      }
+      return placeholder(basename(req.reference), false, this.reserved.get(req.reference));
+    }
     const known = this.states.get(req.reference);
     if (!known) {
       // A size we have seen before beats anything the resolver can guess.
@@ -162,7 +191,7 @@ export class ResourceCache {
   }
 
   pump() {
-    if (!this.resolver) return;
+    if (!this.resolver || this.suspended) return;
     this.pending.sort((a, b) =>
       (a.request.priority ?? 100) - (b.request.priority ?? 100) || a.order - b.order
     );

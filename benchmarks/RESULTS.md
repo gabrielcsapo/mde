@@ -140,9 +140,16 @@ decoded media at 64 MiB, and now persists video posters and bounded audio wavefo
 Resolver tests reopen a fresh cache instance and prove the preview is read from disk
 without invoking the decoder a second time.
 
-The new 30-cycle lifecycle gate measured 61 ms maximum browser open/edit/scroll work,
-67 ms maximum browser frame gap, zero retained editor nodes and no reported heap growth.
-The release AppKit loop measured 202 ms maximum work and about 107 MiB resident-memory
-growth, below its 256 MiB ceiling. These are energy proxies rather than direct battery
+The 30-cycle lifecycle gate now uses a realistic dated one-year journal with prose,
+tasks, links, photos, video, and audio distributed through the entries. It measured
+47 ms maximum browser open/edit/scroll work, 76 ms maximum browser frame gap, 1.1 ms
+background transition work, zero retained editor nodes, and no reported heap growth.
+The release AppKit loop measured 89 ms maximum work, 42 ms background transition work,
+and about 103 MiB resident-memory growth, below its 256 MiB ceiling. These are energy
+proxies rather than direct battery
 measurements: bounded main-thread stalls, decode concurrency, retained views, and
 allocation growth are the controllable costs the library can enforce in CI.
+
+Web, UIKit, and AppKit expose explicit presentation suspension. Backgrounding cancels
+queued decodes/fetches and prevents new speculative paint or layout; foregrounding
+reuses the live engine and exact Markdown source, then restarts only demanded media.
