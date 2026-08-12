@@ -123,6 +123,11 @@ speed recent document switching without retaining resource tasks or claiming tha
 engine's undo history can be transferred to another document. Both browser and AppKit
 warm switching now have latency, active-projection size, and memory-growth gates.
 
+The reference disk resolver downscales images to their display pixel size, caps retained
+decoded media at 64 MiB, and now persists video posters and bounded audio waveforms.
+Resolver tests reopen a fresh cache instance and prove the preview is read from disk
+without invoking the decoder a second time.
+
 The new 30-cycle lifecycle gate measured 61 ms maximum browser open/edit/scroll work,
 67 ms maximum browser frame gap, zero retained editor nodes and no reported heap growth.
 The release AppKit loop measured 202 ms maximum work and about 107 MiB resident-memory

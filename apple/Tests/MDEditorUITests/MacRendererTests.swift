@@ -1044,6 +1044,76 @@ final class MacRendererTests: XCTestCase {
         XCTAssertLessThanOrEqual(image.intrinsicContentSize.width, 100)
     }
 
+    func testDiskVideoPosterIsPersistedAndReusedWithoutReopeningTheDecoder() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = root.appendingPathComponent("previews", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("video".utf8).write(to: root.appendingPathComponent("clip.mp4"))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let firstGenerator = StubMediaPreviewGenerator()
+        let first = DiskResourceResolver(
+            root: root, previewCacheDirectory: cache, previewGenerator: firstGenerator
+        )
+        let request = ResourceRequest(
+            reference: "clip.mp4", roleName: "image", source: "![clip](clip.mp4)",
+            fittingWidth: 160
+        )
+        let firstView = try resolve(request, with: first)
+        XCTAssertTrue(firstView is ImageResourceView)
+        XCTAssertEqual(firstGenerator.videoCalls, 1)
+
+        let reopenedGenerator = StubMediaPreviewGenerator()
+        let reopened = DiskResourceResolver(
+            root: root, previewCacheDirectory: cache, previewGenerator: reopenedGenerator
+        )
+        let reopenedView = try resolve(request, with: reopened)
+        XCTAssertTrue(reopenedView is ImageResourceView)
+        XCTAssertEqual(reopenedGenerator.videoCalls, 0)
+    }
+
+    func testDiskAudioWaveformUsesTheGeneratedPreviewCache() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = root.appendingPathComponent("previews", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: root.appendingPathComponent("recording.m4a"))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let generator = StubMediaPreviewGenerator()
+        let resolver = DiskResourceResolver(
+            root: root, previewCacheDirectory: cache, previewGenerator: generator
+        )
+        let request = ResourceRequest(
+            reference: "recording.m4a", roleName: "image",
+            source: "![recording](recording.m4a)", fittingWidth: 160
+        )
+        XCTAssertTrue(try resolve(request, with: resolver) is ImageResourceView)
+        XCTAssertEqual(generator.audioCalls, 1)
+
+        XCTAssertTrue(try resolve(request, with: resolver) is ImageResourceView)
+        XCTAssertEqual(generator.audioCalls, 1)
+    }
+
+    private func resolve(
+        _ request: ResourceRequest,
+        with resolver: DiskResourceResolver
+    ) throws -> PlatformView {
+        let delivered = expectation(description: "resource delivered")
+        var view: PlatformView?
+        let immediate = resolver.resolve(request) { state in
+            if case .ready(let resolved) = state { view = resolved }
+            delivered.fulfill()
+        }
+        if case .ready(let resolved) = immediate {
+            view = resolved
+            delivered.fulfill()
+        }
+        wait(for: [delivered], timeout: 2)
+        return try XCTUnwrap(view)
+    }
+
     func testCompactSuffixShiftUpdatesLiveDecorationRanges() throws {
         let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
         let applier = DecorationApplier(engine: engine, theme: Theme())
@@ -1788,5 +1858,31 @@ private final class FixedSizeView: NSView {
     required init?(coder: NSCoder) { fatalError("not supported") }
 
     override var intrinsicContentSize: CGSize { target }
+}
+
+private final class StubMediaPreviewGenerator: MediaPreviewGenerating {
+    private(set) var videoCalls = 0
+    private(set) var audioCalls = 0
+
+    func videoPoster(url _: URL, maximumPixels: Int) -> CGImage? {
+        videoCalls += 1
+        return image(width: max(1, maximumPixels), height: max(1, maximumPixels * 9 / 16))
+    }
+
+    func audioWaveform(url _: URL, maximumPixels: Int) -> CGImage? {
+        audioCalls += 1
+        return image(width: max(1, maximumPixels), height: 96)
+    }
+
+    private func image(width: Int, height: Int) -> CGImage? {
+        let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )
+        context?.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        context?.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return context?.makeImage()
+    }
 }
 #endif

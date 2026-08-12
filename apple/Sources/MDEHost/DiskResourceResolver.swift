@@ -17,11 +17,30 @@ import UIKit
 public final class DiskResourceResolver: CancellableResourceResolver {
     private let root: URL
     private let queue: OperationQueue
+    private let previewCache: MediaPreviewCache
+    private let previewGenerator: any MediaPreviewGenerating
     private let lock = NSLock()
     private var operations: [String: Operation] = [:]
 
     public init(root: URL, maxConcurrentLoads: Int = 4) {
         self.root = root
+        previewCache = MediaPreviewCache()
+        previewGenerator = MediaPreviewGenerator()
+        queue = OperationQueue()
+        queue.name = "dev.mde.resources"
+        queue.qualityOfService = .userInitiated
+        queue.maxConcurrentOperationCount = max(1, maxConcurrentLoads)
+    }
+
+    init(
+        root: URL,
+        maxConcurrentLoads: Int = 4,
+        previewCacheDirectory: URL,
+        previewGenerator: any MediaPreviewGenerating
+    ) {
+        self.root = root
+        previewCache = MediaPreviewCache(directory: previewCacheDirectory)
+        self.previewGenerator = previewGenerator
         queue = OperationQueue()
         queue.name = "dev.mde.resources"
         queue.qualityOfService = .userInitiated
@@ -43,7 +62,7 @@ public final class DiskResourceResolver: CancellableResourceResolver {
         let operation = BlockOperation()
         operation.addExecutionBlock { [weak operation, weak self] in
             guard let self, operation?.isCancelled == false else { return }
-            let state = Self.load(
+            let state = self.load(
                 url: url,
                 reference: request.reference,
                 width: width,
@@ -74,16 +93,25 @@ public final class DiskResourceResolver: CancellableResourceResolver {
         // A real host would read dimensions from a sidecar or the filename. Reserving
         // *something* plausible is what stops the document jumping on load.
         let width = min(request.fittingWidth, 320)
-        return Self.isImage(request.reference)
-            ? CGSize(width: width, height: width * 0.6)
-            : CGSize(width: width, height: 56)
+        if Self.isImage(request.reference) || Self.isVideo(request.reference) {
+            return CGSize(width: width, height: width * 9 / 16)
+        }
+        return CGSize(width: width, height: 56)
     }
 
     private static func isImage(_ reference: String) -> Bool {
         ["png", "jpg", "jpeg", "gif", "heic"].contains((reference as NSString).pathExtension.lowercased())
     }
 
-    private static func load(
+    private static func isVideo(_ reference: String) -> Bool {
+        ["mp4", "mov", "m4v"].contains((reference as NSString).pathExtension.lowercased())
+    }
+
+    private static func isAudio(_ reference: String) -> Bool {
+        ["m4a", "mp3", "wav", "aac", "caf"].contains((reference as NSString).pathExtension.lowercased())
+    }
+
+    private func load(
         url: URL,
         reference: String,
         width: CGFloat,
@@ -93,7 +121,7 @@ public final class DiskResourceResolver: CancellableResourceResolver {
             return .failed("missing \((reference as NSString).lastPathComponent)")
         }
 
-        if isImage(reference),
+        if Self.isImage(reference),
            let source = CGImageSourceCreateWithURL(
                url as CFURL,
                [kCGImageSourceShouldCache: false] as CFDictionary
@@ -121,11 +149,47 @@ public final class DiskResourceResolver: CancellableResourceResolver {
             }
         }
 
+        let maximumPixels = max(1, Int(ceil(width * displayScale)))
+        if Self.isVideo(reference),
+           let preview = previewCache.preview(
+               for: url, kind: .videoPoster, maximumPixels: maximumPixels,
+               generate: { previewGenerator.videoPoster(url: url, maximumPixels: maximumPixels) }
+           ) {
+            return .ready(ImageResourceView(
+                image: Self.platformImage(preview, displayScale: displayScale),
+                maxWidth: width
+            ))
+        }
+        if Self.isAudio(reference),
+           let preview = previewCache.preview(
+               for: url, kind: .audioWaveform, maximumPixels: maximumPixels,
+               generate: { previewGenerator.audioWaveform(url: url, maximumPixels: maximumPixels) }
+           ) {
+            return .ready(ImageResourceView(
+                image: Self.platformImage(preview, displayScale: displayScale),
+                maxWidth: width
+            ))
+        }
+
         // Not an image: show what we know about it rather than pretending to render.
         let name = (reference as NSString).lastPathComponent
         let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
         return .ready(CardView(text: "📄 \(name) · \(size)", tone: .info))
+    }
+
+    private static func platformImage(_ image: CGImage, displayScale: CGFloat) -> PlatformImage {
+        #if os(macOS)
+        return NSImage(
+            cgImage: image,
+            size: NSSize(
+                width: CGFloat(image.width) / displayScale,
+                height: CGFloat(image.height) / displayScale
+            )
+        )
+        #else
+        return UIImage(cgImage: image, scale: displayScale, orientation: .up)
+        #endif
     }
 }
 

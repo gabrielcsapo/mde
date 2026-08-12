@@ -359,6 +359,12 @@ Results are cached by *reference*, not by decoration key: the key changes whenev
 node's source is edited, but `![a](x.png)` and `![b](x.png)` are the same asset and
 should load once.
 
+The reference Apple host also persists generated video poster frames and bounded audio
+waveforms as PNGs keyed by the file path, size, modification date, preview kind, and
+requested pixel width. Reopening a media-heavy journal therefore reads compact previews
+instead of reopening every AVFoundation decoder. Waveform analysis samples a fixed
+maximum amount of audio, so preview generation remains bounded for multi-hour recordings.
+
 `ResourceResolver` and `WidgetProvider` are held **strongly**. They are services the
 editor owns, not delegates, and hosts naturally write
 `editor.resourceResolver = DiskResourceResolver(root: …)` — a weak reference silently
