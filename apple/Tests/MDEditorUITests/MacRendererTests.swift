@@ -835,6 +835,26 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(resolved, ["same.png"])
     }
 
+    func testResetCancelsHundredsOfOutstandingResourceLoads() {
+        let cache = ResourceCache()
+        let resolver = CancellableDeferredResolver()
+        cache.resolver = resolver
+        for index in 0 ..< 320 {
+            _ = cache.state(for: ResourceRequest(
+                reference: "asset-\(index).jpg",
+                roleName: "image",
+                source: "![\(index)](asset-\(index).jpg)",
+                fittingWidth: 320
+            ))
+        }
+
+        cache.reset()
+
+        XCTAssertEqual(resolver.requested.count, 320)
+        XCTAssertEqual(resolver.cancelled.count, 320)
+        XCTAssertTrue(resolver.cancelled.contains("asset-319.jpg"))
+    }
+
     func testResourceReferenceIndexFollowsAnEditedDestination() throws {
         let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
         let applier = DecorationApplier(engine: engine, theme: Theme())
@@ -1496,6 +1516,27 @@ private final class DeferredResolver: ResourceResolver {
 
     func reservedSize(_ request: ResourceRequest) -> CGSize {
         CGSize(width: 40, height: 20)
+    }
+}
+
+private final class CancellableDeferredResolver: CancellableResourceResolver {
+    private(set) var requested = Set<String>()
+    private(set) var cancelled = Set<String>()
+
+    func resolve(
+        _ request: ResourceRequest,
+        deliver _: @escaping (ResourceState) -> Void
+    ) -> ResourceState {
+        requested.insert(request.reference)
+        return .loading
+    }
+
+    func reservedSize(_: ResourceRequest) -> CGSize {
+        CGSize(width: 160, height: 90)
+    }
+
+    func cancel(_ references: Set<String>) {
+        cancelled.formUnion(references)
     }
 }
 

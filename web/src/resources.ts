@@ -10,6 +10,8 @@ export interface ResourceRequest {
   reference: string;
   roleName: string | null;
   source: string;
+  /** Aborted when the editor replaces the document or is destroyed. */
+  signal: AbortSignal;
 }
 export type ResourceState =
   | { state: 'loading' }
@@ -27,7 +29,8 @@ export interface ResourceResolver {
  * document.
  *
  * @typedef {object} ResourceResolver
- * @property {(request: ResourceRequest) => Promise<ResourceState>} resolve
+ * @property {(request: ResourceRequest) => Promise<ResourceState>} resolve. The
+ * request signal aborts when the document is replaced or the editor is destroyed.
  * @property {(request: ResourceRequest) => {width: number, height: number}} reservedSize
  */
 
@@ -46,6 +49,7 @@ export class ResourceCache {
   reserved: Map<string, { width: number; height: number }>;
   known: Map<string, { width: number; height: number }>;
   generation: number;
+  controller: AbortController;
 
   /**
    * @param {ResourceResolver|null} resolver
@@ -70,9 +74,12 @@ export class ResourceCache {
     this.known = new Map();
     /** Invalidates completions belonging to a document that has since been reset. */
     this.generation = 0;
+    this.controller = new AbortController();
   }
 
   reset() {
+    this.controller.abort();
+    this.controller = new AbortController();
     this.generation++;
     this.states.clear();
     this.reserved.clear();
@@ -107,6 +114,7 @@ export class ResourceCache {
       reference: req.reference,
       roleName: req.roleName,
       source: req.source,
+      signal: this.controller.signal,
     };
     const known = this.states.get(req.reference);
     if (!known) {

@@ -9,9 +9,9 @@ for the costs most likely to regress:
 - the adversarial 64 KB Unicode no-newline/single-paragraph edit;
 - real-browser cold load, positional and sustained edit p95, giant Unicode paragraph,
   typewriter, scroll, DOM size, JS heap, and React warm-core mount costs;
-- a 72-resource journal with 48 images, 8 videos, and 16 audio attachments in Chromium;
+- a 320-resource journal with 240 images, 32 videos, and 48 audio attachments in Chromium;
 - UIKit 1 MB load/first-paint/edit p95, giant paragraph, 100×10 table, and the same
-  72-resource journal in the iPhone simulator;
+  320-resource journal in the iPhone simulator;
 - end-to-end AppKit keystroke latency at 100 KB and 1 MB;
 - end-to-end AppKit one-span plugin-layer latency at 1 MB;
 - 1 MB AppKit cold load, viewport paint, and combined load-through-first-paint latency;

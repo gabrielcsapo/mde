@@ -1216,7 +1216,9 @@ function makeEditor(options = {}) {
       },
       (reference) => resolved.push(reference)
     );
-    const request = { reference: 'same.png', roleName: 'image', source: '![x](same.png)' };
+    const request = {
+      reference: 'same.png', roleName: 'image', source: '![x](same.png)',
+    };
 
     cache.view(request);
     cache.reset();
@@ -1238,6 +1240,65 @@ function makeEditor(options = {}) {
 
     assertEqual(cache.view(request)?.dataset.version, 'current');
     assertEqual(resolved, ['same.png']);
+  });
+
+  test('replacing a media-heavy document aborts every outstanding load', async () => {
+    const signals = [];
+    const cache = new ResourceCache(
+      {
+        resolve: ({ signal }) => {
+          signals.push(signal);
+          return new Promise(() => {});
+        },
+        reservedSize: () => ({ width: 160, height: 90 }),
+      },
+      () => {},
+    );
+    for (let index = 0; index < 320; index++) {
+      cache.view({
+        reference: `asset-${index}.jpg`,
+        roleName: 'image',
+        source: `![${index}](asset-${index}.jpg)`,
+      });
+    }
+    cache.reset();
+
+    assertEqual(signals.length, 320);
+    assert(signals.every((signal) => signal.aborted), 'a replaced document kept media work alive');
+    assertEqual(cache.states.size, 0);
+  });
+
+  test('hundreds of resources reuse duplicates and isolate failures', async () => {
+    let requested = 0;
+    const cache = new ResourceCache(
+      {
+        async resolve({ reference }) {
+          requested++;
+          if (reference.endsWith('-13.jpg')) throw new Error('decode failed');
+          const view = document.createElement('img');
+          view.width = 160;
+          view.height = 90;
+          return { state: 'ready', view };
+        },
+        reservedSize: () => ({ width: 160, height: 90 }),
+      },
+      () => {},
+    );
+    for (let index = 0; index < 640; index++) {
+      const unique = index % 320;
+      cache.view({
+        reference: `asset-${unique}.jpg`,
+        roleName: 'image',
+        source: `![${index}](asset-${unique}.jpg)`,
+      });
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assertEqual(requested, 320, 'duplicate references started duplicate loads');
+    assertEqual(cache.states.size, 320);
+    assertEqual(cache.states.get('asset-13.jpg')?.state, 'failed');
+    assertEqual(cache.states.get('asset-319.jpg')?.state, 'ready');
   });
 
   test('resource reference lookup stays indexed and follows edits', () => {

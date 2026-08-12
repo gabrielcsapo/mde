@@ -63,11 +63,12 @@ about 12.3 seconds to 80 ms p95. A 100×10 native table fell from 6–8 seconds 
 110 ms after wide tables gained readable minimum column widths, horizontal scrolling,
 lightweight linked labels, and a fast plain-cell sizing path.
 
-The media journal resolves 48 images, 8 videos, and 16 audio views on both Apple hosts.
-Representative release runs measured roughly 60–125 ms to fully project it, 10–22 ms
-for a subsequent local edit on UIKit, and 1–3 ms for the same edit on AppKit. Chromium
-renders the same 72 resources in roughly 25–30 ms and keeps the resulting edit near
-12 ms. React's warm-core 100 KB mount is now separately gated at about 40–47 ms, and
+The media journal now resolves 240 images, 32 videos, and 48 audio views (320 total) on
+both Apple hosts. Representative release runs measured roughly 278 ms on UIKit and
+502 ms on AppKit to fully project every resource, while subsequent local edits stayed
+near 20 ms and 3 ms respectively. Chromium projects the same 320 resources in roughly
+48 ms and keeps the resulting edit near 10 ms. React's warm-core 100 KB mount is now
+separately gated at about 40–47 ms, and
 the browser suite enforces positional p95, sustained p95, and heap usage as well as its
 existing median, DOM, and scroll budgets.
 

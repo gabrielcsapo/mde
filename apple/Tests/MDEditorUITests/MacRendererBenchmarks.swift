@@ -819,28 +819,28 @@ final class MacMediaRendererBenchmarks: XCTestCase {
         }
 
         print(String(
-            format: "72-resource media journal ready %8.2f edit %8.2f scroll %8.2f ms views %d",
+            format: "320-resource media journal ready %8.2f edit %8.2f scroll %8.2f ms views %d",
             ready, edit, scroll, resolver.requested.count
         ))
         enforceBudget(
             ready,
             environment: "MDE_APPLE_MEDIA_JOURNAL_READY_BUDGET_MS",
-            metric: "72-resource native media journal render"
+            metric: "320-resource native media journal render"
         )
         enforceBudget(
             edit,
             environment: "MDE_APPLE_MEDIA_JOURNAL_EDIT_BUDGET_MS",
-            metric: "native edit after 72 media resources"
+            metric: "native edit after 320 media resources"
         )
         enforceBudget(
             scroll,
             environment: "MDE_APPLE_MEDIA_JOURNAL_SCROLL_BUDGET_MS",
             metric: "native media journal scroll"
         )
-        XCTAssertEqual(resolver.requested.count, 72)
-        XCTAssertEqual(resolver.images, 48)
-        XCTAssertEqual(resolver.videos, 8)
-        XCTAssertEqual(resolver.audio, 16)
+        XCTAssertEqual(resolver.requested.count, 320)
+        XCTAssertEqual(resolver.images, 240)
+        XCTAssertEqual(resolver.videos, 32)
+        XCTAssertEqual(resolver.audio, 48)
         XCTAssertEqual(editor.markdown, source.replacingOccurrences(
             of: "Closing reflection", with: "xClosing reflection"
         ))
@@ -860,9 +860,9 @@ final class MacMediaRendererBenchmarks: XCTestCase {
                 """)
             }
         }
-        append("Photo", count: 48, extension: "jpg")
-        append("Video", count: 8, extension: "mp4")
-        append("Audio", count: 16, extension: "m4a")
+        append("Photo", count: 240, extension: "jpg")
+        append("Video", count: 32, extension: "mp4")
+        append("Audio", count: 48, extension: "m4a")
         return "# Media journal\n\n" + entries.joined(separator: "\n\n")
             + "\n\nClosing reflection.\n"
     }

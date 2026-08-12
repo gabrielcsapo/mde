@@ -1,5 +1,5 @@
 #!/bin/bash
-# Measures the 72-resource journaling workload inside the real UIKit renderer.
+# Measures the 320-resource journaling workload inside the real UIKit renderer.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"

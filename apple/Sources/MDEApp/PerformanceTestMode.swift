@@ -402,11 +402,11 @@ enum PerformanceTestMode {
                             of: "Closing reflection", with: "xClosing reflection"
                         ),
                         "mediaResolvedVisible": !resolver.requested.isEmpty,
-                        "mediaInitialResolutionIsLazy": resolvedBeforeFullLayout < 72,
-                        "mediaResolved72AfterFullLayout": resolver.requested.count == 72,
-                        "mediaImages48": resolver.images == 48,
-                        "mediaVideos8": resolver.videos == 8,
-                        "mediaAudio16": resolver.audio == 16,
+                        "mediaInitialResolutionIsLazy": resolvedBeforeFullLayout < 320,
+                        "mediaResolved320AfterFullLayout": resolver.requested.count == 320,
+                        "mediaImages240": resolver.images == 240,
+                        "mediaVideos32": resolver.videos == 32,
+                        "mediaAudio48": resolver.audio == 48,
                         "mediaKindsConsistent": resolver.images + resolver.videos
                             + resolver.audio == resolver.requested.count,
                     ]
@@ -468,9 +468,9 @@ enum PerformanceTestMode {
                 """)
             }
         }
-        append("Photo", count: 48, extension: "jpg")
-        append("Video", count: 8, extension: "mp4")
-        append("Audio", count: 16, extension: "m4a")
+        append("Photo", count: 240, extension: "jpg")
+        append("Video", count: 32, extension: "mp4")
+        append("Audio", count: 48, extension: "m4a")
         return "# Media journal\n\n" + entries.joined(separator: "\n\n")
             + "\n\nClosing reflection.\n"
     }

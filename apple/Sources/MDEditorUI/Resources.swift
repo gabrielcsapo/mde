@@ -47,6 +47,13 @@ public protocol ResourceResolver: AnyObject {
     func reservedSize(_ request: ResourceRequest) -> CGSize
 }
 
+/// Optional cancellation hook for resolvers that own network, decode, or media work.
+/// `ResourceCache` calls it when the editor replaces its document, while still using
+/// generation checks to make a late completion harmless for resolvers that cannot stop.
+public protocol CancellableResourceResolver: ResourceResolver {
+    func cancel(_ references: Set<String>)
+}
+
 /// Caches resolution by reference, so the same asset used twice loads once and a
 /// re-layout never refetches.
 ///
@@ -85,6 +92,9 @@ final class ResourceCache {
     private(set) var known: [String: CGSize] = [:]
 
     func reset() {
+        if !inFlight.isEmpty {
+            (resolver as? any CancellableResourceResolver)?.cancel(inFlight)
+        }
         generation &+= 1
         states.removeAll()
         reserved.removeAll()

@@ -76,9 +76,9 @@ function journalMediaDocument() {
       );
     }
   };
-  append('Photo', 48, 'jpg');
-  append('Video', 8, 'mp4');
-  append('Audio', 16, 'm4a');
+  append('Photo', 240, 'jpg');
+  append('Video', 32, 'mp4');
+  append('Audio', 48, 'm4a');
   return `# Media journal\n\n${entries.join('\n')}\nClosing reflection.\n`;
 }
 
@@ -450,10 +450,10 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   }
   expect(editor1MB.chunkEls.length).toBeGreaterThan(100);
   expect(editor1MB.markdown).toContain('xxxxx');
-  expect(mediaReady, '72-resource journal through resolved media').toBeLessThanOrEqual(
+  expect(mediaReady, '320-resource journal through resolved media').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.mediaJournalReady,
   );
-  expect(mediaEdit, 'local edit after 72 resolved media resources').toBeLessThanOrEqual(
+  expect(mediaEdit, 'local edit after 320 resolved media resources').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.mediaJournalEdit,
   );
   expect(mediaScroll, 'two-frame scroll through a media journal').toBeLessThanOrEqual(
@@ -462,7 +462,7 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(mediaNodes, 'media-journal DOM element count').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.maxMediaJournalNodes,
   );
-  expect(mediaResolver.requested).toHaveLength(72);
-  expect(mediaCounts).toEqual({ images: 48, videos: 8, audio: 16 });
+  expect(mediaResolver.requested).toHaveLength(320);
+  expect(mediaCounts).toEqual({ images: 240, videos: 32, audio: 48 });
   expect(mediaEditor.markdown).toBe(mediaSource.replace('Closing reflection', 'xClosing reflection'));
 }, 120_000);
