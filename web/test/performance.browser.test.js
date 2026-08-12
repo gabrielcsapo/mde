@@ -418,7 +418,7 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   mediaEditor.setMarkdown(mediaSource);
   await nextPaint();
   const mediaReady = performance.now() - mediaStarted;
-  const mediaCounts = {
+  const mediaInitialCounts = {
     images: mediaEditor.root.querySelectorAll('[data-media-kind="image"]').length,
     videos: mediaEditor.root.querySelectorAll('[data-media-kind="video"]').length,
     audio: mediaEditor.root.querySelectorAll('[data-media-kind="audio"]').length,
@@ -430,6 +430,11 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   mediaEditor.root.scrollTop = mediaEditor.root.scrollHeight;
   await nextPaint();
   const mediaScroll = performance.now() - mediaScrollStarted;
+  const mediaBottomCounts = {
+    images: mediaEditor.root.querySelectorAll('[data-media-kind="image"]').length,
+    videos: mediaEditor.root.querySelectorAll('[data-media-kind="video"]').length,
+    audio: mediaEditor.root.querySelectorAll('[data-media-kind="audio"]').length,
+  };
 
   const report = {
     load100KB, load1MB, edit100KB, edit1MB, layer1MB, typewriter100KB, scroll1MB, domNodes1MB,
@@ -447,7 +452,11 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
       scroll: mediaScroll,
       nodes: mediaNodes,
       requested: mediaResolver.requested.length,
-      ...mediaCounts,
+      retainedViews: mediaEditor.applier.resources.readyViewCount,
+      chunks: mediaEditor.chunkEls.length,
+      virtualChunks: mediaEditor.root.querySelectorAll('.mde-chunk-virtual').length,
+      initialCounts: mediaInitialCounts,
+      bottomCounts: mediaBottomCounts,
     },
   };
   console.log(`MDE_WEB_PERFORMANCE ${JSON.stringify(report)}`);
@@ -531,7 +540,11 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(mediaNodes, 'media-journal DOM element count').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.maxMediaJournalNodes,
   );
-  expect(mediaResolver.requested).toHaveLength(320);
-  expect(mediaCounts).toEqual({ images: 240, videos: 32, audio: 48 });
+  expect(mediaResolver.requested.length).toBeGreaterThan(0);
+  expect(mediaResolver.requested.length).toBeLessThan(64);
+  expect(mediaEditor.applier.resources.readyViewCount).toBeLessThanOrEqual(32);
+  expect(mediaInitialCounts.images).toBeGreaterThan(0);
+  expect(mediaBottomCounts.audio).toBeGreaterThan(0);
+  expect(mediaEditor.root.querySelectorAll('.mde-chunk-virtual').length).toBeGreaterThan(20);
   expect(mediaEditor.markdown).toBe(mediaSource.replace('Closing reflection', 'xClosing reflection'));
 }, 120_000);

@@ -1454,6 +1454,35 @@ function makeEditor(options = {}) {
     assertEqual(cache.active.size, 0);
   });
 
+  test('resolved web media views are retained within a viewport-sized LRU', async () => {
+    const cache = new ResourceCache(
+      {
+        async resolve({ reference }) {
+          const view = document.createElement('img');
+          view.dataset.reference = reference;
+          view.width = 320;
+          view.height = 180;
+          return { state: 'ready', view };
+        },
+        reservedSize: () => ({ width: 320, height: 180 }),
+      },
+      () => {},
+    );
+    cache.maxReadyViews = 12;
+    for (let index = 0; index < 100; index++) {
+      cache.view({
+        reference: `photo-${index}.jpg`, roleName: 'image',
+        source: `![${index}](photo-${index}.jpg)`,
+      });
+    }
+    while (cache.active.size > 0 || cache.pending.length > 0) {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    assertEqual(cache.readyViewCount, 12);
+    assertEqual(cache.known.size, 100, 'evicting views discarded remembered geometry');
+  });
+
   test('hundreds of resources reuse duplicates and isolate failures', async () => {
     let requested = 0;
     const cache = new ResourceCache(
@@ -1484,7 +1513,8 @@ function makeEditor(options = {}) {
     }
 
     assertEqual(requested, 320, 'duplicate references started duplicate loads');
-    assertEqual(cache.states.size, 320);
+    assertEqual(cache.readyViewCount, 32);
+    assertEqual(cache.known.size, 319);
     assertEqual(cache.states.get('asset-13.jpg')?.state, 'failed');
     assertEqual(cache.states.get('asset-319.jpg')?.state, 'ready');
   });

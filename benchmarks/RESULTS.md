@@ -157,3 +157,9 @@ reuses the live engine and exact Markdown source, then restarts only demanded me
 Web viewport scheduling now finds its overscanned chunk range with two binary searches
 instead of reading every chunk's geometry on every scroll. A 512-chunk correctness test
 caps viewport layout reads at 40, and the 1 MB release scroll workload measured 18 ms.
+
+Media-heavy web documents now enter chunk virtualization at 512 lines and retain at
+most 32 resolved elements while preserving learned geometry. The 320-resource journal
+opens only the visible/overscanned resources, reducing its retained DOM from 5,797 to
+219 elements; jumping to the bottom resolves the demanded audio references without
+eagerly creating the hundreds of intervening image and video elements.

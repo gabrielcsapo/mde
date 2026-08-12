@@ -381,7 +381,7 @@ export class MarkdownEditor extends EventTarget {
       let line = chunkIndex * 64;
       for (const child of chunk.children) this.lineEls[line++] = child as HTMLElement;
     }
-    this.virtualizesDocument = this.lines.length > 2048;
+    this.virtualizesDocument = this.lines.length > 512;
     this.activeChunk = null;
     this.scheduleResourcePriorities();
     this.scheduleVirtualization();
@@ -980,7 +980,10 @@ export class MarkdownEditor extends EventTarget {
     this.chunkEls = [];
     this.activeChunk = null;
     if (!reuseLineModel) this.lineStarts = lineStarts(this.lines);
-    this.virtualizesDocument = this.lines.length > 2048;
+    // A media journal reaches expensive DOM density with far fewer lines than a prose
+    // corpus. 512 lines still leaves several screens fully native while bounding
+    // offscreen resource elements and styled runs much earlier.
+    this.virtualizesDocument = this.lines.length > 512;
     const frag = document.createDocumentFragment();
     let chunk: HTMLElement | null = null;
     for (let i = 0; i < this.lines.length; i++) {

@@ -58,6 +58,9 @@ export class ResourceCache {
   nextOrder: number;
   peakConcurrent: number;
   suspended: boolean;
+  maxReadyViews: number;
+  readyOrder: string[];
+  viewportReferences: Set<string>;
 
   /**
    * @param {ResourceResolver|null} resolver
@@ -93,6 +96,9 @@ export class ResourceCache {
     this.nextOrder = 0;
     this.peakConcurrent = 0;
     this.suspended = false;
+    this.maxReadyViews = 32;
+    this.readyOrder = [];
+    this.viewportReferences = new Set();
   }
 
   reset() {
@@ -103,6 +109,8 @@ export class ResourceCache {
     this.reserved.clear();
     this.active.clear();
     this.pending.length = 0;
+    this.readyOrder.length = 0;
+    this.viewportReferences.clear();
     // `known` deliberately survives: it describes assets, not this document.
   }
 
@@ -176,7 +184,10 @@ export class ResourceCache {
       this.pump();
       return placeholder(basename(req.reference), false, this.reserved.get(req.reference));
     }
-    if (known.state === 'ready') return known.view;
+    if (known.state === 'ready') {
+      this.touchReady(req.reference);
+      return known.view;
+    }
     if (known.state === 'failed') return placeholder(known.message, true, null);
     return placeholder(basename(req.reference), false, this.reserved.get(req.reference));
   }
@@ -184,10 +195,33 @@ export class ResourceCache {
   /** Promote queued references as they approach the viewport without restarting work. */
   prioritize(references: Iterable<string>, priority = 0) {
     const wanted = new Set(references);
+    this.viewportReferences = wanted;
     for (const item of this.pending) {
       if (wanted.has(item.request.reference)) item.request.priority = priority;
     }
+    this.evictReadyViews();
     this.pump();
+  }
+
+  get readyViewCount() {
+    return this.readyOrder.length;
+  }
+
+  touchReady(reference: string) {
+    const at = this.readyOrder.indexOf(reference);
+    if (at >= 0) this.readyOrder.splice(at, 1);
+    this.readyOrder.push(reference);
+  }
+
+  evictReadyViews() {
+    while (this.readyOrder.length > Math.max(1, this.maxReadyViews)) {
+      let victim = this.readyOrder.findIndex(
+        (reference) => !this.viewportReferences.has(reference),
+      );
+      if (victim < 0) victim = 0;
+      const reference = this.readyOrder.splice(victim, 1)[0];
+      if (this.states.get(reference)?.state === 'ready') this.states.delete(reference);
+    }
   }
 
   pump() {
@@ -237,6 +271,8 @@ export class ResourceCache {
           this.reserved.set(request.reference, size);
           this.known.set(request.reference, size);
         }
+        this.touchReady(request.reference);
+        this.evictReadyViews();
       }
       this.onResolved(request.reference);
     }
