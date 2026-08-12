@@ -69,6 +69,9 @@ export default defineConfig({
       reactControlledMatrixP95: Number(
         process.env.MDE_REACT_CONTROLLED_MATRIX_P95_BUDGET_MS ?? 150,
       ),
+      reactAcknowledgementP95: Number(
+        process.env.MDE_REACT_ACKNOWLEDGEMENT_P95_BUDGET_MS ?? 16,
+      ),
       editMatrixHeapGrowth: Number(
         process.env.MDE_WEB_EDIT_MATRIX_HEAP_GROWTH_BUDGET_BYTES ?? 120000000,
       ),

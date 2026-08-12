@@ -138,6 +138,8 @@ function MarkdownEditorImpl(props, forwardedRef) {
 
   /** Suppresses the `change` the initial `setMarkdown` dispatches. */
   const quiet = useRef(false);
+  /** Exact local value awaiting acknowledgement from a controlled parent. */
+  const pendingControlledValue = useRef(/** @type {string|null} */ (null));
   const history = useRef(NO_HISTORY);
   /** Layer signatures and interned role ids, reset whenever the engine is replaced. */
   const layerState = useRef({ /** @type {Record<string,string>} */ sigs: {}, roles: new Map() });
@@ -189,6 +191,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
 
     const onChange = () => {
       if (quiet.current || !editor) return;
+      if (latest.current.value !== undefined) pendingControlledValue.current = editor.markdown;
       latest.current.onChange?.(editor.markdown, api);
       emitHistory();
     };
@@ -332,7 +335,15 @@ function MarkdownEditorImpl(props, forwardedRef) {
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || value === undefined) return;
-    if (value === editor.markdown) return;
+    if (value === editor.markdown) {
+      if (pendingControlledValue.current === value) pendingControlledValue.current = null;
+      return;
+    }
+    // Concurrent parents can briefly render their previous value after a local edit.
+    // Keep the accepted local source until its exact acknowledgement arrives instead
+    // of applying an unnecessary rollback and replay through the engine.
+    if (pendingControlledValue.current === editor.markdown) return;
+    pendingControlledValue.current = null;
 
     const edit = diffText(editor.markdown, value);
     editor.closeUndoGroup();

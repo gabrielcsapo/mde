@@ -90,3 +90,31 @@ test('React composes plugin syntax before constructing the engine', async () => 
     (decoration) => engine.roleName(decoration.role) === 'react-mention',
   )).toBe(true);
 });
+
+test('controlled acknowledgement does not roll back an accepted local edit', async () => {
+  const ref = createRef();
+  const seen = [];
+  const { root } = mount(createElement(MarkdownEditor, {
+    ref,
+    value: 'hello',
+    onChange: (markdown) => seen.push(markdown),
+  }));
+  await until(() => ref.current?.isReady(), 'React editor never became ready');
+  ref.current.replaceRange(5, 5, '!');
+  expect(ref.current.getMarkdown()).toBe('hello!');
+
+  // A concurrent parent can commit its previous value once before the state update
+  // carrying the acknowledgement lands. The editor must not visibly rewind.
+  root.render(createElement(MarkdownEditor, {
+    ref,
+    value: 'hello',
+    onChange: (markdown) => seen.push(markdown),
+  }));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(ref.current.getMarkdown()).toBe('hello!');
+
+  root.render(createElement(MarkdownEditor, { ref, value: 'hello!' }));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(ref.current.getMarkdown()).toBe('hello!');
+  expect(seen).toContain('hello!');
+});

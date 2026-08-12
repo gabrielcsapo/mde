@@ -276,12 +276,43 @@ async function runReactControlledMatrix(spec, corpora) {
   return { p50: median(samples), p95: percentile(samples, 0.95) };
 }
 
+async function runReactAcknowledgementBenchmark(source) {
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  let handle;
+  let value = source;
+  let ready;
+  const isReady = new Promise((resolve) => { ready = resolve; });
+  const render = () => root.render(createElement(ReactMarkdownEditor, {
+    value,
+    wasm: '/dist/mde.wasm',
+    onReady: (api) => { handle = api; ready(); },
+    onChange: (next) => { value = next; },
+  }));
+  render();
+  await isReady;
+  const samples = [];
+  for (let index = 0; index < 30; index++) {
+    const at = handle.getMarkdown().length - 10;
+    handle.replaceRange(at, at, 'x');
+    const started = performance.now();
+    render();
+    await new Promise((resolve) => queueMicrotask(resolve));
+    samples.push(performance.now() - started);
+  }
+  root.unmount();
+  host.remove();
+  return percentile(samples, 0.95);
+}
+
 test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   const { spec: matrixSpec, corpora: matrixCorpora } = await fetch('/__mde_perf_matrix')
     .then((response) => response.json());
   const matrixHeapBefore = (/** @type {any} */ (performance)).memory?.usedJSHeapSize ?? null;
   const editMatrix = runEditorMatrix(matrixSpec, matrixCorpora);
   const reactControlledMatrix = await runReactControlledMatrix(matrixSpec, matrixCorpora);
+  const reactAcknowledgementP95 = await runReactAcknowledgementBenchmark(matrixCorpora['100KB']);
   const matrixHeapAfter = (/** @type {any} */ (performance)).memory?.usedJSHeapSize ?? null;
   const editMatrixHeapGrowth = matrixHeapBefore === null || matrixHeapAfter === null
     ? null
@@ -402,7 +433,8 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
     editEnd1MB: { p50: median(editEnd1MB), p95: percentile(editEnd1MB, 0.95) },
     sustained100KB: { p50: median(endurance), p95: percentile(endurance, 0.95) },
     giantParagraphEdit, warmSwitchP95, warmSessionNodes,
-    usedHeap1MB, reactMount100KB, editMatrix, reactControlledMatrix, editMatrixHeapGrowth,
+    usedHeap1MB, reactMount100KB, editMatrix, reactControlledMatrix,
+    reactAcknowledgementP95, editMatrixHeapGrowth,
     mediaJournal: {
       ready: mediaReady,
       edit: mediaEdit,
@@ -464,6 +496,9 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   );
   expect(reactControlledMatrix.p95, 'React controlled update matrix p95').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.reactControlledMatrixP95,
+  );
+  expect(reactAcknowledgementP95, 'React local acknowledgement p95').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.reactAcknowledgementP95,
   );
   if (editMatrixHeapGrowth !== null) {
     expect(editMatrixHeapGrowth, 'browser edit matrix heap growth').toBeLessThanOrEqual(
