@@ -60,6 +60,10 @@ export default defineConfig({
       layer1MB: Number(process.env.MDE_WEB_1MB_LAYER_BUDGET_MS ?? 25),
       typewriter100KB: Number(process.env.MDE_WEB_100KB_TYPEWRITER_BUDGET_MS ?? 50),
       giantParagraph: Number(process.env.MDE_WEB_GIANT_PARAGRAPH_BUDGET_MS ?? 150),
+      warmSessionSwitchP95: Number(
+        process.env.MDE_WEB_WARM_SESSION_SWITCH_P95_BUDGET_MS ?? 35,
+      ),
+      maxWarmSessionNodes: Number(process.env.MDE_WEB_WARM_SESSION_DOM_NODE_BUDGET ?? 2000),
       scroll1MB: Number(process.env.MDE_WEB_1MB_SCROLL_BUDGET_MS ?? 50),
       maxDomNodes1MB: Number(process.env.MDE_WEB_1MB_DOM_NODE_BUDGET ?? 210000),
       positionEditP95: Number(process.env.MDE_WEB_1MB_POSITION_EDIT_P95_BUDGET_MS ?? 75),

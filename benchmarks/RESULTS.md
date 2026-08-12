@@ -111,11 +111,13 @@ Seven additional host-level phases were measured and gated:
 | AppKit 5 MB edit | 82.0 ms | 29.6 ms |
 | React local controlled acknowledgement p95 | implicit in replay | 0.1 ms |
 | Warm 100 KB document switch p95 | cold-only | 10–12 ms |
+| AppKit warm 100 KB document switch p95 | cold-only | 52 ms |
 
 Resource work is now concurrency-bounded and viewport-prioritized on web and Apple,
 with cancellation at the cache and disk-operation layers. Bounded warm projections
 speed recent document switching without retaining resource tasks or claiming that one
-engine's undo history can be transferred to another document.
+engine's undo history can be transferred to another document. Both browser and AppKit
+warm switching now have latency, active-projection size, and memory-growth gates.
 
 The new 30-cycle lifecycle gate measured 61 ms maximum browser open/edit/scroll work,
 67 ms maximum browser frame gap, zero retained editor nodes and no reported heap growth.

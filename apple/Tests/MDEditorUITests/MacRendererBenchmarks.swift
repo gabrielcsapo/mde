@@ -779,6 +779,46 @@ final class MacRendererBenchmarks: XCTestCase {
         }
     }
 
+    func testBenchmarkWarmSessionSwitching() throws {
+        guard let corpus = try corpora().first(where: { $0.label == "100KB" }) else {
+            throw XCTSkip("100 KB corpus is required for warm-session benchmarking")
+        }
+        let memoryBefore = residentMemoryBytes()
+        let (window, editor) = makeEditor()
+        let session = MarkdownSession(editor: editor, maxDocuments: 6, maxWarmDocuments: 4)
+        let ids = (0 ..< 4).map { "journal-\($0)" }
+        for (index, id) in ids.enumerated() {
+            try session.open(id: id, markdown: corpus.text + "\n<!-- journal \(index) -->")
+            drainMainQueue()
+        }
+
+        var samples: [Double] = []
+        for index in 0 ..< 24 {
+            samples.append(timed {
+                XCTAssertTrue(try! session.switchTo(id: ids[index % ids.count]))
+                drainMainQueue()
+            })
+        }
+        let p95 = percentile(samples, 0.95)
+        let memoryGrowth = max(0, residentMemoryBytes() - memoryBefore)
+        print(String(
+            format: "warm 100KB document switch p95 %8.2f ms memory growth %lld bytes",
+            p95, memoryGrowth
+        ))
+        XCTAssertLessThanOrEqual(session.warmDocumentIDs.count, 4)
+        XCTAssertTrue(editor.markdown.contains("<!-- journal"))
+        enforceBudget(
+            p95,
+            environment: "MDE_APPLE_WARM_SESSION_SWITCH_P95_BUDGET_MS",
+            metric: "warm 100 KB document switch p95"
+        )
+        if let raw = ProcessInfo.processInfo.environment["MDE_APPLE_WARM_SESSION_MEMORY_GROWTH_BUDGET_BYTES"],
+           let budget = UInt64(raw) {
+            XCTAssertLessThanOrEqual(memoryGrowth, budget)
+        }
+        _ = window
+    }
+
 }
 
 /// Runs in its own test process from the performance script. The large-document suite

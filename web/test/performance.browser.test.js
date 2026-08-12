@@ -464,6 +464,12 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(giantParagraphEdit, '64 KB no-newline Unicode paragraph edit').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.giantParagraph,
   );
+  expect(warmSwitchP95, 'warm 100 KB document switch p95').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.warmSessionSwitchP95,
+  );
+  expect(warmSessionNodes, 'warm-session active DOM element count').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.maxWarmSessionNodes,
+  );
   expect(scroll1MB, '1 MB two-frame scroll').toBeLessThanOrEqual(__MDE_PERF_BUDGETS__.scroll1MB);
   expect(domNodes1MB, '1 MB DOM element count').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.maxDomNodes1MB,

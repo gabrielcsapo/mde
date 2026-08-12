@@ -46,6 +46,7 @@ fi
         testBenchmarkGiantUnicodeParagraph \
         testBenchmarkKeystroke \
         testBenchmarkLargeTableProjection \
+        testBenchmarkWarmSessionSwitching \
         testBenchmarkSharedEditMatrix \
         testBenchmarkPluginLayerUpdate \
         testBenchmarkPositionAndTailLatency \
