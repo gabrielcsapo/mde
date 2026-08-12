@@ -332,7 +332,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
   // single minimal replacement through the ordinary edit path — never by re-setting the
   // whole document, which would clear the undo history and drop the caret on every
   // keystroke. See the README for why `defaultValue` is the honest shape.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor || value === undefined) return;
     if (value === editor.markdown) {

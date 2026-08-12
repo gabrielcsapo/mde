@@ -118,3 +118,13 @@ test('controlled acknowledgement does not roll back an accepted local edit', asy
   expect(ref.current.getMarkdown()).toBe('hello!');
   expect(seen).toContain('hello!');
 });
+
+test('an external controlled update is applied before the next paint', async () => {
+  const ref = createRef();
+  const { root } = mount(createElement(MarkdownEditor, { ref, value: 'before' }));
+  await until(() => ref.current?.isReady(), 'React editor never became ready');
+
+  root.render(createElement(MarkdownEditor, { ref, value: 'after **update**' }));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(ref.current.getMarkdown()).toBe('after **update**');
+});

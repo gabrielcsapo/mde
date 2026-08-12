@@ -111,6 +111,7 @@ Seven additional host-level phases were measured and gated:
 | Browser 5 MB progressive ready | synchronous open | 507 ms |
 | AppKit 1 MB edit | 18.7 ms | 8.0 ms |
 | AppKit 5 MB edit | 82.0 ms | 29.6 ms |
+| React external controlled update p95 | 34.8 ms | 16.7 ms |
 | React local controlled acknowledgement p95 | implicit in replay | 0.1 ms |
 | Warm 100 KB document switch p95 | cold-only | 10–12 ms |
 | AppKit warm 100 KB document switch p95 | cold-only | 52 ms |
@@ -122,6 +123,11 @@ remembered geometry after offscreen views are evicted. Bounded warm projections
 speed recent document switching without retaining resource tasks or claiming that one
 engine's undo history can be transferred to another document. Both browser and AppKit
 warm switching now have latency, active-projection size, and memory-growth gates.
+
+React now reconciles genuinely external `value` updates in the layout phase. Its gate
+resolves on the exact applied editor change rather than adding two animation frames of
+polling overhead; the controlled matrix p95 is 16.7 ms, while a locally-originated value
+acknowledgement remains a no-op at 0.1 ms p95.
 
 The reference disk resolver downscales images to their display pixel size, caps retained
 decoded media at 64 MiB, and now persists video posters and bounded audio waveforms.

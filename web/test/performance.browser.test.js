@@ -255,14 +255,20 @@ async function runReactControlledMatrix(spec, corpora) {
             onReady: (api) => { handle = api; ready(); },
           }));
           await isReady;
+          let applied;
+          const wasApplied = new Promise((resolve) => { applied = resolve; });
           const started = performance.now();
           root.render(createElement(ReactMarkdownEditor, {
             value: operation.expected,
             wasm: '/dist/mde.wasm',
+            onChange: (markdown) => {
+              if (markdown === operation.expected) applied();
+            },
           }));
-          for (let frame = 0; frame < 10 && handle.getMarkdown() !== operation.expected; frame++) {
-            await nextPaint();
-          }
+          await Promise.race([
+            wasApplied,
+            new Promise((resolve) => setTimeout(resolve, 1_000)),
+          ]);
           samples.push(performance.now() - started);
           expect(handle.getMarkdown(), `React ${label} ${position.name} ${edit.name} source`).toBe(
             operation.expected,
