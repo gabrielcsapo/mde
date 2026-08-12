@@ -14,6 +14,8 @@ cargo run --release --example bench -p mde-core -- --check --extended \
 "$ROOT/scripts/build-web.sh" >/dev/null
 pnpm --dir "$ROOT/web" run test:performance:extended 2>&1 \
     | tee "$ROOT/target/performance/web-extended.txt"
+pnpm --dir "$ROOT/web" run test:performance:lifecycle 2>&1 \
+    | tee "$ROOT/target/performance/web-lifecycle.txt"
 if [ "$(uname)" = "Darwin" ]; then
     "$ROOT/scripts/test-ios-performance-extended.sh" 2>&1 \
         | tee "$ROOT/target/performance/ios-extended.txt"
@@ -22,5 +24,7 @@ if [ "$(uname)" = "Darwin" ]; then
         cd "$ROOT/apple"
         MDE_BENCH=1 MDE_BENCH_MAX_BYTES=6000000 swift test -c release \
             --filter MacRendererBenchmarks/testBenchmarkKeystroke
+        MDE_BENCH=1 MDE_BENCH_ENFORCE=1 MDE_BENCH_LIFECYCLE=1 swift test -c release \
+            --filter MacRendererBenchmarks/testBenchmarkRepeatedLifecycle
     ) 2>&1 | tee "$ROOT/target/performance/apple-extended.txt"
 fi

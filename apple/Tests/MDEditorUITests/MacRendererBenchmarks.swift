@@ -738,6 +738,47 @@ final class MacRendererBenchmarks: XCTestCase {
         )
     }
 
+    func testBenchmarkRepeatedLifecycle() throws {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH_LIFECYCLE"] == "1" else {
+            throw XCTSkip("set MDE_BENCH_LIFECYCLE=1 to run lifecycle benchmarks")
+        }
+        let source = String(
+            repeating: "# Journal\n\n**Rendered** entry with [link](https://example.dev) and 日本語 🎉.\n\n",
+            count: 1_400
+        )
+        let memoryBefore = residentMemoryBytes()
+        var maximum = 0.0
+        for cycle in 0 ..< 30 {
+            autoreleasepool {
+                let (window, editor) = makeEditor()
+                maximum = max(maximum, timed {
+                    editor.setMarkdown(source)
+                    let storage = editor.textStorage!
+                    let at = storage.length / 2
+                    storage.replaceCharacters(in: NSRange(location: at, length: 0), with: "x")
+                    editor.scrollRangeToVisible(NSRange(location: storage.length - 1, length: 0))
+                    drainMainQueue()
+                })
+                window.contentView = nil
+                if cycle.isMultiple(of: 10) { drainMainQueue() }
+            }
+        }
+        let memoryGrowth = max(0, residentMemoryBytes() - memoryBefore)
+        print(String(
+            format: "30-cycle native lifecycle max %8.2f ms memory growth %lld bytes",
+            maximum, memoryGrowth
+        ))
+        enforceBudget(
+            maximum,
+            environment: "MDE_APPLE_LIFECYCLE_OPERATION_BUDGET_MS",
+            metric: "native lifecycle operation"
+        )
+        if let raw = ProcessInfo.processInfo.environment["MDE_APPLE_LIFECYCLE_MEMORY_GROWTH_BUDGET_BYTES"],
+           let budget = UInt64(raw) {
+            XCTAssertLessThanOrEqual(memoryGrowth, budget)
+        }
+    }
+
 }
 
 /// Runs in its own test process from the performance script. The large-document suite

@@ -40,6 +40,12 @@ export default defineConfig({
   define: {
     __MDE_PERF__: JSON.stringify(process.env.MDE_PERF === '1'),
     __MDE_PERF_EXTENDED__: JSON.stringify(process.env.MDE_PERF_EXTENDED === '1'),
+    __MDE_PERF_LIFECYCLE__: JSON.stringify(process.env.MDE_PERF_LIFECYCLE === '1'),
+    __MDE_LIFECYCLE_BUDGETS__: JSON.stringify({
+      maxOperation: Number(process.env.MDE_WEB_LIFECYCLE_OPERATION_BUDGET_MS ?? 150),
+      maxFrameGap: Number(process.env.MDE_WEB_LIFECYCLE_FRAME_GAP_BUDGET_MS ?? 250),
+      heapGrowth: Number(process.env.MDE_WEB_LIFECYCLE_HEAP_GROWTH_BUDGET_BYTES ?? 80000000),
+    }),
     __MDE_EXTENDED_BUDGETS__: JSON.stringify({
       load5MB: Number(process.env.MDE_WEB_5MB_LOAD_BUDGET_MS ?? 4000),
       edit5MB: Number(process.env.MDE_WEB_5MB_EDIT_BUDGET_MS ?? 250),
@@ -122,6 +128,17 @@ export default defineConfig({
             const directory = `${here}../target/performance`;
             await mkdir(directory, { recursive: true });
             await writeFile(`${directory}/web-extended-metrics.json`, Buffer.concat(chunks));
+            response.writeHead(204).end();
+          });
+        });
+        server.middlewares.use('/__mde_perf_lifecycle_report', (request, response, next) => {
+          if (request.method !== 'POST') { next(); return; }
+          const chunks: Buffer[] = [];
+          request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+          request.on('end', async () => {
+            const directory = `${here}../target/performance`;
+            await mkdir(directory, { recursive: true });
+            await writeFile(`${directory}/web-lifecycle-metrics.json`, Buffer.concat(chunks));
             response.writeHead(204).end();
           });
         });
