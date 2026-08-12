@@ -73,6 +73,11 @@ final class ResourceCache {
     /// references must not turn one layout pass into hundreds of simultaneous tasks.
     var maxConcurrent = 6
     private(set) var peakConcurrent = 0
+    /// Resolved native views are substantially heavier than their remembered geometry.
+    /// Keep only a viewport-sized LRU; an evicted reference can be recreated by the
+    /// resolver while `known` continues to reserve the correct box.
+    var maxReadyViews = 32
+    private(set) var readyViewCount = 0
 
     /// Seed sizes remembered from a previous session.
     func remember(_ sizes: [String: CGSize]) {
@@ -92,6 +97,8 @@ final class ResourceCache {
     }
     private var pending: [Pending] = []
     private var nextOrder: UInt64 = 0
+    private var readyOrder: [String] = []
+    private var viewportReferences: Set<String> = []
     /// Invalidates deliveries belonging to a document that has since been reset.
     private var generation: UInt64 = 0
 
@@ -112,11 +119,17 @@ final class ResourceCache {
         reserved.removeAll()
         inFlight.removeAll()
         pending.removeAll()
+        readyOrder.removeAll()
+        viewportReferences.removeAll()
+        readyViewCount = 0
         // `known` deliberately survives: it describes assets, not this document.
     }
 
     func state(for request: ResourceRequest) -> ResourceState {
-        if let cached = states[request.reference] { return cached }
+        if let cached = states[request.reference] {
+            if case .ready = cached { touchReady(request.reference) }
+            return cached
+        }
         guard let resolver else { return .failed("no resolver") }
 
         // Widget substitution can run before the text container has been laid out, when
@@ -142,9 +155,11 @@ final class ResourceCache {
 
     /// Move queued references ahead of speculative offscreen work.
     func prioritize(_ references: Set<String>, priority: Int = 0) {
+        viewportReferences = references
         for index in pending.indices where references.contains(pending[index].request.reference) {
             pending[index].priority = priority
         }
+        evictReadyViews()
         pump()
     }
 
@@ -214,6 +229,25 @@ final class ResourceCache {
         guard size.width > 0, size.height > 0 else { return }
         reserved[reference] = size
         known[reference] = size
+        touchReady(reference)
+        evictReadyViews()
+    }
+
+    private func touchReady(_ reference: String) {
+        readyOrder.removeAll { $0 == reference }
+        readyOrder.append(reference)
+        readyViewCount = readyOrder.count
+    }
+
+    private func evictReadyViews() {
+        let limit = max(1, maxReadyViews)
+        while readyViewCount > limit, !readyOrder.isEmpty {
+            let victim = readyOrder.firstIndex { !viewportReferences.contains($0) } ?? 0
+            let reference = readyOrder.remove(at: victim)
+            guard case .ready = states[reference] else { continue }
+            states.removeValue(forKey: reference)
+            readyViewCount = readyOrder.count
+        }
     }
 
     func size(for request: ResourceRequest) -> CGSize {

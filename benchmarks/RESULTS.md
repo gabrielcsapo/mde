@@ -116,7 +116,9 @@ Seven additional host-level phases were measured and gated:
 | AppKit warm 100 KB document switch p95 | cold-only | 52 ms |
 
 Resource work is now concurrency-bounded and viewport-prioritized on web and Apple,
-with cancellation at the cache and disk-operation layers. Bounded warm projections
+with cancellation at the cache and disk-operation layers. AppKit additionally retains
+at most 32 resolved native media views, protecting visible references and keeping
+remembered geometry after offscreen views are evicted. Bounded warm projections
 speed recent document switching without retaining resource tasks or claiming that one
 engine's undo history can be transferred to another document. Both browser and AppKit
 warm switching now have latency, active-projection size, and memory-growth gates.

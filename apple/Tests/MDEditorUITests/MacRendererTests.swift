@@ -949,6 +949,31 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(resolver.requested.count, 5)
     }
 
+    func testResolvedNativeMediaViewsAreRetainedWithinAViewportSizedLRU() {
+        let cache = ResourceCache()
+        cache.maxReadyViews = 12
+        let resolver = ResolvingResolver(size: CGSize(width: 320, height: 180))
+        cache.resolver = resolver
+        for index in 0 ..< 100 {
+            _ = cache.state(for: ResourceRequest(
+                reference: "photo-\(index).jpg",
+                roleName: "image",
+                source: "![\(index)](photo-\(index).jpg)",
+                fittingWidth: 320
+            ))
+        }
+
+        XCTAssertEqual(cache.readyViewCount, 12)
+        XCTAssertEqual(cache.known.count, 100, "evicting views discarded stable geometry")
+        XCTAssertEqual(cache.size(for: ResourceRequest(
+            reference: "photo-0.jpg",
+            roleName: "image",
+            source: "![0](photo-0.jpg)",
+            fittingWidth: 320
+        )), CGSize(width: 320, height: 180))
+        XCTAssertEqual(cache.readyViewCount, 12)
+    }
+
     func testResourceReferenceIndexFollowsAnEditedDestination() throws {
         let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
         let applier = DecorationApplier(engine: engine, theme: Theme())

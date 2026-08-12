@@ -900,8 +900,8 @@ final class MacMediaRendererBenchmarks: XCTestCase {
         }
 
         print(String(
-            format: "320-resource media journal ready %8.2f edit %8.2f scroll %8.2f ms views %d",
-            ready, edit, scroll, resolver.requested.count
+            format: "320-resource media journal ready %8.2f edit %8.2f scroll %8.2f ms requests %d retained %d",
+            ready, edit, scroll, resolver.requested.count, editor.retainedResourceViewCount
         ))
         enforceBudget(
             ready,
@@ -918,10 +918,17 @@ final class MacMediaRendererBenchmarks: XCTestCase {
             environment: "MDE_APPLE_MEDIA_JOURNAL_SCROLL_BUDGET_MS",
             metric: "native media journal scroll"
         )
-        XCTAssertEqual(resolver.requested.count, 320)
-        XCTAssertEqual(resolver.images, 240)
-        XCTAssertEqual(resolver.videos, 32)
-        XCTAssertEqual(resolver.audio, 48)
+        let unique = Set(resolver.requested)
+        XCTAssertEqual(unique.count, 320)
+        XCTAssertLessThanOrEqual(resolver.requested.count - unique.count, 32)
+        XCTAssertEqual(unique.filter { $0.hasSuffix(".jpg") }.count, 240)
+        XCTAssertEqual(unique.filter { $0.hasSuffix(".mp4") }.count, 32)
+        XCTAssertEqual(unique.filter { $0.hasSuffix(".m4a") }.count, 48)
+        XCTAssertLessThanOrEqual(editor.retainedResourceViewCount, 32)
+        if let raw = ProcessInfo.processInfo.environment["MDE_APPLE_MEDIA_READY_VIEW_BUDGET"],
+           let budget = Int(raw) {
+            XCTAssertLessThanOrEqual(editor.retainedResourceViewCount, budget)
+        }
         XCTAssertEqual(editor.markdown, source.replacingOccurrences(
             of: "Closing reflection", with: "xClosing reflection"
         ))
