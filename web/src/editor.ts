@@ -123,6 +123,8 @@ export class MarkdownEditor extends EventTarget {
   private virtualizesDocument: boolean;
   private progressiveToken: number;
   private presentationSuspended: boolean;
+  /** Diagnostic: chunk geometry reads used by viewport scheduling. */
+  viewportLayoutProbeCount: number;
 
   /**
    * @param {HTMLElement} host
@@ -204,6 +206,7 @@ export class MarkdownEditor extends EventTarget {
     this.virtualizesDocument = false;
     this.progressiveToken = 0;
     this.presentationSuspended = false;
+    this.viewportLayoutProbeCount = 0;
     this.root.addEventListener('scroll', () => {
       this.scheduleResourcePriorities();
       this.scheduleVirtualization();
@@ -1018,24 +1021,9 @@ export class MarkdownEditor extends EventTarget {
       this.resourcePriorityFrame = null;
       const resources = this.applier.resources;
       if (!resources || this.lineEls.length === 0) return;
-      const rootRect = this.root.getBoundingClientRect();
-      const viewportTop = Math.max(rootRect.top, 0);
-      const viewportBottom = Math.min(rootRect.bottom, globalThis.innerHeight);
-      const viewportHeight = Math.max(1, viewportBottom - viewportTop);
-      let first = 0;
-      let last = Math.min(this.lineEls.length - 1, 127);
-      for (let index = 0; index < this.chunkEls.length; index++) {
-        const rect = this.chunkEls[index].getBoundingClientRect();
-        if (rect.bottom >= viewportTop - viewportHeight) {
-          first = Math.max(0, index * 64 - 64);
-          break;
-        }
-      }
-      for (let index = Math.floor(first / 64); index < this.chunkEls.length; index++) {
-        const rect = this.chunkEls[index].getBoundingClientRect();
-        last = Math.min(this.lineEls.length - 1, index * 64 + 127);
-        if (rect.top > viewportBottom + viewportHeight) break;
-      }
+      const [firstChunk, lastChunk] = this.viewportChunkWindow();
+      const first = Math.max(0, firstChunk * 64);
+      const last = Math.min(this.lineEls.length - 1, (lastChunk + 1) * 64 - 1);
       const from = this.lineStarts[first] ?? 0;
       const to = this.lineEnd(last, this.lines, this.lineStarts);
       resources.prioritize(this.applier.referencesInRange(from, to));
@@ -1072,17 +1060,11 @@ export class MarkdownEditor extends EventTarget {
     if (this.presentationSuspended || !this.virtualizesDocument || this.virtualizationFrame !== null) return;
     this.virtualizationFrame = requestAnimationFrame(() => {
       this.virtualizationFrame = null;
-      const rootRect = this.root.getBoundingClientRect();
-      const viewportTop = Math.max(rootRect.top, 0);
-      const viewportBottom = Math.min(rootRect.bottom, globalThis.innerHeight);
-      const viewportHeight = Math.max(1, viewportBottom - viewportTop);
+      const [firstChunk, lastChunk] = this.viewportChunkWindow();
       const visible = new Set<number>();
-      for (let index = 0; index < this.chunkEls.length; index++) {
-        const rect = this.chunkEls[index].getBoundingClientRect();
-        if (rect.bottom >= viewportTop - viewportHeight && rect.top <= viewportBottom + viewportHeight) {
-          visible.add(index);
-          this.hydrateChunk(index);
-        }
+      for (let index = firstChunk; index <= lastChunk; index++) {
+        visible.add(index);
+        this.hydrateChunk(index);
       }
       const active = this.activeChunk ? this.chunkEls.indexOf(this.activeChunk) : -1;
       if (active >= 0) visible.add(active);
@@ -1091,6 +1073,42 @@ export class MarkdownEditor extends EventTarget {
       }
       this.scheduleResourcePriorities();
     });
+  }
+
+  /**
+   * Locate the viewport plus one-screen overscan with monotonic binary searches.
+   * A multi-megabyte document can contain thousands of chunks; reading every chunk's
+   * geometry on each scroll made scroll work linear in document length.
+   */
+  viewportChunkWindow(): [number, number] {
+    const count = this.chunkEls.length;
+    if (count === 0) return [0, -1];
+    const rootRect = this.root.getBoundingClientRect();
+    const viewportTop = Math.max(rootRect.top, 0);
+    const viewportBottom = Math.min(rootRect.bottom, globalThis.innerHeight);
+    const viewportHeight = Math.max(1, viewportBottom - viewportTop);
+    const from = viewportTop - viewportHeight;
+    const to = viewportBottom + viewportHeight;
+    let low = 0;
+    let high = count;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      const rect = this.chunkEls[middle].getBoundingClientRect();
+      this.viewportLayoutProbeCount++;
+      if (rect.bottom < from) low = middle + 1;
+      else high = middle;
+    }
+    const first = Math.min(low, count - 1);
+    low = first;
+    high = count;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      const rect = this.chunkEls[middle].getBoundingClientRect();
+      this.viewportLayoutProbeCount++;
+      if (rect.top <= to) low = middle + 1;
+      else high = middle;
+    }
+    return [first, Math.max(first, low - 1)];
   }
 
   hydrateChunk(index: number, preserve: SelectionRange | null = null): void {

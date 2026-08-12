@@ -153,3 +153,7 @@ allocation growth are the controllable costs the library can enforce in CI.
 Web, UIKit, and AppKit expose explicit presentation suspension. Backgrounding cancels
 queued decodes/fetches and prevents new speculative paint or layout; foregrounding
 reuses the live engine and exact Markdown source, then restarts only demanded media.
+
+Web viewport scheduling now finds its overscanned chunk range with two binary searches
+instead of reading every chunk's geometry on every scroll. A 512-chunk correctness test
+caps viewport layout reads at 40, and the 1 MB release scroll workload measured 18 ms.

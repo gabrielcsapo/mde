@@ -1400,6 +1400,21 @@ function makeEditor(options = {}) {
     assert(!e.root.hasAttribute('data-mde-suspended'));
   });
 
+  test('viewport scheduling probes logarithmically many chunks', async () => {
+    const e = makeEditor();
+    const source = Array.from({ length: 64 * 512 }, (_, index) => `line ${index}`).join('\n');
+    e.root.style.cssText = 'display:block;width:600px;height:400px;overflow:auto';
+    e.setMarkdown(source);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const before = e.viewportLayoutProbeCount;
+    e.root.scrollTop = e.root.scrollHeight;
+    e.root.dispatchEvent(new Event('scroll'));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const probes = e.viewportLayoutProbeCount - before;
+    assert(probes <= 40, `scroll read ${probes} chunk bounds for ${e.chunkEls.length} chunks`);
+    assertEqual(e.markdown, source);
+  });
+
   test('resource scheduling is bounded and drains in priority order', async () => {
     const started = [];
     const pending = new Map();
