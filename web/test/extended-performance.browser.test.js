@@ -91,6 +91,9 @@ test.runIf(__MDE_PERF_EXTENDED__)('optional 5 MB browser profile', async () => {
   expect(sourceVisible).toBeLessThanOrEqual(__MDE_EXTENDED_BUDGETS__.sourceVisible5MB);
   expect(mainThreadProbe).toBeLessThanOrEqual(__MDE_EXTENDED_BUDGETS__.mainThreadProbe5MB);
   expect(progressiveReady).toBeLessThanOrEqual(__MDE_EXTENDED_BUDGETS__.progressiveReady5MB);
+  expect(prepared.snapshot.byteLength).toBeLessThanOrEqual(
+    __MDE_EXTENDED_BUDGETS__.progressiveSnapshotBytes5MB,
+  );
   expect(progressiveEdit).toBeLessThanOrEqual(__MDE_EXTENDED_BUDGETS__.edit5MB);
   expect(progressiveNodes).toBeLessThanOrEqual(__MDE_EXTENDED_BUDGETS__.maxNodes5MB);
   expect(progressiveEditor.markdown).toBe(progressiveSource);

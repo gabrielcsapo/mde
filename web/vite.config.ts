@@ -58,6 +58,9 @@ export default defineConfig({
       sourceVisible5MB: Number(process.env.MDE_WEB_5MB_SOURCE_VISIBLE_BUDGET_MS ?? 75),
       mainThreadProbe5MB: Number(process.env.MDE_WEB_5MB_MAIN_THREAD_PROBE_BUDGET_MS ?? 50),
       progressiveReady5MB: Number(process.env.MDE_WEB_5MB_PROGRESSIVE_READY_BUDGET_MS ?? 1800),
+      progressiveSnapshotBytes5MB: Number(
+        process.env.MDE_WEB_5MB_PROGRESSIVE_SNAPSHOT_BUDGET_BYTES ?? 6800000,
+      ),
     }),
     __MDE_PERF_BUDGETS__: JSON.stringify({
       load100KB: Number(process.env.MDE_WEB_100KB_LOAD_BUDGET_MS ?? 100),
