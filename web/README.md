@@ -29,6 +29,20 @@ await editor.setMarkdownProgressively(markdown, prepared);
 Prepared snapshots are tied to the exact Markdown and encoded manifest. A mismatch is
 rejected rather than silently rendering the wrong decoration state.
 
+Journal hosts can persist expensive video poster frames and audio waveforms across
+editor instances. The host remains responsible for decoding because it owns resource
+URLs and credentials; the cache owns stable size/version keys and bounded storage:
+
+```ts
+import { MediaPreviewCache } from '@mde/web';
+
+const previews = new MediaPreviewCache({ maxEntries: 256 });
+const poster = await previews.getOrCreate(
+  { kind: 'video-poster', reference: asset.id, width: 640, version: asset.etag },
+  () => generatePoster(asset),
+);
+```
+
 Commands and bounded multi-document sessions are framework-neutral:
 
 ```ts

@@ -6,6 +6,7 @@ export { MarkdownEditor, diffText } from './editor.js';
 export { composeManifests, encodeManifest } from './manifest.js';
 export { composePluginManifests, definePlugin, pluginLayerName } from './plugins.js';
 export { ResourceCache } from './resources.js';
+export { MediaPreviewCache } from './media-previews.js';
 export { MarkdownSession } from './session.js';
 export { prepareDocument } from './preparation.js';
 export { executeMarkdownCommand, markdownCommand } from './commands.js';
@@ -41,6 +42,12 @@ export type {
   PluginCleanup,
 } from './plugins.js';
 export type { ResourceRequest, ResourceResolver, ResourceState } from './resources.js';
+export type {
+  MediaPreviewCacheOptions,
+  MediaPreviewCacheStats,
+  MediaPreviewKind,
+  MediaPreviewRequest,
+} from './media-previews.js';
 export type { SessionDocument } from './session.js';
 export type { PreparedDocument, PrepareDocumentOptions } from './preparation.js';
 export type { CommandResult, MarkdownCommand } from './commands.js';

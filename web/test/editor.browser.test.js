@@ -14,6 +14,7 @@ import {
   IGNORE_ATTR,
   Kind,
   MarkdownEditor,
+  MediaPreviewCache,
   MarkdownSession,
   ResourceCache,
   Role,
@@ -109,6 +110,54 @@ afterEach(() => {
   editors.length = 0;
   sandbox.replaceChildren();
   document.getSelection()?.removeAllRanges();
+});
+
+test('video posters and audio waveforms persist across cache instances', async () => {
+  const name = `mde-preview-test-${crypto.randomUUID()}`;
+  const first = new MediaPreviewCache({ name, maxEntries: 4 });
+  let generations = 0;
+  const generate = async (kind) => {
+    generations++;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    return new Blob([kind], { type: 'image/webp' });
+  };
+  const video = { kind: 'video-poster', reference: 'journal.mov', width: 640, version: 'v1' };
+  const audio = { kind: 'audio-waveform', reference: 'voice.m4a', width: 640, version: 'v1' };
+
+  const coldStarted = performance.now();
+  await first.getOrCreate(video, () => generate('poster'));
+  await first.getOrCreate(audio, () => generate('waveform'));
+  const cold = performance.now() - coldStarted;
+
+  // A new instance models reopening the journal after the in-memory editor is gone.
+  const reopened = new MediaPreviewCache({ name, maxEntries: 4 });
+  const warmStarted = performance.now();
+  const poster = await reopened.getOrCreate(video, () => generate('wrong'));
+  const waveform = await reopened.getOrCreate(audio, () => generate('wrong'));
+  const warm = performance.now() - warmStarted;
+
+  assertEqual(await poster.text(), 'poster');
+  assertEqual(await waveform.text(), 'waveform');
+  assertEqual(generations, 2);
+  assertEqual(reopened.stats.persistentHits, 2);
+  expect(warm).toBeLessThan(cold);
+  await reopened.clear();
+});
+
+test('media preview identities include size/version and persistent storage stays bounded', async () => {
+  const name = `mde-preview-bounds-${crypto.randomUUID()}`;
+  const previews = new MediaPreviewCache({ name, maxEntries: 2 });
+  let generations = 0;
+  for (const [width, version] of [[320, 'v1'], [640, 'v1'], [640, 'v2']]) {
+    await previews.getOrCreate(
+      { kind: 'video-poster', reference: 'clip.mov', width, version },
+      () => new Blob([String(++generations)]),
+    );
+  }
+
+  assertEqual(generations, 3);
+  assertEqual((await (await caches.open(name)).keys()).length, 2);
+  await previews.clear();
 });
 
 /** @param {object} [options] */

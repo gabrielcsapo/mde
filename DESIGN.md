@@ -792,6 +792,11 @@ Three decisions are worth stating:
   theme and invalidates both caches atomically when the theme changes. On the 1 MB
   AppKit profile, initial viewport paint fell from 42.77 ms to 39.63 ms and full layout
   from 735.89 ms to 703.47 ms; the pathological-edit p95 stayed under 50 ms.
+- ~~Browser poster frames and waveforms were regenerated after every app restart.~~
+  `MediaPreviewCache` now persists host-generated preview blobs in bounded Cache
+  Storage, keyed by media identity, kind, requested size, and a host version token.
+  Browser tests reopen through a fresh cache instance and verify that both video and
+  audio previews bypass the deliberately slow generator.
 - ~~`reservedSize` is a guess, so a wrong guess shifts the document once.~~ Resolved
   sizes are now measured and kept (`resourceSizes` on every host). A host that persists
   them and seeds them on open turns "shifts once per launch" into "shifts once per asset,
