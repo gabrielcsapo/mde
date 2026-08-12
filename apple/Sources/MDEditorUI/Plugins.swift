@@ -26,6 +26,21 @@ public enum MarkdownPluginError: Error, Equatable {
     case invalidManifest
 }
 
+public struct MarkdownPluginAnalysisDiagnostic: Sendable {
+    public let plugin: String
+    public let task: String
+    public let duration: TimeInterval
+    public let budget: TimeInterval
+    public let overBudget: Bool
+    public let cancelled: Bool
+}
+
+public extension Notification.Name {
+    static let markdownPluginAnalysisDiagnostic = Notification.Name(
+        "dev.mde.plugin-analysis-diagnostic"
+    )
+}
+
 public enum MarkdownPluginManifests {
     /// Combine package-owned TOML fragments without changing any source fragment.
     public static func compose(
@@ -65,6 +80,7 @@ private final class MarkdownPluginAnalysisRun {
     let id = UUID()
     let cancellation = MarkdownPluginAnalysisCancellation()
     var workItem: DispatchWorkItem?
+    var budget: TimeInterval = 0.016
 }
 
 public struct MarkdownPluginCompatibilityReport: Equatable {
@@ -151,6 +167,7 @@ public final class MarkdownPluginContext {
     public func scheduleAnalysis<Result>(
         _ name: String,
         delay: TimeInterval = 0,
+        budget: TimeInterval = 0.016,
         analyze: @escaping (String, MarkdownPluginAnalysisCancellation) -> Result,
         apply: @escaping (Result, MarkdownPluginContext) -> Void
     ) -> Bool {
@@ -159,9 +176,12 @@ public final class MarkdownPluginContext {
         cancelAnalysis(canonical)
 
         let run = MarkdownPluginAnalysisRun()
+        run.budget = max(0, budget)
         let item = DispatchWorkItem { [weak self, weak run] in
             guard let self, let run, !run.cancellation.isCancelled else { return }
+            let started = DispatchTime.now().uptimeNanoseconds
             let result = analyze(markdown, run.cancellation)
+            let duration = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000_000
             guard !run.cancellation.isCancelled else { return }
             DispatchQueue.main.async { [weak self, weak run] in
                 guard let self, let run,
@@ -170,6 +190,9 @@ public final class MarkdownPluginContext {
                       !run.cancellation.isCancelled
                 else { return }
                 self.analyses.removeValue(forKey: canonical)
+                self.postDiagnostic(
+                    task: canonical, duration: duration, budget: run.budget, cancelled: false
+                )
                 apply(result, self)
             }
         }
@@ -187,6 +210,31 @@ public final class MarkdownPluginContext {
         guard let run = analyses.removeValue(forKey: canonical) else { return }
         run.cancellation.cancel()
         run.workItem?.cancel()
+        postDiagnostic(task: canonical, duration: 0, budget: run.budget, cancelled: true)
+    }
+
+    private func postDiagnostic(
+        task: String,
+        duration: TimeInterval,
+        budget: TimeInterval,
+        cancelled: Bool
+    ) {
+        let diagnostic = MarkdownPluginAnalysisDiagnostic(
+            plugin: name,
+            task: task,
+            duration: duration,
+            budget: budget,
+            overBudget: !cancelled && duration > budget,
+            cancelled: cancelled
+        )
+        DispatchQueue.main.async { [weak editor] in
+            guard let editor else { return }
+            NotificationCenter.default.post(
+                name: .markdownPluginAnalysisDiagnostic,
+                object: editor,
+                userInfo: ["diagnostic": diagnostic]
+            )
+        }
     }
 
     private func layerName(_ local: String) -> String? {

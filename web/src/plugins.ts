@@ -17,6 +17,18 @@ export interface PluginAnalysisInput {
 export interface PluginAnalysisOptions {
   /** Debounce before starting work. Defaults to zero. */
   delayMs?: number;
+  /** Diagnostic threshold for the analysis callback itself. Defaults to 16 ms. */
+  budgetMs?: number;
+}
+
+export interface PluginAnalysisDiagnostic {
+  plugin: string;
+  task: string;
+  sequence: number;
+  durationMs: number;
+  budgetMs: number;
+  overBudget: boolean;
+  cancelled: boolean;
 }
 
 /** A runtime extension with an editor-scoped lifecycle. */
@@ -61,6 +73,7 @@ export interface EditorEventMap {
   hit: CustomEvent<{ decoration: Decoration; source: string }>;
   linkopen: CustomEvent<{ decoration: Decoration; destination: string }>;
   pluginerror: CustomEvent<{ plugin: string; task: string; error: unknown }>;
+  plugindiagnostic: CustomEvent<PluginAnalysisDiagnostic>;
 }
 
 /** Preserve inference while checking a plugin object at its declaration site. */
@@ -82,6 +95,7 @@ export interface PluginAnalysisRun {
   controller: AbortController;
   timer: number | null;
   sequence: number;
+  diagnosticPublished: boolean;
 }
 
 export function pluginLayerName(plugin: string, local: string): string {

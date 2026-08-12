@@ -1321,6 +1321,50 @@ extension MacRendererTests {
         XCTAssertEqual(report.contributedLayerDecorations, 1)
         XCTAssertTrue(report.cleanupRemovedLayers)
     }
+
+    func testPluginAnalysisPublishesBudgetAndCancellationDiagnostics() throws {
+        let observed = expectation(description: "analysis diagnostics")
+        observed.expectedFulfillmentCount = 2
+        var diagnostics = [MarkdownPluginAnalysisDiagnostic]()
+        let token = NotificationCenter.default.addObserver(
+            forName: .markdownPluginAnalysisDiagnostic,
+            object: editor,
+            queue: .main
+        ) { notification in
+            if let value = notification.userInfo?["diagnostic"]
+                as? MarkdownPluginAnalysisDiagnostic {
+                diagnostics.append(value)
+                observed.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        let plugin = DiagnosticPlugin()
+        try editor.installPlugin(plugin)
+        plugin.scheduleSlowThenCancel()
+        wait(for: [observed], timeout: 2)
+
+        XCTAssertTrue(diagnostics.contains { $0.task == "cancelled" && $0.cancelled })
+        XCTAssertTrue(diagnostics.contains { $0.task == "slow" && $0.overBudget })
+    }
+}
+
+private final class DiagnosticPlugin: MarkdownPlugin {
+    let name = "test.diagnostics"
+    private var context: MarkdownPluginContext?
+    func install(in context: MarkdownPluginContext) throws { self.context = context }
+    func scheduleSlowThenCancel() {
+        context?.scheduleAnalysis(
+            "slow", budget: 0.001,
+            analyze: { _, _ in Thread.sleep(forTimeInterval: 0.012); return true },
+            apply: { _, _ in }
+        )
+        context?.scheduleAnalysis(
+            "cancelled", delay: 1,
+            analyze: { _, _ in true },
+            apply: { _, _ in }
+        )
+        context?.cancelAnalysis("cancelled")
+    }
 }
 
 private final class CountingPlugin: MarkdownPlugin {

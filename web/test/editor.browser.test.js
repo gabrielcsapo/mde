@@ -1463,6 +1463,8 @@ function makeEditor(options = {}) {
   test('plugin analysis is latest-wins and cannot apply after removal', async () => {
     const e = makeEditor();
     const applied = [];
+    const diagnostics = [];
+    e.addEventListener('plugindiagnostic', (event) => diagnostics.push(event.detail));
     const plugin = definePlugin({
       name: 'test.analysis',
       setup(context) {
@@ -1485,11 +1487,38 @@ function makeEditor(options = {}) {
     e.setMarkdown('latest snapshot');
     await new Promise((resolve) => setTimeout(resolve, 40));
     assertEqual(applied, ['latest snapshot']);
+    assert(diagnostics.some((diagnostic) => diagnostic.cancelled));
+    assert(diagnostics.some((diagnostic) => !diagnostic.cancelled));
 
     e.setMarkdown('must never apply');
     e.removePlugin(plugin.name);
     await new Promise((resolve) => setTimeout(resolve, 40));
     assertEqual(applied, ['latest snapshot']);
+  });
+
+  test('plugin analysis reports explicit budget overruns', async () => {
+    const e = makeEditor();
+    let diagnostic;
+    e.addEventListener('plugindiagnostic', (event) => { diagnostic = event.detail; });
+    e.installPlugin(definePlugin({
+      name: 'test.slow-analysis',
+      setup(context) {
+        context.scheduleAnalysis(
+          'slow',
+          async () => {
+            await new Promise((resolve) => setTimeout(resolve, 12));
+            return true;
+          },
+          () => {},
+          { budgetMs: 1 },
+        );
+      },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assertEqual(diagnostic.plugin, 'test.slow-analysis');
+    assertEqual(diagnostic.task, 'slow');
+    assertEqual(diagnostic.overBudget, true);
+    assert(diagnostic.durationMs >= diagnostic.budgetMs);
   });
 
   test('the published compatibility helper verifies source and layer cleanup', async () => {
@@ -1509,6 +1538,7 @@ function makeEditor(options = {}) {
       sourcePreserved: true,
       contributedLayerDecorations: 1,
       cleanupRemovedLayers: true,
+      diagnostics: [],
     });
   });
 

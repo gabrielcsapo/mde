@@ -33,6 +33,7 @@ export type {
   EditorPlugin,
   EditorPluginContext,
   PluginAnalysisInput,
+  PluginAnalysisDiagnostic,
   PluginAnalysisOptions,
   PluginCleanup,
 } from './plugins.js';

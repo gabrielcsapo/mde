@@ -15,6 +15,13 @@ export interface PluginCompatibilityReport {
   sourcePreserved: boolean;
   contributedLayerDecorations: number;
   cleanupRemovedLayers: boolean;
+  diagnostics: Array<{
+    task: string;
+    durationMs: number;
+    budgetMs: number;
+    overBudget: boolean;
+    cancelled: boolean;
+  }>;
 }
 
 function layerKeys(editor: MarkdownEditor): Set<bigint> {
@@ -41,6 +48,12 @@ export async function checkPluginCompatibility(
   editor.setMarkdown(markdown);
   if (options.selection) editor.setSelectionRange(options.selection);
   const before = layerKeys(editor);
+  const diagnostics: PluginCompatibilityReport['diagnostics'] = [];
+  const onDiagnostic = (event: Event) => {
+    const detail = (event as CustomEvent).detail;
+    if (detail.plugin === plugin.name.trim()) diagnostics.push(detail);
+  };
+  editor.addEventListener('plugindiagnostic', onDiagnostic);
 
   editor.installPlugin(plugin);
   const installed = editor.installedPlugins.includes(plugin.name.trim());
@@ -55,6 +68,7 @@ export async function checkPluginCompatibility(
   const sourcePreserved = editor.markdown === markdown;
   const removed = editor.removePlugin(plugin.name.trim());
   const after = layerKeys(editor);
+  editor.removeEventListener('plugindiagnostic', onDiagnostic);
 
   return {
     name: plugin.name.trim(),
@@ -63,5 +77,6 @@ export async function checkPluginCompatibility(
     sourcePreserved,
     contributedLayerDecorations: contributed.length,
     cleanupRemovedLayers: contributed.every((key) => !after.has(key)),
+    diagnostics,
   };
 }

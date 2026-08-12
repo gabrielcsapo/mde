@@ -290,6 +290,18 @@ export class MarkdownEditor extends EventTarget {
       installed.analyses.delete(canonical);
       if (run.timer !== null) window.clearTimeout(run.timer);
       run.controller.abort();
+      run.diagnosticPublished = true;
+      this.dispatchEvent(new CustomEvent('plugindiagnostic', {
+        detail: {
+          plugin: name,
+          task: canonical,
+          sequence: run.sequence,
+          durationMs: 0,
+          budgetMs: 0,
+          overBudget: false,
+          cancelled: true,
+        },
+      }));
     };
     const context: EditorPluginContext = {
       editor: this,
@@ -316,17 +328,23 @@ export class MarkdownEditor extends EventTarget {
 
         const runController = new AbortController();
         const sequence = ++installed.analysisSequence;
-        const run: PluginAnalysisRun = { controller: runController, timer: null, sequence };
+        const run: PluginAnalysisRun = {
+          controller: runController, timer: null, sequence, diagnosticPublished: false,
+        };
         installed.analyses.set(canonical, run);
         const markdown = this.markdown;
         run.timer = window.setTimeout(async () => {
           run.timer = null;
+          const started = performance.now();
+          let cancelled = false;
           try {
             const result = await analyze({
               markdown,
               signal: runController.signal,
               sequence,
             });
+            cancelled = runController.signal.aborted
+              || installed.analyses.get(canonical) !== run;
             if (
               runController.signal.aborted
               || installed.analyses.get(canonical) !== run
@@ -344,6 +362,22 @@ export class MarkdownEditor extends EventTarget {
               }
             }
           } finally {
+            const durationMs = performance.now() - started;
+            const budgetMs = Math.max(0, options.budgetMs ?? 16);
+            if (!run.diagnosticPublished) {
+              run.diagnosticPublished = true;
+              this.dispatchEvent(new CustomEvent('plugindiagnostic', {
+                detail: {
+                  plugin: name,
+                  task: canonical,
+                  sequence,
+                  durationMs,
+                  budgetMs,
+                  overBudget: durationMs > budgetMs,
+                  cancelled: cancelled || runController.signal.aborted,
+                },
+              }));
+            }
             if (installed.analyses.get(canonical) === run) {
               installed.analyses.delete(canonical);
             }
