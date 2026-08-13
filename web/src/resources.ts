@@ -14,6 +14,8 @@ export interface ResourceRequest {
   signal: AbortSignal;
   /** Lower values start first. Hosts may promote references as they approach view. */
   priority?: number;
+  /** Publish a usable low-cost representation while final resolution continues. */
+  publishPreview?: (preview: Extract<ResourceState, { state: 'ready' }>) => void;
 }
 export type ResourceState =
   | { state: 'loading' }
@@ -29,6 +31,8 @@ export type ResourceState =
 export interface ResourceResolver {
   resolve(request: ResourceRequest): Promise<ResourceState>;
   reservedSize(request: ResourceRequest): { width: number; height: number };
+  /** Optional estimate used to bound peak bytes across concurrent decode/fetch work. */
+  estimatedMemoryCostBytes?(request: ResourceRequest): number;
 }
 
 /**
@@ -62,9 +66,13 @@ export class ResourceCache {
   maxConcurrent: number;
   active: Map<string, number>;
   activeControllers: Map<string, AbortController>;
+  activeMemoryCosts: Map<string, number>;
   pending: Array<{ request: ResourceRequest; generation: number; order: number }>;
   nextOrder: number;
   peakConcurrent: number;
+  maxInFlightMemoryBytes: number;
+  inFlightMemoryBytes: number;
+  peakInFlightMemoryBytes: number;
   suspended: boolean;
   maxReadyViews: number;
   maxReadyViewMemoryBytes: number;
@@ -104,9 +112,13 @@ export class ResourceCache {
     this.maxConcurrent = Math.max(1, Math.floor(options.maxConcurrent ?? 6));
     this.active = new Map();
     this.activeControllers = new Map();
+    this.activeMemoryCosts = new Map();
     this.pending = [];
     this.nextOrder = 0;
     this.peakConcurrent = 0;
+    this.maxInFlightMemoryBytes = 48 * 1024 * 1024;
+    this.inFlightMemoryBytes = 0;
+    this.peakInFlightMemoryBytes = 0;
     this.suspended = false;
     this.maxReadyViews = 32;
     this.maxReadyViewMemoryBytes = 64 * 1024 * 1024;
@@ -126,6 +138,8 @@ export class ResourceCache {
     this.reserved.clear();
     this.active.clear();
     this.activeControllers.clear();
+    this.activeMemoryCosts.clear();
+    this.inFlightMemoryBytes = 0;
     this.pending.length = 0;
     this.readyOrder.length = 0;
     this.readyMemoryCosts.clear();
@@ -147,6 +161,8 @@ export class ResourceCache {
     }
     this.active.clear();
     this.activeControllers.clear();
+    this.activeMemoryCosts.clear();
+    this.inFlightMemoryBytes = 0;
     this.pending.length = 0;
   }
 
@@ -273,7 +289,19 @@ export class ResourceCache {
     while (this.active.size < this.maxConcurrent && this.pending.length > 0) {
       const item = this.pending.shift();
       if (!item || item.generation !== this.generation || item.request.signal.aborted) continue;
+      const cost = Math.max(
+        0, Number(this.resolver.estimatedMemoryCostBytes?.(item.request) ?? 0),
+      );
+      if (
+        this.active.size > 0 &&
+        this.inFlightMemoryBytes + cost > Math.max(1, this.maxInFlightMemoryBytes)
+      ) {
+        this.pending.unshift(item);
+        break;
+      }
       this.active.set(item.request.reference, item.generation);
+      this.activeMemoryCosts.set(item.request.reference, cost);
+      this.updateInFlightMemory();
       this.peakConcurrent = Math.max(this.peakConcurrent, this.active.size);
       void this.start(item.request, item.generation);
     }
@@ -294,7 +322,28 @@ export class ResourceCache {
   async start(request: ResourceRequest, generation: number) {
     const requestController = new AbortController();
     this.activeControllers.set(request.reference, requestController);
-    const activeRequest = { ...request, signal: requestController.signal };
+    const activeRequest = {
+      ...request,
+      signal: requestController.signal,
+      publishPreview: (preview) => {
+        if (
+          preview.state !== 'ready' || requestController.signal.aborted ||
+          generation !== this.generation || this.active.get(request.reference) !== generation
+        ) return;
+        const previous = this.states.get(request.reference);
+        if (previous?.state === 'ready') disposeReadyState(previous);
+        this.states.set(request.reference, preview);
+        const size = measure(preview.view, this.reserved.get(request.reference));
+        if (size) {
+          this.reserved.set(request.reference, size);
+          this.known.set(request.reference, size);
+        }
+        this.readyMemoryCosts.set(request.reference, memoryCost(preview));
+        this.touchReady(request.reference);
+        this.evictReadyViews();
+        this.onResolved(request.reference);
+      },
+    };
     let result;
     try {
       result = await this.resolver.resolve(activeRequest);
@@ -307,8 +356,12 @@ export class ResourceCache {
     if (this.active.get(request.reference) === generation) {
       this.active.delete(request.reference);
       this.activeControllers.delete(request.reference);
+      this.activeMemoryCosts.delete(request.reference);
+      this.updateInFlightMemory();
     }
     if (generation === this.generation && this.states.has(request.reference)) {
+      const previous = this.states.get(request.reference);
+      if (previous?.state === 'ready' && previous !== result) disposeReadyState(previous);
       this.states.set(request.reference, result);
       if (result.state === 'ready') {
         const size = measure(result.view, this.reserved.get(request.reference));
@@ -329,19 +382,38 @@ export class ResourceCache {
     this.activeControllers.get(reference)?.abort();
     this.activeControllers.delete(reference);
     this.active.delete(reference);
-    if (this.states.get(reference)?.state === 'loading') this.states.delete(reference);
+    this.activeMemoryCosts.delete(reference);
+    this.updateInFlightMemory();
+    const state = this.states.get(reference);
+    if (state?.state === 'ready') disposeReadyState(state);
+    this.states.delete(reference);
+    const readyAt = this.readyOrder.indexOf(reference);
+    if (readyAt >= 0) this.readyOrder.splice(readyAt, 1);
+    this.readyMemoryCosts.delete(reference);
+    this.readyViewMemoryBytes = [...this.readyMemoryCosts.values()]
+      .reduce((total, cost) => total + cost, 0);
     if (repump) this.pump();
   }
 
   abortAllActive() {
     for (const controller of this.activeControllers.values()) controller.abort();
     this.activeControllers.clear();
+    this.activeMemoryCosts.clear();
+    this.updateInFlightMemory();
   }
 
   disposeAll() {
     for (const state of this.states.values()) {
       if (state.state === 'ready') disposeReadyState(state);
     }
+  }
+
+  updateInFlightMemory() {
+    this.inFlightMemoryBytes = [...this.activeMemoryCosts.values()]
+      .reduce((total, cost) => total + cost, 0);
+    this.peakInFlightMemoryBytes = Math.max(
+      this.peakInFlightMemoryBytes, this.inFlightMemoryBytes,
+    );
   }
 }
 

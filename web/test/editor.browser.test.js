@@ -1544,6 +1544,51 @@ function makeEditor(options = {}) {
     assertEqual(disposed.length, 4);
   });
 
+  test('estimated media bytes bound concurrent browser decodes', async () => {
+    const pending = new Map();
+    const cache = new ResourceCache({
+      estimatedMemoryCostBytes: () => 4 * 1024 * 1024,
+      resolve: ({ reference }) => new Promise((resolve) => pending.set(reference, resolve)),
+      reservedSize: () => ({ width: 320, height: 180 }),
+    }, () => {}, { maxConcurrent: 6 });
+    cache.maxInFlightMemoryBytes = 9 * 1024 * 1024;
+    for (let index = 0; index < 6; index++) {
+      cache.view({ reference: `large-${index}.jpg`, roleName: 'image', source: '' });
+    }
+    assertEqual(cache.active.size, 2);
+    assertEqual(cache.peakInFlightMemoryBytes, 8 * 1024 * 1024);
+    pending.get('large-0.jpg')({ state: 'failed', message: 'expected' });
+    await Promise.resolve();
+    await Promise.resolve();
+    assertEqual(cache.active.size, 2);
+    assertEqual(cache.pending.length, 3);
+  });
+
+  test('browser resource resolvers can publish a progressive preview', async () => {
+    let finish;
+    const resolved = [];
+    const cache = new ResourceCache({
+      resolve: ({ publishPreview }) => new Promise((resolve) => {
+        const preview = document.createElement('img');
+        preview.dataset.quality = 'preview';
+        publishPreview({ state: 'ready', view: preview, memoryCostBytes: 64 * 1024 });
+        finish = resolve;
+      }),
+      reservedSize: () => ({ width: 320, height: 180 }),
+    }, (reference) => resolved.push(reference));
+    const request = { reference: 'photo.jpg', roleName: 'image', source: '' };
+    cache.view(request);
+    await Promise.resolve();
+    assertEqual(cache.view(request)?.dataset.quality, 'preview');
+    const final = document.createElement('img');
+    final.dataset.quality = 'final';
+    finish({ state: 'ready', view: final, memoryCostBytes: 1024 * 1024 });
+    await Promise.resolve();
+    await Promise.resolve();
+    assertEqual(cache.view(request)?.dataset.quality, 'final');
+    assertEqual(resolved, ['photo.jpg', 'photo.jpg']);
+  });
+
   test('resolved web media views are retained within a viewport-sized LRU', async () => {
     const cache = new ResourceCache(
       {

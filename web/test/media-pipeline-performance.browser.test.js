@@ -49,9 +49,18 @@ test('real media pipeline reports cold decode, stale-scroll, and preview-cache c
 
   const completed = [];
   let aborted = 0;
+  let firstPreviewMs = null;
   const resolver = {
-    resolve({ reference, signal }) {
+    estimatedMemoryCostBytes() { return 1_280 * 720 * 4; },
+    resolve({ reference, signal, publishPreview }) {
       return new Promise((resolve, reject) => {
+        const previewTimer = setTimeout(() => {
+          const view = document.createElement('img');
+          view.width = 320;
+          view.height = 180;
+          publishPreview({ state: 'ready', view, memoryCostBytes: 320 * 180 * 4 });
+          firstPreviewMs ??= performance.now();
+        }, 8);
         const timer = setTimeout(() => {
           completed.push(reference);
           const view = document.createElement('img');
@@ -60,6 +69,7 @@ test('real media pipeline reports cold decode, stale-scroll, and preview-cache c
           resolve({ state: 'ready', view, memoryCostBytes: 1_280 * 720 * 4 });
         }, 45);
         signal.addEventListener('abort', () => {
+          clearTimeout(previewTimer);
           clearTimeout(timer);
           aborted++;
           reject(new DOMException('cancelled', 'AbortError'));
@@ -70,6 +80,7 @@ test('real media pipeline reports cold decode, stale-scroll, and preview-cache c
   };
   const wanted = new Set(Array.from({ length: 6 }, (_, index) => `photo-${42 + index}.jpg`));
   const resources = new ResourceCache(resolver, () => {}, { maxConcurrent: 6 });
+  const resourceStarted = performance.now();
   for (let index = 0; index < 48; index++) {
     resources.view({ reference: `photo-${index}.jpg`, roleName: 'image', source: '' });
   }
@@ -116,6 +127,7 @@ test('real media pipeline reports cold decode, stale-scroll, and preview-cache c
     imageDecodeMs,
     staleScrollMs,
     staleCompletions,
+    firstPreviewMs: firstPreviewMs === null ? null : firstPreviewMs - resourceStarted,
     aborted,
     cacheFillMs,
     persistentEntries: (await (await caches.open(name)).keys()).length,
@@ -131,6 +143,8 @@ test('real media pipeline reports cold decode, stale-scroll, and preview-cache c
 
   expect(image.size).toBeGreaterThan(100_000);
   expect(report.persistentEntries).toBeLessThanOrEqual(96);
+  expect(report.firstPreviewMs).toBeLessThan(45);
+  expect(resources.peakInFlightMemoryBytes).toBeLessThanOrEqual(48 * 1024 * 1024);
   expect(nearbySizeGenerations).toBe(2);
   expect(imageDecodeMs).toBeLessThan(5_000);
 }, 30_000);
