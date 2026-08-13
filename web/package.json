@@ -46,6 +46,7 @@
     "dev": "vite build --watch",
     "test": "vitest run",
     "test:performance": "MDE_PERF=1 vitest run test/performance.browser.test.js --disableConsoleIntercept",
+    "test:performance:media": "vitest run test/media-pipeline-performance.browser.test.js --disableConsoleIntercept",
     "test:performance:extended": "MDE_PERF_EXTENDED=1 vitest run test/extended-performance.browser.test.js --disableConsoleIntercept",
     "test:performance:lifecycle": "MDE_PERF_LIFECYCLE=1 vitest run test/lifecycle-performance.browser.test.js --disableConsoleIntercept",
     "test:all-browsers": "MDE_BROWSERS=chromium vitest run && MDE_BROWSERS=firefox vitest run && MDE_BROWSERS=webkit vitest run",

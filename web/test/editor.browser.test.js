@@ -1494,21 +1494,54 @@ function makeEditor(options = {}) {
       });
     }
     cache.prioritize(['asset-4.jpg']);
-    assertEqual(started, ['asset-0.jpg', 'asset-1.jpg']);
+    assertEqual(started, ['asset-0.jpg', 'asset-1.jpg', 'asset-4.jpg', 'asset-2.jpg']);
     assertEqual(cache.peakConcurrent, 2);
 
-    pending.get('asset-0.jpg')({ state: 'failed', message: 'expected' });
+    pending.get('asset-4.jpg')({ state: 'failed', message: 'expected' });
     await Promise.resolve();
     await Promise.resolve();
-    assertEqual(started, ['asset-0.jpg', 'asset-1.jpg', 'asset-4.jpg']);
+    assertEqual(started, ['asset-0.jpg', 'asset-1.jpg', 'asset-4.jpg', 'asset-2.jpg', 'asset-3.jpg']);
 
-    for (const reference of ['asset-1.jpg', 'asset-4.jpg', 'asset-2.jpg', 'asset-3.jpg']) {
+    for (const reference of ['asset-2.jpg', 'asset-3.jpg']) {
       pending.get(reference)?.({ state: 'failed', message: 'expected' });
       await Promise.resolve();
       await Promise.resolve();
     }
     assertEqual(started.length, 5);
     assertEqual(cache.active.size, 0);
+  });
+
+  test('resolved web media views obey decoded-byte budgets and dispose on eviction', async () => {
+    const disposed = [];
+    const cache = new ResourceCache(
+      {
+        async resolve({ reference }) {
+          const view = document.createElement('img');
+          view.width = 1024;
+          view.height = 1024;
+          return {
+            state: 'ready', view, memoryCostBytes: 4 * 1024 * 1024,
+            dispose: () => disposed.push(reference),
+          };
+        },
+        reservedSize: () => ({ width: 512, height: 512 }),
+      },
+      () => {},
+    );
+    cache.maxReadyViews = 100;
+    cache.maxReadyViewMemoryBytes = 9 * 1024 * 1024;
+    for (let index = 0; index < 4; index++) {
+      cache.view({ reference: `large-${index}.jpg`, roleName: 'image', source: '' });
+    }
+    while (cache.active.size > 0 || cache.pending.length > 0) {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    assertEqual(cache.readyViewCount, 2, `memory=${cache.readyViewMemoryBytes}`);
+    assertEqual(cache.readyViewMemoryBytes, 8 * 1024 * 1024);
+    assertEqual(disposed.length, 2);
+    cache.reset();
+    assertEqual(disposed.length, 4);
   });
 
   test('resolved web media views are retained within a viewport-sized LRU', async () => {

@@ -17,7 +17,14 @@ export interface ResourceRequest {
 }
 export type ResourceState =
   | { state: 'loading' }
-  | { state: 'ready'; view: HTMLElement }
+  | {
+      state: 'ready';
+      view: HTMLElement;
+      /** Estimated retained decoded bytes. Images normally use width × height × 4. */
+      memoryCostBytes?: number;
+      /** Releases host-owned object URLs, players, or decoder state when evicted. */
+      dispose?: () => void;
+    }
   | { state: 'failed'; message: string };
 export interface ResourceResolver {
   resolve(request: ResourceRequest): Promise<ResourceState>;
@@ -54,11 +61,15 @@ export class ResourceCache {
   controller: AbortController;
   maxConcurrent: number;
   active: Map<string, number>;
+  activeControllers: Map<string, AbortController>;
   pending: Array<{ request: ResourceRequest; generation: number; order: number }>;
   nextOrder: number;
   peakConcurrent: number;
   suspended: boolean;
   maxReadyViews: number;
+  maxReadyViewMemoryBytes: number;
+  readyViewMemoryBytes: number;
+  readyMemoryCosts: Map<string, number>;
   readyOrder: string[];
   viewportReferences: Set<string>;
 
@@ -92,24 +103,33 @@ export class ResourceCache {
     this.controller = new AbortController();
     this.maxConcurrent = Math.max(1, Math.floor(options.maxConcurrent ?? 6));
     this.active = new Map();
+    this.activeControllers = new Map();
     this.pending = [];
     this.nextOrder = 0;
     this.peakConcurrent = 0;
     this.suspended = false;
     this.maxReadyViews = 32;
+    this.maxReadyViewMemoryBytes = 64 * 1024 * 1024;
+    this.readyViewMemoryBytes = 0;
+    this.readyMemoryCosts = new Map();
     this.readyOrder = [];
     this.viewportReferences = new Set();
   }
 
   reset() {
+    this.disposeAll();
+    this.abortAllActive();
     this.controller.abort();
     this.controller = new AbortController();
     this.generation++;
     this.states.clear();
     this.reserved.clear();
     this.active.clear();
+    this.activeControllers.clear();
     this.pending.length = 0;
     this.readyOrder.length = 0;
+    this.readyMemoryCosts.clear();
+    this.readyViewMemoryBytes = 0;
     this.viewportReferences.clear();
     // `known` deliberately survives: it describes assets, not this document.
   }
@@ -118,6 +138,7 @@ export class ResourceCache {
   suspend() {
     if (this.suspended) return;
     this.suspended = true;
+    this.abortAllActive();
     this.controller.abort();
     this.controller = new AbortController();
     this.generation++;
@@ -125,6 +146,7 @@ export class ResourceCache {
       if (state.state === 'loading') this.states.delete(reference);
     }
     this.active.clear();
+    this.activeControllers.clear();
     this.pending.length = 0;
   }
 
@@ -199,6 +221,13 @@ export class ResourceCache {
     for (const item of this.pending) {
       if (wanted.has(item.request.reference)) item.request.priority = priority;
     }
+    // A fast fling should spend its bounded decoder slots on the new viewport, not on
+    // media the user has already passed. Aborted references remain reloadable later.
+    if (wanted.size > 0) {
+      for (const reference of [...this.active.keys()]) {
+        if (!wanted.has(reference)) this.cancelActive(reference, false);
+      }
+    }
     this.evictReadyViews();
     this.pump();
   }
@@ -211,16 +240,28 @@ export class ResourceCache {
     const at = this.readyOrder.indexOf(reference);
     if (at >= 0) this.readyOrder.splice(at, 1);
     this.readyOrder.push(reference);
+    this.readyViewMemoryBytes = [...this.readyMemoryCosts.values()]
+      .reduce((total, cost) => total + cost, 0);
   }
 
   evictReadyViews() {
-    while (this.readyOrder.length > Math.max(1, this.maxReadyViews)) {
+    while (
+      this.readyOrder.length > Math.max(1, this.maxReadyViews) ||
+      this.readyViewMemoryBytes > Math.max(1, this.maxReadyViewMemoryBytes)
+    ) {
       let victim = this.readyOrder.findIndex(
         (reference) => !this.viewportReferences.has(reference),
       );
       if (victim < 0) victim = 0;
       const reference = this.readyOrder.splice(victim, 1)[0];
-      if (this.states.get(reference)?.state === 'ready') this.states.delete(reference);
+      const state = this.states.get(reference);
+      if (state?.state === 'ready') {
+        disposeReadyState(state);
+        this.states.delete(reference);
+      }
+      this.readyMemoryCosts.delete(reference);
+      this.readyViewMemoryBytes = [...this.readyMemoryCosts.values()]
+        .reduce((total, cost) => total + cost, 0);
     }
   }
 
@@ -251,9 +292,12 @@ export class ResourceCache {
 
   /** @param {ResourceRequest} request */
   async start(request: ResourceRequest, generation: number) {
+    const requestController = new AbortController();
+    this.activeControllers.set(request.reference, requestController);
+    const activeRequest = { ...request, signal: requestController.signal };
     let result;
     try {
-      result = await this.resolver.resolve(request);
+      result = await this.resolver.resolve(activeRequest);
     } catch (error) {
       result = { state: 'failed', message: String(error?.message ?? error) };
     }
@@ -262,6 +306,7 @@ export class ResourceCache {
     // same path, in which case the old completion must not overwrite its new request.
     if (this.active.get(request.reference) === generation) {
       this.active.delete(request.reference);
+      this.activeControllers.delete(request.reference);
     }
     if (generation === this.generation && this.states.has(request.reference)) {
       this.states.set(request.reference, result);
@@ -271,12 +316,57 @@ export class ResourceCache {
           this.reserved.set(request.reference, size);
           this.known.set(request.reference, size);
         }
+        this.readyMemoryCosts.set(request.reference, memoryCost(result));
         this.touchReady(request.reference);
         this.evictReadyViews();
       }
       this.onResolved(request.reference);
     }
     this.pump();
+  }
+
+  cancelActive(reference: string, repump = true) {
+    this.activeControllers.get(reference)?.abort();
+    this.activeControllers.delete(reference);
+    this.active.delete(reference);
+    if (this.states.get(reference)?.state === 'loading') this.states.delete(reference);
+    if (repump) this.pump();
+  }
+
+  abortAllActive() {
+    for (const controller of this.activeControllers.values()) controller.abort();
+    this.activeControllers.clear();
+  }
+
+  disposeAll() {
+    for (const state of this.states.values()) {
+      if (state.state === 'ready') disposeReadyState(state);
+    }
+  }
+}
+
+function memoryCost(state: Extract<ResourceState, { state: 'ready' }>): number {
+  if (Number.isFinite(state.memoryCostBytes)) return Math.max(0, state.memoryCostBytes ?? 0);
+  const view = state.view;
+  if (view instanceof HTMLImageElement) {
+    return Math.max(0, (view.naturalWidth || view.width) * (view.naturalHeight || view.height) * 4);
+  }
+  if (view instanceof HTMLCanvasElement) return Math.max(0, view.width * view.height * 4);
+  return 0;
+}
+
+function disposeReadyState(state: Extract<ResourceState, { state: 'ready' }>) {
+  if (state.dispose) {
+    state.dispose();
+    return;
+  }
+  const media: HTMLMediaElement[] = state.view instanceof HTMLMediaElement
+    ? [state.view]
+    : [...state.view.querySelectorAll<HTMLMediaElement>('audio, video')];
+  for (const element of media) {
+    element.pause();
+    element.removeAttribute('src');
+    element.load();
   }
 }
 

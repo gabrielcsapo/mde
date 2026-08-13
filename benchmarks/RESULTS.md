@@ -4,6 +4,17 @@ Measured on the same Apple-silicon development machine with release builds. Brow
 numbers are real headless Chromium runs; native numbers are release AppKit tests. The
 budgets leave runner headroom, while these values are the observed baselines.
 
+## Heavy-media browser pipeline — 2026-08-13
+
+A dedicated browser workload now performs a real 4K JPEG decode in Chromium and
+separately measures editor-owned scheduling and persistent-cache work. Cancelling media
+that left the viewport reduced delivery time for a fast jump from 96.4 ms to a repeated
+51–57 ms range and eliminated six stale completions. Incremental byte-bounded preview
+cache bookkeeping reduced a 128-entry cold fill from 87.1 ms to a repeated 33–63 ms
+range. Bucketing nearby requested sizes generated two reusable previews for 120 widths
+instead of 120 separate previews. The codec-owned eight-image 4K decode varied from
+177–270 ms and was not claimed as an editor improvement.
+
 | Workload | Before | After | Change |
 | --- | ---: | ---: | ---: |
 | Core representative 100 KB edit | 2.40 ms | 0.071 ms | 34× faster |

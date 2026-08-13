@@ -35,6 +35,16 @@ Run the same command as scheduled CI:
 ./scripts/test-performance.sh
 ```
 
+Run the browser's real-media pipeline workload independently with:
+
+```sh
+pnpm --dir web run test:performance:media
+```
+
+It creates and decodes a 4K JPEG in Chromium, simulates a fast viewport jump with
+delayed media, fills the persistent preview cache, and exercises nearby resize
+requests. Its report is written to `target/performance/web-media-metrics.json`.
+
 Run the opt-in 5 MB Rust, browser, AppKit, iOS Swift/core bridge, and repeated lifecycle
 profiles with:
 

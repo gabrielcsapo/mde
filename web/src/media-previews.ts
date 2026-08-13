@@ -13,6 +13,8 @@ export interface MediaPreviewRequest {
 export interface MediaPreviewCacheOptions {
   name?: string;
   maxEntries?: number;
+  maxMemoryBytes?: number;
+  maxPersistentBytes?: number;
 }
 
 export interface MediaPreviewCacheStats {
@@ -29,6 +31,15 @@ function identity(request: MediaPreviewRequest): string {
     Math.max(0, Math.round(request.height ?? 0)),
     request.version ?? '',
   ]);
+}
+
+function bucketed(request: MediaPreviewRequest): MediaPreviewRequest {
+  const bucket = (value: number) => Math.ceil(Math.max(1, value) / 128) * 128;
+  return {
+    ...request,
+    width: bucket(request.width),
+    height: request.height ? bucket(request.height) : undefined,
+  };
 }
 
 async function digest(value: string): Promise<string> {
@@ -56,30 +67,43 @@ async function digest(value: string): Promise<string> {
 export class MediaPreviewCache {
   readonly name: string;
   readonly maxEntries: number;
+  readonly maxMemoryBytes: number;
+  readonly maxPersistentBytes: number;
   readonly stats: MediaPreviewCacheStats = { memoryHits: 0, persistentHits: 0, misses: 0 };
   private readonly memory = new Map<string, Blob>();
+  private memoryBytes = 0;
   private readonly pending = new Map<string, Promise<Blob>>();
   private cachePromise: Promise<Cache | null> | null = null;
+  private inventoryPromise: Promise<void> | null = null;
+  private readonly persistent = new Map<string, { request: Request; bytes: number }>();
+  private persistentBytes = 0;
 
   constructor(options: MediaPreviewCacheOptions = {}) {
     this.name = options.name ?? 'mde-media-previews-v1';
     this.maxEntries = Math.max(1, Math.floor(options.maxEntries ?? 256));
+    this.maxMemoryBytes = Math.max(1, Math.floor(options.maxMemoryBytes ?? 16 * 1024 * 1024));
+    this.maxPersistentBytes = Math.max(
+      1, Math.floor(options.maxPersistentBytes ?? 128 * 1024 * 1024),
+    );
   }
 
   async getOrCreate(
     request: MediaPreviewRequest,
-    generate: () => Blob | Promise<Blob>,
+    generate: (target: MediaPreviewRequest) => Blob | Promise<Blob>,
   ): Promise<Blob> {
-    const id = identity(request);
+    const target = bucketed(request);
+    const id = identity(target);
     const inMemory = this.memory.get(id);
     if (inMemory) {
+      this.memory.delete(id);
+      this.memory.set(id, inMemory);
       this.stats.memoryHits++;
       return inMemory;
     }
     const inFlight = this.pending.get(id);
     if (inFlight) return inFlight;
 
-    const work = this.loadOrCreate(id, generate);
+    const work = this.loadOrCreate(id, () => generate(target));
     this.pending.set(id, work);
     try {
       return await work;
@@ -95,7 +119,7 @@ export class MediaPreviewCache {
       const response = await cache.match(key);
       if (response) {
         const value = await response.blob();
-        this.memory.set(id, value);
+        this.remember(id, value);
         this.stats.persistentHits++;
         return value;
       }
@@ -103,28 +127,44 @@ export class MediaPreviewCache {
 
     this.stats.misses++;
     const value = await generate();
-    this.memory.set(id, value);
+    this.remember(id, value);
     if (cache) {
       await cache.put(key, new Response(value, {
-        headers: { 'content-type': value.type || 'application/octet-stream' },
+        headers: {
+          'content-type': value.type || 'application/octet-stream',
+          'x-mde-preview-bytes': String(value.size),
+        },
       }));
-      await this.trim(cache);
+      await this.recordAndTrim(cache, key, value.size);
     }
     return value;
   }
 
   async invalidate(request: MediaPreviewRequest): Promise<void> {
-    const id = identity(request);
-    this.memory.delete(id);
+    const id = identity(bucketed(request));
+    this.forget(id);
     const cache = await this.cache();
-    if (cache) await cache.delete(await this.key(id));
+    if (cache) {
+      const key = await this.key(id);
+      const normalized = new Request(key);
+      const entry = this.persistent.get(normalized.url);
+      if (entry) {
+        this.persistent.delete(normalized.url);
+        this.persistentBytes = Math.max(0, this.persistentBytes - entry.bytes);
+      }
+      await cache.delete(key);
+    }
   }
 
   async clear(): Promise<void> {
     this.memory.clear();
+    this.memoryBytes = 0;
     this.pending.clear();
     if (typeof caches !== 'undefined') await caches.delete(this.name);
     this.cachePromise = null;
+    this.inventoryPromise = null;
+    this.persistent.clear();
+    this.persistentBytes = 0;
   }
 
   private async cache(): Promise<Cache | null> {
@@ -141,9 +181,57 @@ export class MediaPreviewCache {
     return new URL(`/__mde_media_previews__/${hash}`, origin).href;
   }
 
-  private async trim(cache: Cache): Promise<void> {
-    const keys = await cache.keys();
-    const overflow = keys.length - this.maxEntries;
-    if (overflow > 0) await Promise.all(keys.slice(0, overflow).map((key) => cache.delete(key)));
+  private remember(id: string, value: Blob): void {
+    this.forget(id);
+    this.memory.set(id, value);
+    this.memoryBytes += value.size;
+    while (this.memory.size > this.maxEntries || this.memoryBytes > this.maxMemoryBytes) {
+      const oldest = this.memory.keys().next().value;
+      if (oldest === undefined) break;
+      this.forget(oldest);
+    }
+  }
+
+  private forget(id: string): void {
+    const value = this.memory.get(id);
+    if (!value) return;
+    this.memory.delete(id);
+    this.memoryBytes = Math.max(0, this.memoryBytes - value.size);
+  }
+
+  private async inventory(cache: Cache): Promise<void> {
+    if (!this.inventoryPromise) {
+      this.inventoryPromise = (async () => {
+        for (const request of await cache.keys()) {
+          const response = await cache.match(request);
+          const bytes = Number(response?.headers.get('x-mde-preview-bytes') ?? 0);
+          this.persistent.set(request.url, { request, bytes });
+          this.persistentBytes += bytes;
+        }
+      })();
+    }
+    await this.inventoryPromise;
+  }
+
+  private async recordAndTrim(cache: Cache, request: RequestInfo | URL, bytes: number): Promise<void> {
+    await this.inventory(cache);
+    const normalized = new Request(request);
+    const previous = this.persistent.get(normalized.url);
+    if (previous) this.persistentBytes -= previous.bytes;
+    else this.persistent.delete(normalized.url);
+    this.persistent.set(normalized.url, { request: normalized, bytes });
+    this.persistentBytes += bytes;
+    const removals = [];
+    while (
+      this.persistent.size > this.maxEntries || this.persistentBytes > this.maxPersistentBytes
+    ) {
+      const oldest = this.persistent.entries().next().value;
+      if (!oldest) break;
+      const [url, entry] = oldest;
+      this.persistent.delete(url);
+      this.persistentBytes = Math.max(0, this.persistentBytes - entry.bytes);
+      removals.push(cache.delete(entry.request));
+    }
+    await Promise.all(removals);
   }
 }
