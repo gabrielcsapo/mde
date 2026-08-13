@@ -121,10 +121,13 @@ export class MarkdownEditor extends EventTarget {
   private resourcePriorityFrame: number | null;
   private virtualizationFrame: number | null;
   private virtualizesDocument: boolean;
+  private hydratedChunks: Set<number>;
   private progressiveToken: number;
   private presentationSuspended: boolean;
   /** Diagnostic: chunk geometry reads used by viewport scheduling. */
   viewportLayoutProbeCount: number;
+  /** Diagnostic: hydrated chunks considered for offscreen eviction. */
+  viewportHydratedChunkVisitCount: number;
 
   /**
    * @param {HTMLElement} host
@@ -204,9 +207,11 @@ export class MarkdownEditor extends EventTarget {
     this.resourcePriorityFrame = null;
     this.virtualizationFrame = null;
     this.virtualizesDocument = false;
+    this.hydratedChunks = new Set();
     this.progressiveToken = 0;
     this.presentationSuspended = false;
     this.viewportLayoutProbeCount = 0;
+    this.viewportHydratedChunkVisitCount = 0;
     this.root.addEventListener('scroll', () => {
       this.scheduleResourcePriorities();
       this.scheduleVirtualization();
@@ -308,6 +313,7 @@ export class MarkdownEditor extends EventTarget {
     this.lineStarts = lineStarts(this.lines);
     this.lineEls = new Array(this.lines.length).fill(null);
     this.chunkEls = [];
+    this.hydratedChunks.clear();
     this.activeChunk = null;
     this.virtualizesDocument = this.lines.length > 64;
     const fragment = document.createDocumentFragment();
@@ -378,6 +384,7 @@ export class MarkdownEditor extends EventTarget {
     for (let chunkIndex = 0; chunkIndex < this.chunkEls.length; chunkIndex++) {
       const chunk = this.chunkEls[chunkIndex];
       if (chunk.classList.contains('mde-chunk-virtual')) continue;
+      this.hydratedChunks.add(chunkIndex);
       let line = chunkIndex * 64;
       for (const child of chunk.children) this.lineEls[line++] = child as HTMLElement;
     }
@@ -978,6 +985,7 @@ export class MarkdownEditor extends EventTarget {
     if (!reuseLineModel) this.lines = this.text.split('\n');
     this.lineEls = [];
     this.chunkEls = [];
+    this.hydratedChunks.clear();
     this.activeChunk = null;
     if (!reuseLineModel) this.lineStarts = lineStarts(this.lines);
     // A media journal reaches expensive DOM density with far fewer lines than a prose
@@ -1010,6 +1018,7 @@ export class MarkdownEditor extends EventTarget {
         this.lineEnd(i, this.lines, this.lineStarts)
       );
       this.lineEls.push(el);
+      this.hydratedChunks.add(this.chunkEls.length - 1);
       chunk!.appendChild(el);
     }
     this.root.replaceChildren(frag);
@@ -1071,7 +1080,8 @@ export class MarkdownEditor extends EventTarget {
       }
       const active = this.activeChunk ? this.chunkEls.indexOf(this.activeChunk) : -1;
       if (active >= 0) visible.add(active);
-      for (let index = 0; index < this.chunkEls.length; index++) {
+      for (const index of [...this.hydratedChunks]) {
+        this.viewportHydratedChunkVisitCount++;
         if (!visible.has(index)) this.virtualizeChunk(index);
       }
       this.scheduleResourcePriorities();
@@ -1131,6 +1141,7 @@ export class MarkdownEditor extends EventTarget {
     }
     chunk.classList.remove('mde-chunk-virtual');
     chunk.replaceChildren(fragment);
+    this.hydratedChunks.add(index);
     if (selection && document.activeElement === this.root) this.setSelectionRange(selection);
   }
 
@@ -1145,6 +1156,7 @@ export class MarkdownEditor extends EventTarget {
       this.lineStarts[first],
       this.lineEnd(last, this.lines, this.lineStarts),
     )));
+    this.hydratedChunks.delete(index);
   }
 
   /** Replace line nodes without disturbing untouched containment groups. */
@@ -1174,8 +1186,14 @@ export class MarkdownEditor extends EventTarget {
       current = next;
     }
     this.chunkEls = Array.from(this.root.children) as HTMLElement[];
+    this.hydratedChunks.clear();
     for (const chunk of this.chunkEls) {
       chunk.classList.toggle('mde-viewport-chunk', shouldContain);
+    }
+    for (let index = 0; index < this.chunkEls.length; index++) {
+      if (!this.chunkEls[index].classList.contains('mde-chunk-virtual')) {
+        this.hydratedChunks.add(index);
+      }
     }
   }
 

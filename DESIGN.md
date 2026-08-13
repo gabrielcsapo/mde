@@ -792,6 +792,14 @@ Three decisions are worth stating:
   theme and invalidates both caches atomically when the theme changes. On the 1 MB
   AppKit profile, initial viewport paint fell from 42.77 ms to 39.63 ms and full layout
   from 735.89 ms to 703.47 ms; the pathological-edit p95 stayed under 50 ms.
+- ~~Ordinary native edits invalidated and re-sorted the entire decoration index.~~ Small
+  patches now apply their uniform suffix shift and handful of explicit moves directly
+  to the materialized index. A 500 KB AppKit keystroke fell from 4.29 ms to 2.65 ms and
+  sustained 100 KB typing p95 from 0.99 ms to 0.70 ms.
+- ~~Web scroll eviction revisited every document chunk.~~ The editor now tracks only
+  hydrated chunks, so a viewport jump evicts a bounded working set rather than sweeping
+  the full document. The 1 MB two-frame scroll gate fell from 30.5 ms to 26.9 ms while
+  the media journal returns to one hydrated chunk and 219 DOM nodes.
 - ~~Browser poster frames and waveforms were regenerated after every app restart.~~
   `MediaPreviewCache` now persists host-generated preview blobs in bounded Cache
   Storage, keyed by media identity, kind, requested size, and a host version token.

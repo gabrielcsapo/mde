@@ -1456,11 +1456,19 @@ function makeEditor(options = {}) {
     e.setMarkdown(source);
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const before = e.viewportLayoutProbeCount;
+    const hydratedBefore = e.viewportHydratedChunkVisitCount;
     e.root.scrollTop = e.root.scrollHeight;
     e.root.dispatchEvent(new Event('scroll'));
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const probes = e.viewportLayoutProbeCount - before;
+    const hydratedVisits = e.viewportHydratedChunkVisitCount - hydratedBefore;
     assert(probes <= 40, `scroll read ${probes} chunk bounds for ${e.chunkEls.length} chunks`);
+    assert(hydratedVisits <= 12,
+      `scroll visited ${hydratedVisits} hydrated chunks for ${e.chunkEls.length} total chunks`);
+    const hydrated = e.chunkEls.filter(
+      (chunk) => !chunk.classList.contains('mde-chunk-virtual'),
+    ).length;
+    assert(hydrated <= 4, `scroll retained ${hydrated} hydrated chunks`);
     assertEqual(e.markdown, source);
   });
 

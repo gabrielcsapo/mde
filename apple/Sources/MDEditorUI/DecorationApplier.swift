@@ -79,6 +79,8 @@ final class DecorationApplier {
     /// changes `live` several times before anything is drawn.
     private var index: [Decoration] = []
     private var indexStale = true
+    /// Internal diagnostic proving small edits keep the materialized index hot.
+    private(set) var indexRebuildCount = 0
     /// Longest decoration in the index, so the backward search has a bound. A block
     /// widget can start far above the paragraph being repainted.
     private var maxLength = 0
@@ -100,6 +102,7 @@ final class DecorationApplier {
         }
         maxLength = index.map(\.range.length).max() ?? 0
         indexStale = false
+        indexRebuildCount += 1
     }
 
     /// Decorations overlapping `scope`, found by binary search rather than by scanning
@@ -159,11 +162,9 @@ final class DecorationApplier {
         // made the renderer, not the now-constant-time core, the dominant cost. Keep
         // the materialised index in place only for small patches with no position
         // mutations; edits and bulk analysis layers retain the lazy rebuild path.
-        let changed = patch.removed.count + patch.added.count
+        let changed = patch.removed.count + patch.added.count + patch.moved.count
         let incrementalIndex = !indexStale
             && changed <= 16
-            && patch.shifted.isEmpty
-            && patch.moved.isEmpty
         let removedKeys = incrementalIndex ? Set(patch.removed) : []
         var removedLongest = false
         for key in patch.removed {
@@ -182,10 +183,18 @@ final class DecorationApplier {
             index.removeAll { removedKeys.contains($0.key) }
         }
         for shift in patch.shifted {
-            for key in Array(live.keys) {
-                guard var d = live[key], d.range.location >= shift.start else { continue }
-                d.range.location += shift.delta
-                live[key] = d
+            if incrementalIndex {
+                let first = index.partitionPoint { $0.range.location < shift.start }
+                for position in first ..< index.count {
+                    index[position].range.location += shift.delta
+                    live[index[position].key] = index[position]
+                }
+            } else {
+                for key in Array(live.keys) {
+                    guard var d = live[key], d.range.location >= shift.start else { continue }
+                    d.range.location += shift.delta
+                    live[key] = d
+                }
             }
         }
         for move in patch.moved {
@@ -202,7 +211,12 @@ final class DecorationApplier {
             references[reference, default: []].insert(d.key)
         }
         if incrementalIndex {
-            for decoration in patch.added {
+            let movedKeys = Set(patch.moved.map(\.key))
+            if !movedKeys.isEmpty {
+                index.removeAll { movedKeys.contains($0.key) }
+            }
+            let inserted = patch.moved.compactMap { live[$0.key] } + patch.added
+            for decoration in inserted {
                 let insertion = index.partitionPoint { existing in
                     if existing.range.location != decoration.range.location {
                         return existing.range.location < decoration.range.location

@@ -1219,6 +1219,27 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(applier.live[last.key]?.range.location, last.range.location + 1)
     }
 
+    func testSmallShiftAndMovesKeepTheDecorationIndexHot() throws {
+        let engine = try XCTUnwrap(MarkdownEngine(manifest: HostExtensions.manifest))
+        let applier = DecorationApplier(engine: engine, theme: Theme())
+        let source = (0..<2_000).map { "Paragraph \($0) with **strong** and @gabe.\n\n" }.joined()
+        applier.ingest(engine.reset(source))
+        _ = applier.decorations
+        let rebuilds = applier.indexRebuildCount
+        let at = source.utf16.count / 2
+
+        let patch = try engine.apply(
+            [TextEdit(range: NSRange(location: at, length: 0), text: "x")],
+            documentLength: source.utf16.count + 1
+        )
+        XCTAssertLessThanOrEqual(patch.added.count + patch.removed.count + patch.moved.count, 16)
+        applier.ingest(patch)
+        _ = applier.decorations
+
+        XCTAssertEqual(applier.indexRebuildCount, rebuilds)
+        XCTAssertEqual(applier.decorations.count, applier.live.count)
+    }
+
     func testExplicitMoveOverridesACompactSuffixShift() throws {
         let engine = try XCTUnwrap(MarkdownEngine(manifest: nil))
         let applier = DecorationApplier(engine: engine, theme: Theme())
