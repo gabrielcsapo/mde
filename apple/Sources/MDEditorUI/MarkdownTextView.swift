@@ -23,6 +23,16 @@ public extension MarkdownTextViewDelegate {
     func markdownTextViewDidChangeSelection(_: MarkdownTextView) {}
 }
 
+private final class UIKitPluginPresentationRecord {
+    var presentation: MarkdownPluginPresentation
+    let focusWasEditor: Bool
+
+    init(presentation: MarkdownPluginPresentation, focusWasEditor: Bool) {
+        self.presentation = presentation
+        self.focusWasEditor = focusWasEditor
+    }
+}
+
 /// A `UITextView` on TextKit 1's incremental layout manager that renders markdown inline.
 ///
 /// The text storage stays exactly the markdown source — no substitution, no separate
@@ -90,7 +100,9 @@ public final class MarkdownTextView: UITextView {
     private var presentationSuspended = false
     var pluginInstallations: [MarkdownPluginInstallation] = []
     private var pluginCommands: [String: MarkdownPluginCommandRegistration] = [:]
-    private var pluginPresentations: [String: MarkdownPluginPresentation] = [:]
+    private var pluginCommandOrder: [String] = []
+    private var pluginPresentations: [String: UIKitPluginPresentationRecord] = [:]
+    private var pluginPresentationOrder: [String] = []
 
     /// Set while an undo is written into the storage, so it is not reported back to the
     /// core as a fresh edit.
@@ -195,21 +207,57 @@ public final class MarkdownTextView: UITextView {
     override public var undoManager: UndoManager? { ownUndoManager }
 
     override public var keyCommands: [UIKeyCommand]? {
-        let owned = pluginCommands.map { name, registration in
-            UIKeyCommand(
-                title: registration.title,
+        var shortcuts: Set<String> = []
+        let owned = pluginCommandOrder.reversed().compactMap { name -> UIKeyCommand? in
+            guard let registration = pluginCommands[name],
+                  registration.command.isEnabled(),
+                  let key = registration.command.key,
+                  !key.isEmpty else { return nil }
+            let signature = "\(key.lowercased())|\(registration.command.modifiers.rawValue)"
+            guard shortcuts.insert(signature).inserted else { return nil }
+            return UIKeyCommand(
+                title: registration.command.title,
                 action: #selector(handlePluginCommand(_:)),
-                input: registration.key,
-                modifierFlags: Self.keyModifierFlags(registration.modifiers),
+                input: key,
+                modifierFlags: Self.keyModifierFlags(registration.command.modifiers),
                 propertyList: name
             )
         }
-        return (super.keyCommands ?? []) + owned
+        let escape = pluginPresentationOrder.contains(where: {
+            pluginPresentations[$0]?.presentation.options.dismissOnEscape == true
+        }) ? [UIKeyCommand(
+            input: UIKeyCommand.inputEscape,
+            modifierFlags: [],
+            action: #selector(handlePluginPresentationEscape)
+        )] : []
+        return (super.keyCommands ?? []) + owned + escape
     }
 
     @objc private func handlePluginCommand(_ command: UIKeyCommand) {
-        guard let name = command.propertyList as? String else { return }
-        pluginCommands[name]?.handler()
+        guard let name = command.propertyList as? String,
+              let winner = pluginCommands[name] else { return }
+        let conflicts = pluginCommandOrder.compactMap { id -> String? in
+            guard let candidate = pluginCommands[id],
+                  candidate.command.isEnabled(),
+                  candidate.command.key?.lowercased() == winner.command.key?.lowercased(),
+                  candidate.command.modifiers == winner.command.modifiers
+            else { return nil }
+            return id
+        }
+        if conflicts.count > 1 {
+            NotificationCenter.default.post(
+                name: .markdownPluginCommandConflict,
+                object: self,
+                userInfo: ["commandIds": conflicts, "winner": name]
+            )
+        }
+        _ = executePluginCommand(id: name)
+    }
+
+    @objc private func handlePluginPresentationEscape() {
+        guard let name = pluginPresentationOrder.last else { return }
+        guard pluginPresentations[name]?.presentation.options.dismissOnEscape == true else { return }
+        removePluginPresentation(name, reason: .escape)
     }
 
     private static func keyModifierFlags(
@@ -223,28 +271,150 @@ public final class MarkdownTextView: UITextView {
     }
 
     func setPluginCommand(_ name: String, _ command: MarkdownPluginCommandRegistration) {
+        pluginCommandOrder.removeAll { $0 == name }
         pluginCommands[name] = command
+        pluginCommandOrder.append(name)
+        postPluginCommandsDidChange()
     }
 
-    func removePluginCommand(_ name: String) {
+    func updatePluginCommand(
+        _ name: String,
+        generation: UUID,
+        command: MarkdownPluginCommand
+    ) {
+        guard pluginCommands[name]?.generation == generation else { return }
+        pluginCommands[name]?.command = command
+        postPluginCommandsDidChange()
+    }
+
+    @discardableResult
+    func removePluginCommand(_ name: String, generation: UUID? = nil) -> Bool {
+        guard let current = pluginCommands[name],
+              generation == nil || current.generation == generation else { return false }
         pluginCommands.removeValue(forKey: name)
+        pluginCommandOrder.removeAll { $0 == name }
+        postPluginCommandsDidChange()
+        return true
+    }
+
+    public var registeredPluginCommands: [MarkdownPluginCommandDescriptor] {
+        pluginCommandOrder.compactMap { id in
+            guard let registration = pluginCommands[id],
+                  registration.command.isDiscoverable else { return nil }
+            let command = registration.command
+            return MarkdownPluginCommandDescriptor(
+                id: id,
+                plugin: registration.plugin,
+                name: registration.name,
+                title: command.title,
+                key: command.key,
+                modifiers: command.modifiers,
+                category: command.category,
+                keywords: command.keywords,
+                isEnabled: command.isEnabled(),
+                isChecked: command.isChecked()
+            )
+        }
+    }
+
+    @discardableResult
+    public func executePluginCommand(id: String) -> Bool {
+        guard let registration = pluginCommands[id], registration.command.isEnabled() else {
+            return false
+        }
+        registration.command.handler()
+        return true
+    }
+
+    private func postPluginCommandsDidChange() {
+        NotificationCenter.default.post(
+            name: .markdownPluginCommandsDidChange,
+            object: self,
+            userInfo: ["commands": registeredPluginCommands]
+        )
     }
 
     func setPluginPresentation(_ name: String, _ presentation: MarkdownPluginPresentation) {
-        removePluginPresentation(name)
-        pluginPresentations[name] = presentation
-        presentation.view.accessibilityViewIsModal = presentation.modal
-        addSubview(presentation.view)
+        let focusWasEditor = pluginPresentations[name]?.focusWasEditor ?? isFirstResponder
+        let replaced = pluginPresentations[name]
+        replaced?.presentation.options.view.removeFromSuperview()
+        pluginPresentations[name] = UIKitPluginPresentationRecord(
+            presentation: presentation,
+            focusWasEditor: focusWasEditor
+        )
+        pluginPresentationOrder.removeAll { $0 == name }
+        pluginPresentationOrder.append(name)
+        presentation.options.view.accessibilityViewIsModal = presentation.options.modal
+        addSubview(presentation.options.view)
+        layoutPluginPresentations()
+        presentation.options.initialFocus?.becomeFirstResponder()
+        replaced?.presentation.options.onDismiss?(.replaced)
+    }
+
+    func updatePluginPresentation(
+        _ name: String,
+        generation: UUID,
+        options: MarkdownPluginPresentationOptions
+    ) {
+        guard let record = pluginPresentations[name],
+              record.presentation.generation == generation else { return }
+        let old = record.presentation.options.view
+        if old !== options.view {
+            old.removeFromSuperview()
+            addSubview(options.view)
+        }
+        record.presentation.options = options
+        options.view.accessibilityViewIsModal = options.modal
         layoutPluginPresentations()
     }
 
-    func removePluginPresentation(_ name: String) {
-        pluginPresentations.removeValue(forKey: name)?.view.removeFromSuperview()
+    @discardableResult
+    func removePluginPresentation(
+        _ name: String,
+        generation: UUID? = nil,
+        reason: MarkdownPluginPresentationDismissReason = .programmatic
+    ) -> Bool {
+        guard let record = pluginPresentations[name],
+              generation == nil || record.presentation.generation == generation else {
+            return false
+        }
+        pluginPresentations.removeValue(forKey: name)
+        pluginPresentationOrder.removeAll { $0 == name }
+        let options = record.presentation.options
+        options.view.removeFromSuperview()
+        if options.restoreFocus && record.focusWasEditor && !isFirstResponder {
+            _ = becomeFirstResponder()
+        }
+        options.onDismiss?(reason)
+        return true
+    }
+
+    func repositionPluginPresentation(_ name: String, generation: UUID? = nil) {
+        guard let record = pluginPresentations[name],
+              generation == nil || record.presentation.generation == generation else { return }
+        layoutPluginPresentations()
+    }
+
+    private func dismissPluginPresentations(at point: CGPoint) {
+        for name in pluginPresentationOrder.reversed() {
+            guard let record = pluginPresentations[name] else { continue }
+            let options = record.presentation.options
+            let dismisses = options.dismissOnOutsideInteraction ?? !options.modal
+            if dismisses && !options.view.frame.contains(point) {
+                removePluginPresentation(name, reason: .outsideInteraction)
+            }
+        }
     }
 
     private func layoutPluginPresentations() {
         guard !pluginPresentations.isEmpty else { return }
-        let viewport = CGRect(origin: contentOffset, size: bounds.size).insetBy(dx: 8, dy: 8)
+        let safe = UIEdgeInsets(
+            top: max(8, safeAreaInsets.top),
+            left: max(8, safeAreaInsets.left),
+            bottom: max(8, safeAreaInsets.bottom),
+            right: max(8, safeAreaInsets.right)
+        )
+        let viewport = CGRect(origin: contentOffset, size: bounds.size).inset(by: safe)
         let selectionRect: CGRect = {
             guard selectedRange.location != NSNotFound,
                   selectedRange.location <= textStorage.length else { return viewport }
@@ -257,8 +427,9 @@ public final class MarkdownTextView: UITextView {
             rect.origin.y += textContainerInset.top
             return rect
         }()
-        for presentation in pluginPresentations.values {
-            let view = presentation.view
+        for record in pluginPresentations.values {
+            let options = record.presentation.options
+            let view = options.view
             var size = view.intrinsicContentSize
             if size.width <= 0 || size.height <= 0 {
                 size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
@@ -268,9 +439,17 @@ public final class MarkdownTextView: UITextView {
             size.width = min(size.width, viewport.width)
             size.height = min(size.height, viewport.height)
             var origin: CGPoint
-            switch presentation.anchor {
+            switch options.anchor {
             case .selection:
-                origin = CGPoint(x: selectionRect.minX, y: selectionRect.maxY + 8)
+                let below = selectionRect.maxY + options.offset
+                let above = selectionRect.minY - size.height - options.offset
+                let placement = options.placement == .automatic
+                    ? (below + size.height <= viewport.maxY ? .below : .above)
+                    : options.placement
+                origin = CGPoint(
+                    x: selectionRect.minX,
+                    y: placement == .above ? above : below
+                )
             case .editor:
                 origin = CGPoint(x: viewport.minX + 4, y: viewport.minY + 4)
             case .viewport:
@@ -492,7 +671,9 @@ public final class MarkdownTextView: UITextView {
     // MARK: - Hit testing
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        guard let position = closestPosition(to: gesture.location(in: self)) else { return }
+        let point = gesture.location(in: self)
+        dismissPluginPresentations(at: point)
+        guard let position = closestPosition(to: point) else { return }
         let index = offset(from: beginningOfDocument, to: position)
         guard let hit = applier.hit(at: index) else { return }
         let source = (textStorage.string as NSString).substring(with: hit.range)

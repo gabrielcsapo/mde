@@ -31,6 +31,18 @@
       "types": "./dist/types/extensions/parts-of-speech.d.ts",
       "import": "./dist/extensions/parts-of-speech.js"
     },
+    "./extensions/suggestions": {
+      "types": "./dist/types/extensions/suggestions.d.ts",
+      "import": "./dist/extensions/suggestions.js"
+    },
+    "./extensions/productivity": {
+      "types": "./dist/types/extensions/productivity.d.ts",
+      "import": "./dist/extensions/productivity.js"
+    },
+    "./extensions/journal-attachments": {
+      "types": "./dist/types/extensions/journal-attachments.d.ts",
+      "import": "./dist/extensions/journal-attachments.js"
+    },
     "./extensions/composer": {
       "types": "./dist/types/extensions/composer.d.ts",
       "import": "./dist/extensions/composer.js"

@@ -140,6 +140,19 @@ editor.installPlugin(mentionAutocomplete({
 editor.installPlugin(attachmentComposer());
 ```
 
+For richer editor UI, import the optional extension entry points:
+
+```js
+import { suggestionPlugin } from '@mde/web/extensions/suggestions';
+import { tagAutocomplete, wikilinkAutocomplete, slashCommandMenu } from '@mde/web/extensions/composer';
+import { floatingSelectionToolbar, linkEditor, templatePicker, findAndReplace, imageAltEditor } from '@mde/web/extensions/productivity';
+import { journalAttachments } from '@mde/web/extensions/journal-attachments';
+```
+
+Commands are centrally discoverable with `editor.listCommands()` and executable by id with
+`editor.executeCommand(id)`. Presentations return handles that can update, reposition, and dismiss
+without placing UI inside the contenteditable document.
+
 Package authors build the same behavior from `context.showPresentation`,
 `dismissPresentation`, `registerCommand`, and `onRoot`. All owned views, shortcuts, and
 listeners disappear automatically on plugin removal or editor teardown.
@@ -161,10 +174,12 @@ expect(await checkPluginCompatibility(editor, comments)).toMatchObject({
 Build with `pnpm run build`. Vite emits the ESM library and Wasm asset; TypeScript emits
 declarations from the same source.
 
-Browser tests run against the built package in real Chromium through Vitest Browser Mode:
+Browser tests run against the built package through Vitest Browser Mode. The default is
+Chromium; the release matrix runs Chromium, Firefox, and WebKit:
 
 ```sh
 pnpm run test:install-browser # once on a fresh machine
 pnpm test
+pnpm run test:all-browsers
 pnpm run test:watch           # visible browser during development
 ```

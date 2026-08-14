@@ -10,8 +10,13 @@ const SEQUENCE = [
   ['macOS renderer sharing the Swift package', 'done'],
   ['Web renderer over contenteditable', 'done'],
   ['Performance: incremental reparse, prefilter, fast hashing', 'done'],
-  ['Commands / toolbar API beyond the reference apps’ bold and undo', 'next'],
-  ['Multi-document session model', 'next'],
+  ['Commands and descriptor-driven toolbars', 'done'],
+  ['Bounded multi-document sessions', 'done'],
+  ['Progressive image, video, and audio delivery', 'done'],
+  ['Plugin-owned commands and floating canvas UI', 'done'],
+  ['Async suggestion engine and command palette foundation', 'done'],
+  ['Journal attachment import with preview, progress, and cancellation', 'done'],
+  ['React and SwiftUI plugin presentation helpers', 'done'],
 ];
 
 const OPEN = [
@@ -46,9 +51,9 @@ export default function Status() {
       <H2 id="where">Where the project is</H2>
       <Lede>
         The core is complete, with undo and resource references. All three renderers run against it,
-        each with a reference app. Two features ship as{' '}
-        <Link to="/extend/showcase">extensions on the layer API</Link> rather than as editor
-        features.
+        each with a reference app. Runtime extensions now cover host decoration layers,
+        background analysis, discoverable commands, generic suggestions, journal imports, and floating canvas UI without adding presentation state
+        to the markdown model.
       </Lede>
       <TableFrame className="mt-6">
         <thead>
@@ -67,10 +72,9 @@ export default function Status() {
         </tbody>
       </TableFrame>
       <Note>
-        The toolbar work is the interesting one: the{' '}
-        <Link to="/try">editor on this site</Link> already builds its toolbar from a list of
-        descriptors, so a capability that arrives as an extension arrives as a button — and the page
-        does not have to learn anything new about it.
+        The <Link to="/try">editor on this site</Link> exercises the same commands, sessions,
+        media pipeline, and plugin presentations that package consumers receive. The remaining
+        authoring surface is built from the same extension model rather than a second editor.
       </Note>
 
       <H2 id="open">Open questions</H2>

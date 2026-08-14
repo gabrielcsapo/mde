@@ -46,3 +46,10 @@ export function useEditorHistory() {
   }, []);
   return [state, onHistoryChange];
 }
+
+/** Discoverable plugin commands as React state without exposing the editor instance. */
+export function useEditorCommands() {
+  const [commands, setCommands] = useState([]);
+  const onCommandsChange = useCallback((next) => setCommands(next), []);
+  return [commands, onCommandsChange];
+}

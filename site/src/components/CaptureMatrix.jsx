@@ -2,6 +2,8 @@ const SCENARIOS = [
   ['core', 'CommonMark essentials'],
   ['tables', 'Rich tables and resources'],
   ['extensions', 'Host-defined syntax'],
+  ['composer', 'Mention suggestions'],
+  ['commands', 'Discoverable command menu'],
   ['editing', 'Live syntax reveal'],
   ['table-editing', 'Selected table source'],
 ];

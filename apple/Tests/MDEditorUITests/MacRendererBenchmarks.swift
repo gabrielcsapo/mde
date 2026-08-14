@@ -163,11 +163,12 @@ final class MacRendererBenchmarks: XCTestCase {
         return status == KERN_SUCCESS ? info.phys_footprint : 0
     }
 
-    private func enforceBudget(_ value: Double, environment key: String, metric: String) {
-        guard ProcessInfo.processInfo.environment["MDE_BENCH_ENFORCE"] == "1",
-              let raw = ProcessInfo.processInfo.environment[key],
-              let budget = Double(raw)
-        else { return }
+    private func enforceBudget(
+        _ value: Double, environment key: String, metric: String, fallback: Double? = nil
+    ) {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH_ENFORCE"] == "1" else { return }
+        let budget = ProcessInfo.processInfo.environment[key].flatMap(Double.init) ?? fallback
+        guard let budget else { return }
         XCTAssertLessThanOrEqual(
             value,
             budget,
@@ -553,6 +554,25 @@ final class MacRendererBenchmarks: XCTestCase {
             metric: "AppKit plugin presentation show/dismiss"
         )
         _ = window
+    }
+
+    func testBenchmarkSuggestionFiltering() {
+        let items = (0..<2_000).map { index in
+            MarkdownSuggestionItem(
+                id: String(index), label: "Journal person \(index)",
+                keywords: ["team-\(index % 20)"]
+            )
+        }
+        let duration = best(40) {
+            _ = filterSuggestions(items, query: "person 12").prefix(12)
+        }
+        print(String(format: "2K suggestion filter p95-ish %8.3f ms", duration))
+        enforceBudget(
+            duration,
+            environment: "MDE_APPLE_SUGGESTION_FILTER_BUDGET_MS",
+            metric: "2,000-item native suggestion filter",
+            fallback: 8
+        )
     }
 
     func testBenchmarkGiantUnicodeParagraph() throws {

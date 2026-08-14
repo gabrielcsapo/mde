@@ -2,7 +2,13 @@ import { createElement, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, test } from 'vitest';
 
-import { MarkdownEditor, definePlugin } from '../dist/index.js';
+import {
+  MarkdownEditor,
+  createReactPresentation,
+  definePlugin,
+  useEditorCommands,
+  usePluginPresentation,
+} from '../dist/index.js';
 
 const mounted = [];
 
@@ -113,6 +119,109 @@ test('React plugin presentations stay outside its subtree and clean up on remova
     ref, defaultValue: 'Hello @ga', plugins: [],
   }));
   await until(() => !panel.isConnected, 'React plugin presentation leaked after removal');
+});
+
+test('React presentation helper owns a portal root and supports live rendering', async () => {
+  const ref = createRef();
+  let presentation;
+  const plugin = definePlugin({
+    name: 'test.react-portal-helper',
+    setup(context) {
+      presentation = createReactPresentation(
+        context,
+        'palette',
+        createElement('button', null, 'First command'),
+        { anchor: 'viewport', className: 'react-plugin-palette' },
+      );
+    },
+  });
+  mount(createElement(MarkdownEditor, {
+    ref, defaultValue: 'Commands', plugins: [plugin],
+  }));
+  await until(() => ref.current?.isReady(), 'React editor never became ready');
+  await until(() => presentation?.element.textContent === 'First command', 'portal did not render');
+  expect(presentation.element.className).toBe('react-plugin-palette');
+  presentation.render(createElement('button', null, 'Updated command'));
+  await until(() => presentation.element.textContent === 'Updated command', 'portal did not update');
+  presentation.update({ className: undefined });
+  expect(presentation.element.className).toBe('');
+  expect(ref.current.getMarkdown()).toBe('Commands');
+  ref.current.removePlugin(plugin.name);
+  await until(() => !presentation.element.isConnected, 'portal leaked after plugin removal');
+});
+
+test('React handle exposes discoverable plugin commands', async () => {
+  const ref = createRef();
+  const seen = [];
+  const plugin = definePlugin({
+    name: 'test.react-commands',
+    setup(context) {
+      context.registerCommand('palette', {
+        title: 'Open palette', category: 'Editor', handler: () => { seen.push('run'); },
+      });
+    },
+  });
+  mount(createElement(MarkdownEditor, {
+    ref, defaultValue: 'Commands', plugins: [plugin],
+  }));
+  await until(() => ref.current?.isReady(), 'React editor never became ready');
+  expect(ref.current.getCommands().map((command) => command.title)).toEqual(['Open palette']);
+  expect(ref.current.executeCommand(ref.current.getCommands()[0].id)).toBe(true);
+  expect(seen).toEqual(['run']);
+});
+
+test('React command hook receives the live registry', async () => {
+  const ref = createRef();
+  const plugin = definePlugin({
+    name: 'test.react-command-hook',
+    setup(context) {
+      context.registerCommand('insert', { title: 'Insert photo', handler() {} });
+    },
+  });
+  function Probe() {
+    const [commands, onCommandsChange] = useEditorCommands();
+    return createElement('div', null,
+      createElement(MarkdownEditor, {
+        ref, defaultValue: '', plugins: [plugin], onCommandsChange,
+      }),
+      createElement('output', { 'data-command-count': commands.length }, commands.map((x) => x.title).join(',')),
+    );
+  }
+  const { host } = mount(createElement(Probe));
+  await until(() => host.querySelector('output')?.textContent === 'Insert photo', 'command hook stayed stale');
+});
+
+test('React presentation hook renders, updates, returns its handle, and cleans up', async () => {
+  let currentHandle = null;
+  let activeOptions = null;
+  const context = {
+    showPresentation(name, options) {
+      activeOptions = options;
+      document.body.appendChild(options.element);
+      return {
+        id: name,
+        update(next) { activeOptions = { ...activeOptions, ...next }; },
+        reposition() {},
+        dismiss(reason = 'programmatic') {
+          activeOptions.element.remove();
+          activeOptions.onDismiss?.(reason);
+        },
+      };
+    },
+  };
+  function Presentation({ label }) {
+    currentHandle = usePluginPresentation(
+      context, 'hook-panel', createElement('span', null, label), { anchor: 'editor' },
+    );
+    return null;
+  }
+  const { root } = mount(createElement(Presentation, { label: 'First' }));
+  await until(() => document.body.textContent.includes('First'), 'hook presentation did not mount');
+  await until(() => currentHandle !== null, 'hook did not return its mounted handle');
+  root.render(createElement(Presentation, { label: 'Updated' }));
+  await until(() => currentHandle.element.textContent === 'Updated', 'hook presentation did not update');
+  root.render(null);
+  await until(() => !currentHandle.element.isConnected, 'hook presentation leaked after unmount');
 });
 
 test('controlled acknowledgement does not roll back an accepted local edit', async () => {

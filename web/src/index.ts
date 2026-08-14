@@ -40,9 +40,14 @@ export type {
   PluginAnalysisDiagnostic,
   PluginAnalysisOptions,
   PluginCleanup,
+  PluginCommandDescriptor,
+  PluginCommandHandle,
   PluginCommandOptions,
   PluginPresentationAnchor,
+  PluginPresentationDismissReason,
+  PluginPresentationHandle,
   PluginPresentationOptions,
+  PluginPresentationPlacement,
 } from './plugins.js';
 export type { ResourceRequest, ResourceResolver, ResourceState } from './resources.js';
 export type {

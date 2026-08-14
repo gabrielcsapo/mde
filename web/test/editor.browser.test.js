@@ -31,7 +31,16 @@ import {
 // editor, and testing them here is the check that they never needed to be.
 import { TypewriterMode } from '../dist/extensions/typewriter.js';
 import { PartsOfSpeech, tagWord } from '../dist/extensions/parts-of-speech.js';
-import { attachmentComposer, mentionAutocomplete } from '../dist/extensions/composer.js';
+import {
+  attachmentComposer,
+  mentionAutocomplete,
+  slashCommandMenu,
+  tagAutocomplete,
+  wikilinkAutocomplete,
+} from '../dist/extensions/composer.js';
+import { suggestionPlugin } from '../dist/extensions/suggestions.js';
+import { findAndReplace, linkEditor, templatePicker } from '../dist/extensions/productivity.js';
+import { journalAttachments } from '../dist/extensions/journal-attachments.js';
 import { checkPluginCompatibility } from '../dist/plugin-testing.js';
 
 function assert(condition, message) {
@@ -1832,6 +1841,7 @@ function makeEditor(options = {}) {
       name: 'test.presentation',
       setup(context) {
         context.registerCommand('open', {
+          title: 'Open picker',
           key: 'o', primary: true,
           handler: () => context.showPresentation('picker', {
             element: panel, anchor: 'selection', onDismiss: () => { dismissed++; },
@@ -1853,6 +1863,119 @@ function makeEditor(options = {}) {
     await Promise.resolve();
     assert(!panel.isConnected, 'Escape did not dismiss the presentation');
     assertEqual(dismissed, 1);
+  });
+
+  test('presentation handles update, place, dismiss outside, and restore focus', async () => {
+    const e = makeEditor();
+    e.root.focus();
+    const first = document.createElement('div');
+    first.style.cssText = 'width:140px;height:44px';
+    const second = document.createElement('div');
+    second.style.cssText = 'width:160px;height:48px';
+    let handle;
+    let reason = null;
+    e.installPlugin(definePlugin({
+      name: 'test.presentation-handle',
+      setup(context) {
+        handle = context.showPresentation('panel', {
+          element: first,
+          anchor: 'selection',
+          placement: 'above',
+          dismissOnOutsidePointer: true,
+          onDismiss: (value) => { reason = value; },
+        });
+      },
+    }));
+    assertEqual(first.dataset.mdePlacement, 'above');
+    handle.update({ element: second, offset: 14 });
+    assert(!first.isConnected, 'presentation update left its old element mounted');
+    assert(second.isConnected, 'presentation update did not mount its replacement');
+    handle.reposition();
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    await Promise.resolve();
+    assert(!second.isConnected, 'outside pointer did not dismiss the presentation');
+    assertEqual(reason, 'outside-pointer');
+    assert(document.activeElement === e.root);
+  });
+
+  test('modal presentations trap focus and respect a custom portal container', async () => {
+    const e = makeEditor();
+    e.root.focus();
+    const portal = document.createElement('div');
+    document.body.appendChild(portal);
+    const dialog = document.createElement('div');
+    const first = document.createElement('button');
+    first.textContent = 'First';
+    const last = document.createElement('button');
+    last.textContent = 'Last';
+    dialog.append(first, last);
+    e.installPlugin(definePlugin({
+      name: 'test.focus-trap',
+      setup(context) {
+        context.showPresentation('dialog', {
+          element: dialog,
+          anchor: 'viewport',
+          container: portal,
+          initialFocus: first,
+        });
+      },
+    }));
+    await new Promise(requestAnimationFrame);
+    assertEqual(dialog.parentElement, portal);
+    assert(document.activeElement === first);
+    last.focus();
+    globalThis.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Tab', bubbles: true, cancelable: true,
+    }));
+    assert(document.activeElement === first);
+    e.removePlugin('test.focus-trap');
+    portal.remove();
+  });
+
+  test('replaced presentation handles are inert and receive a replacement reason', () => {
+    const e = makeEditor();
+    const first = document.createElement('div');
+    const second = document.createElement('div');
+    const staleElement = document.createElement('div');
+    let stale;
+    let replacementReason;
+    e.installPlugin(definePlugin({
+      name: 'test.stale-presentation',
+      setup(context) {
+        stale = context.showPresentation('panel', {
+          element: first, onDismiss: (reason) => { replacementReason = reason; },
+        });
+        context.showPresentation('panel', { element: second });
+      },
+    }));
+    assertEqual(replacementReason, 'replaced');
+    stale.update({ element: staleElement });
+    stale.reposition();
+    stale.dismiss();
+    assert(second.isConnected, 'a stale handle mutated the replacement presentation');
+    assert(!staleElement.isConnected);
+  });
+
+  test('a replacement callback can present again without orphaning either replacement', () => {
+    const e = makeEditor();
+    const first = document.createElement('div');
+    const second = document.createElement('div');
+    const final = document.createElement('div');
+    e.installPlugin(definePlugin({
+      name: 'test.reentrant-presentation',
+      setup(context) {
+        context.showPresentation('panel', {
+          element: first,
+          onDismiss: (reason) => {
+            if (reason === 'replaced') context.showPresentation('panel', { element: final });
+          },
+        });
+        context.showPresentation('panel', { element: second });
+      },
+    }));
+    assert(final.isConnected, 'the callback-owned replacement did not win');
+    assert(!first.isConnected && !second.isConnected, 'replacement leaked an orphaned view');
+    assertEqual(document.querySelectorAll('[data-mde-plugin-presentation]').length, 1);
   });
 
   test('removing a plugin tears down its presentations and root listeners', () => {
@@ -1883,9 +2006,11 @@ function makeEditor(options = {}) {
       name: 'test.command-replacement',
       setup(context) {
         context.registerCommand('open', {
+          title: 'Open old',
           key: 'o', primary: true, handler: () => { oldRuns++; },
         });
         context.registerCommand('open', {
+          title: 'Open new',
           key: 'o', primary: true, handler: () => { newRuns++; },
         });
       },
@@ -1897,7 +2022,59 @@ function makeEditor(options = {}) {
     assertEqual(newRuns, 1);
   });
 
-  test('the mention example autocompletes through the public presentation API', () => {
+  test('commands are discoverable, stateful, executable, and resolve conflicts deterministically', () => {
+    const e = makeEditor();
+    let firstRuns = 0;
+    let secondRuns = 0;
+    let secondEnabled = true;
+    let secondHandle;
+    const conflicts = [];
+    e.addEventListener('commandconflict', (event) => conflicts.push(event.detail));
+    e.installPlugin(definePlugin({
+      name: 'test.commands-one',
+      setup(context) {
+        context.registerCommand('open', {
+          title: 'Open first', key: 'k', primary: true, category: 'Journal',
+          handler: () => { firstRuns++; },
+        });
+      },
+    }));
+    e.installPlugin(definePlugin({
+      name: 'test.commands-two',
+      setup(context) {
+        secondHandle = context.registerCommand('open', {
+          title: 'Open second', key: 'k', primary: true,
+          enabled: () => secondEnabled,
+          checked: () => true,
+          handler: () => { secondRuns++; },
+        });
+      },
+    }));
+    assertEqual(e.listCommands().map((command) => command.title), ['Open first', 'Open second']);
+    assertEqual(e.listCommands()[1].checked, true);
+    e.root.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'k', metaKey: true, bubbles: true, cancelable: true,
+    }));
+    assertEqual(firstRuns, 0);
+    assertEqual(secondRuns, 1);
+    assertEqual(conflicts.length, 1);
+    assertEqual(conflicts[0].winner, secondHandle.id);
+
+    secondEnabled = false;
+    secondHandle.update({ title: 'Open second disabled' });
+    e.root.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'k', metaKey: true, bubbles: true, cancelable: true,
+    }));
+    assertEqual(firstRuns, 1);
+    assertEqual(secondRuns, 1);
+    assertEqual(e.listCommands()[1].enabled, false);
+    secondHandle.unregister();
+    assertEqual(e.listCommands().length, 1);
+    assert(e.executeCommand(e.listCommands()[0].id));
+    assertEqual(firstRuns, 2);
+  });
+
+  test('the mention example autocompletes through the public presentation API', async () => {
     const e = makeEditor();
     e.installPlugin(mentionAutocomplete({
       candidates: [
@@ -1911,15 +2088,212 @@ function makeEditor(options = {}) {
     e.dispatchEvent(new CustomEvent('selectionchange', {
       detail: { range: { start: 9, end: 9 } },
     }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const menu = document.querySelector('.mde-composer-menu');
     assert(menu, 'typing @ did not show mention suggestions');
-    assertEqual(menu.querySelectorAll('[role="option"]').length, 1);
+    assertEqual(menu.querySelectorAll('[role="option"]').length, 2);
     e.root.dispatchEvent(new KeyboardEvent('keydown', {
       key: 'Enter', bubbles: true, cancelable: true,
     }));
     assertEqual(e.markdown, 'Hello @gabe ');
     assertEqual(domText(e.root), 'Hello @gabe ');
     assert(!menu.isConnected, 'choosing a mention left its menu mounted');
+  });
+
+  test('suggestions are async latest-wins, cached, grouped, and IME-safe', async () => {
+    const e = makeEditor();
+    const requests = [];
+    let resolveFirst;
+    let providerRuns = 0;
+    e.installPlugin(suggestionPlugin({
+      name: 'test.suggestions',
+      triggers: [{ trigger: '@' }],
+      loadingLabel: 'Loading',
+      provider: ({ query, signal }) => {
+        providerRuns++;
+        requests.push({ query, signal });
+        if (query === 'a') return new Promise((resolve) => { resolveFirst = resolve; });
+        return [{ id: query, label: query, group: 'People', insertText: `@${query}` }];
+      },
+    }));
+    const move = (markdown) => {
+      e.setMarkdown(markdown);
+      e.root.focus();
+      e.setSelectionRange({ start: markdown.length, end: markdown.length });
+      e.dispatchEvent(new CustomEvent('selectionchange', {
+        detail: { range: { start: markdown.length, end: markdown.length } },
+      }));
+    };
+    move('@a');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    move('@ab');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    resolveFirst([{ id: 'stale', label: 'Stale' }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert(requests[0].signal.aborted, 'superseded provider was not aborted');
+    assertEqual(document.querySelector('[role="option"]')?.textContent, 'ab');
+    assert(document.querySelector('.mde-suggestion-group'), 'group heading was not rendered');
+
+    move('plain');
+    move('@ab');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEqual(providerRuns, 2, 'cached query reran its provider');
+
+    e.root.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    move('@composing');
+    assert(!document.querySelector('.mde-suggestion-menu'), 'IME composition opened suggestions');
+    e.root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert(document.querySelector('.mde-suggestion-menu'), 'composition completion did not resume');
+  });
+
+  test('async suggestion selection keeps its signal live and reports failures', async () => {
+    const e = makeEditor();
+    let abortedDuringSelection;
+    let diagnostic;
+    e.addEventListener('pluginerror', (event) => { diagnostic = event.detail; });
+    e.installPlugin(suggestionPlugin({
+      name: 'test.selection-failure',
+      triggers: [{ trigger: '@' }],
+      provider: () => [{
+        id: 'gabe', label: 'Gabe',
+        async select(request) {
+          await Promise.resolve();
+          abortedDuringSelection = request.signal.aborted;
+          throw new Error('selection failed');
+        },
+      }],
+    }));
+    e.setMarkdown('@ga');
+    e.root.focus();
+    e.setSelectionRange({ start: 3, end: 3 });
+    e.dispatchEvent(new CustomEvent('selectionchange', { detail: { range: e.selectionRange() } }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    e.root.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Enter', bubbles: true, cancelable: true,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEqual(abortedDuringSelection, false);
+    assertEqual(diagnostic.task, 'suggestion-selection');
+    assert(!document.querySelector('.mde-suggestion-menu'));
+  });
+
+  test('tags, wiki links, and slash commands share the suggestion engine', async () => {
+    const e = makeEditor();
+    let commandRuns = 0;
+    e.installPlugin(definePlugin({
+      name: 'test.command-source',
+      setup(context) {
+        context.registerCommand('daily', {
+          title: 'Insert daily heading', category: 'Journal', keywords: ['today'],
+          handler: () => { commandRuns++; },
+        });
+      },
+    }));
+    e.installPlugin(tagAutocomplete({ items: [{ id: 'travel', label: 'Travel' }] }));
+    e.installPlugin(wikilinkAutocomplete({ items: [{ id: 'one', label: 'Day One' }] }));
+    e.installPlugin(slashCommandMenu());
+    const choose = async (source) => {
+      e.setMarkdown(source);
+      e.root.focus();
+      e.setSelectionRange({ start: source.length, end: source.length });
+      e.dispatchEvent(new CustomEvent('selectionchange', { detail: { range: e.selectionRange() } }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      e.root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    };
+    await choose('#tra');
+    assertEqual(e.markdown, '#travel ');
+    await choose('See [[Day');
+    assertEqual(e.markdown, 'See [[Day One]] ');
+    await choose('/daily');
+    assertEqual(e.markdown, '');
+    assertEqual(commandRuns, 1);
+  });
+
+  test('template and find/replace plugins execute through discoverable commands', () => {
+    const e = makeEditor();
+    e.setMarkdown('day day');
+    e.installPlugin(templatePicker([{ id: 'daily', title: 'Daily', markdown: '# Daily\n' }]));
+    e.installPlugin(findAndReplace());
+    const find = e.listCommands().find((command) => command.title === 'Find and replace');
+    assert(find && e.executeCommand(find.id));
+    const form = document.querySelector('.mde-composer-dialog');
+    const [needle, replacement] = form.querySelectorAll('input');
+    needle.value = 'day';
+    replacement.value = 'night';
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+    assertEqual(e.markdown, 'night night');
+    assertEqual(form.querySelector('output').textContent, '2 replacements');
+  });
+
+  test('the link editor updates the containing link instead of nesting markdown', () => {
+    const e = makeEditor();
+    e.setMarkdown('Read [the entry](journal/day-one) today.');
+    e.root.focus();
+    e.setSelectionRange({ start: 10, end: 10 });
+    e.installPlugin(linkEditor());
+    const command = e.listCommands().find((item) => item.title === 'Add or edit link');
+    assert(command && e.executeCommand(command.id));
+    const form = document.querySelector('.mde-composer-dialog');
+    assertEqual(form.querySelector('h2').textContent, 'Edit link');
+    const [label, destination] = form.querySelectorAll('input');
+    assertEqual(label.value, 'the entry');
+    assertEqual(destination.value, 'journal/day-one');
+    label.value = 'today';
+    destination.value = 'journal/today';
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+    assertEqual(e.markdown, 'Read [today](journal/today) today.');
+  });
+
+  test('journal attachments import dropped files with preview, progress, and durable replacement', async () => {
+    const e = makeEditor();
+    e.root.focus();
+    e.setSelectionRange({ start: 0, end: 0 });
+    let release;
+    const imported = new Promise((resolve) => { release = resolve; });
+    e.installPlugin(journalAttachments({
+      importFile: async (_file, { reportProgress }) => {
+        reportProgress(0.5);
+        await imported;
+        return { reference: 'journal/photo.jpg', alt: 'A quiet morning' };
+      },
+    }));
+    const file = new File(['image'], 'morning.jpg', { type: 'image/jpeg' });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    e.root.dispatchEvent(new DragEvent('drop', {
+      dataTransfer: transfer, bubbles: true, cancelable: true,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert(e.markdown.includes('blob:'), 'local preview was not inserted immediately');
+    assertEqual(document.querySelector('progress')?.value, 0.5);
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assertEqual(e.markdown, '![A quiet morning](journal/photo.jpg)');
+    assert(!document.querySelector('.mde-upload-panel'), 'finished import left progress UI mounted');
+  });
+
+  test('cancelling a journal import aborts work and removes its temporary reference', async () => {
+    const e = makeEditor();
+    e.root.focus();
+    e.setSelectionRange({ start: 0, end: 0 });
+    let signal;
+    e.installPlugin(journalAttachments({
+      importFile: (_file, context) => {
+        signal = context.signal;
+        return new Promise(() => {});
+      },
+    }));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['voice'], 'note.m4a', { type: 'audio/mp4' }));
+    e.root.dispatchEvent(new DragEvent('drop', {
+      dataTransfer: transfer, bubbles: true, cancelable: true,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    document.querySelector('.mde-upload-row button').click();
+    assert(signal.aborted);
+    assertEqual(e.markdown, '');
+    assert(!document.querySelector('.mde-upload-panel'));
   });
 
   test('the attachment example inserts image, video, and link markdown from Command-O', () => {

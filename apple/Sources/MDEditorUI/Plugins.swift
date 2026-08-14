@@ -34,23 +34,165 @@ public struct MarkdownPluginCommandModifiers: OptionSet, Sendable {
     public static let option = Self(rawValue: 1 << 2)
 }
 
+public struct MarkdownPluginCommand {
+    public var title: String
+    public var key: String?
+    public var modifiers: MarkdownPluginCommandModifiers
+    public var category: String?
+    public var keywords: [String]
+    public var isDiscoverable: Bool
+    public var isEnabled: () -> Bool
+    public var isChecked: () -> Bool
+    public var handler: () -> Void
+
+    public init(
+        title: String,
+        key: String? = nil,
+        modifiers: MarkdownPluginCommandModifiers = [],
+        category: String? = nil,
+        keywords: [String] = [],
+        isDiscoverable: Bool = true,
+        isEnabled: @escaping () -> Bool = { true },
+        isChecked: @escaping () -> Bool = { false },
+        handler: @escaping () -> Void
+    ) {
+        self.title = title
+        self.key = key
+        self.modifiers = modifiers
+        self.category = category
+        self.keywords = keywords
+        self.isDiscoverable = isDiscoverable
+        self.isEnabled = isEnabled
+        self.isChecked = isChecked
+        self.handler = handler
+    }
+}
+
+public struct MarkdownPluginCommandDescriptor: Equatable, Sendable {
+    public let id: String
+    public let plugin: String
+    public let name: String
+    public let title: String
+    public let key: String?
+    public let modifiers: MarkdownPluginCommandModifiers
+    public let category: String?
+    public let keywords: [String]
+    public let isEnabled: Bool
+    public let isChecked: Bool
+}
+
+public final class MarkdownPluginCommandHandle {
+    public let id: String
+    private let updateImpl: (MarkdownPluginCommand) -> Void
+    private let unregisterImpl: () -> Void
+
+    fileprivate init(
+        id: String,
+        update: @escaping (MarkdownPluginCommand) -> Void,
+        unregister: @escaping () -> Void
+    ) {
+        self.id = id
+        updateImpl = update
+        unregisterImpl = unregister
+    }
+
+    public func update(_ command: MarkdownPluginCommand) { updateImpl(command) }
+    public func unregister() { unregisterImpl() }
+}
+
 public enum MarkdownPluginPresentationAnchor: Sendable {
     case selection
     case editor
     case viewport
 }
 
+public enum MarkdownPluginPresentationPlacement: Sendable {
+    case automatic
+    case above
+    case below
+}
+
+public enum MarkdownPluginPresentationDismissReason: Sendable, Equatable {
+    case programmatic
+    case escape
+    case outsideInteraction
+    case replaced
+    case pluginRemoved
+}
+
+public struct MarkdownPluginPresentationOptions {
+    public var view: PlatformView
+    public var anchor: MarkdownPluginPresentationAnchor
+    public var placement: MarkdownPluginPresentationPlacement
+    public var offset: CGFloat
+    public var modal: Bool
+    public var dismissOnEscape: Bool
+    public var dismissOnOutsideInteraction: Bool?
+    public var restoreFocus: Bool
+    public weak var initialFocus: PlatformView?
+    public var onDismiss: ((MarkdownPluginPresentationDismissReason) -> Void)?
+
+    public init(
+        view: PlatformView,
+        anchor: MarkdownPluginPresentationAnchor = .selection,
+        placement: MarkdownPluginPresentationPlacement = .automatic,
+        offset: CGFloat = 8,
+        modal: Bool = false,
+        dismissOnEscape: Bool = true,
+        dismissOnOutsideInteraction: Bool? = nil,
+        restoreFocus: Bool = true,
+        initialFocus: PlatformView? = nil,
+        onDismiss: ((MarkdownPluginPresentationDismissReason) -> Void)? = nil
+    ) {
+        self.view = view
+        self.anchor = anchor
+        self.placement = placement
+        self.offset = max(0, offset)
+        self.modal = modal
+        self.dismissOnEscape = dismissOnEscape
+        self.dismissOnOutsideInteraction = dismissOnOutsideInteraction
+        self.restoreFocus = restoreFocus
+        self.initialFocus = initialFocus
+        self.onDismiss = onDismiss
+    }
+}
+
+public final class MarkdownPluginPresentationHandle {
+    public let id: String
+    private let updateImpl: (MarkdownPluginPresentationOptions) -> Void
+    private let repositionImpl: () -> Void
+    private let dismissImpl: (MarkdownPluginPresentationDismissReason) -> Void
+
+    fileprivate init(
+        id: String,
+        update: @escaping (MarkdownPluginPresentationOptions) -> Void,
+        reposition: @escaping () -> Void,
+        dismiss: @escaping (MarkdownPluginPresentationDismissReason) -> Void
+    ) {
+        self.id = id
+        updateImpl = update
+        repositionImpl = reposition
+        dismissImpl = dismiss
+    }
+
+    public func update(_ options: MarkdownPluginPresentationOptions) { updateImpl(options) }
+    public func reposition() { repositionImpl() }
+    public func dismiss(_ reason: MarkdownPluginPresentationDismissReason = .programmatic) {
+        dismissImpl(reason)
+    }
+}
+
 struct MarkdownPluginCommandRegistration {
-    let title: String
-    let key: String
-    let modifiers: MarkdownPluginCommandModifiers
-    let handler: () -> Void
+    let id: String
+    let plugin: String
+    let name: String
+    let generation: UUID
+    var command: MarkdownPluginCommand
 }
 
 struct MarkdownPluginPresentation {
-    let view: PlatformView
-    let anchor: MarkdownPluginPresentationAnchor
-    let modal: Bool
+    let generation: UUID
+    var options: MarkdownPluginPresentationOptions
 }
 
 public struct MarkdownPluginAnalysisDiagnostic: Sendable {
@@ -65,6 +207,12 @@ public struct MarkdownPluginAnalysisDiagnostic: Sendable {
 public extension Notification.Name {
     static let markdownPluginAnalysisDiagnostic = Notification.Name(
         "dev.mde.plugin-analysis-diagnostic"
+    )
+    static let markdownPluginCommandsDidChange = Notification.Name(
+        "dev.mde.plugin-commands-did-change"
+    )
+    static let markdownPluginCommandConflict = Notification.Name(
+        "dev.mde.plugin-command-conflict"
     )
 }
 
@@ -191,43 +339,114 @@ public final class MarkdownPluginContext {
     @discardableResult
     public func registerCommand(
         _ name: String,
+        command: MarkdownPluginCommand
+    ) -> MarkdownPluginCommandHandle? {
+        guard active, let editor, let qualified = qualified("command", name) else { return nil }
+        let canonical = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let generation = UUID()
+        commands.insert(qualified)
+        editor.setPluginCommand(qualified, MarkdownPluginCommandRegistration(
+            id: qualified,
+            plugin: self.name,
+            name: canonical,
+            generation: generation,
+            command: command
+        ))
+        return MarkdownPluginCommandHandle(
+            id: qualified,
+            update: { [weak self, weak editor] updated in
+                guard let self, self.active else { return }
+                editor?.updatePluginCommand(qualified, generation: generation, command: updated)
+            },
+            unregister: { [weak self, weak editor] in
+                guard let self, self.active,
+                      editor?.removePluginCommand(qualified, generation: generation) == true
+                else { return }
+                self.commands.remove(qualified)
+            }
+        )
+    }
+
+    /// Convenience overload for a keyboard-backed command.
+    @discardableResult
+    public func registerCommand(
+        _ name: String,
         title: String,
         key: String,
         modifiers: MarkdownPluginCommandModifiers = [.primary],
         handler: @escaping () -> Void
-    ) -> Bool {
-        guard active, let editor, let qualified = qualified("command", name), !key.isEmpty else {
-            return false
-        }
-        commands.insert(qualified)
-        editor.setPluginCommand(qualified, MarkdownPluginCommandRegistration(
-            title: title, key: key, modifiers: modifiers, handler: handler
+    ) -> MarkdownPluginCommandHandle? {
+        guard !key.isEmpty else { return nil }
+        return registerCommand(name, command: MarkdownPluginCommand(
+            title: title,
+            key: key,
+            modifiers: modifiers,
+            handler: handler
         ))
-        return true
     }
 
     /// Place a plugin-owned view above the editor without inserting it into markdown storage.
     @discardableResult
     public func showPresentation(
         _ name: String,
-        view: PlatformView,
-        anchor: MarkdownPluginPresentationAnchor = .selection,
-        modal: Bool = false
-    ) -> Bool {
+        options: MarkdownPluginPresentationOptions
+    ) -> MarkdownPluginPresentationHandle? {
         guard active, let editor, let qualified = qualified("presentation", name) else {
-            return false
+            return nil
         }
+        let generation = UUID()
         presentations.insert(qualified)
         editor.setPluginPresentation(
-            qualified, MarkdownPluginPresentation(view: view, anchor: anchor, modal: modal)
+            qualified, MarkdownPluginPresentation(generation: generation, options: options)
         )
-        return true
+        return MarkdownPluginPresentationHandle(
+            id: qualified,
+            update: { [weak self, weak editor] updated in
+                guard let self, self.active else { return }
+                editor?.updatePluginPresentation(
+                    qualified, generation: generation, options: updated
+                )
+            },
+            reposition: { [weak self, weak editor] in
+                guard let self, self.active else { return }
+                editor?.repositionPluginPresentation(qualified, generation: generation)
+            },
+            dismiss: { [weak self, weak editor] reason in
+                guard let self, self.active,
+                      editor?.removePluginPresentation(
+                        qualified, generation: generation, reason: reason
+                      ) == true
+                else { return }
+                self.presentations.remove(qualified)
+            }
+        )
     }
 
-    public func dismissPresentation(_ name: String) {
+    @discardableResult
+    public func showPresentation(
+        _ name: String,
+        view: PlatformView,
+        anchor: MarkdownPluginPresentationAnchor = .selection,
+        placement: MarkdownPluginPresentationPlacement = .automatic,
+        offset: CGFloat = 8,
+        modal: Bool = false
+    ) -> MarkdownPluginPresentationHandle? {
+        showPresentation(name, options: MarkdownPluginPresentationOptions(
+            view: view,
+            anchor: anchor,
+            placement: placement,
+            offset: offset,
+            modal: modal
+        ))
+    }
+
+    public func dismissPresentation(
+        _ name: String,
+        reason: MarkdownPluginPresentationDismissReason = .programmatic
+    ) {
         guard active, let editor, let qualified = qualified("presentation", name) else { return }
         presentations.remove(qualified)
-        editor.removePluginPresentation(qualified)
+        editor.removePluginPresentation(qualified, reason: reason)
     }
 
     /// Schedule latest-wins work against an immutable markdown snapshot.
@@ -330,7 +549,9 @@ public final class MarkdownPluginContext {
         }
         for layer in layers { editor.clearLayer(layer) }
         for command in commands { editor.removePluginCommand(command) }
-        for presentation in presentations { editor.removePluginPresentation(presentation) }
+        for presentation in presentations {
+            editor.removePluginPresentation(presentation, reason: .pluginRemoved)
+        }
         layers.removeAll()
         commands.removeAll()
         presentations.removeAll()

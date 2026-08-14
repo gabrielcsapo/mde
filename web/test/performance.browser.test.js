@@ -14,6 +14,7 @@ import {
   preloadCore as preloadReactCore,
 } from '../react/dist/index.js';
 import { TypewriterMode } from '../dist/extensions/typewriter.js';
+import { filterSuggestions } from '../dist/extensions/suggestions.js';
 
 /* global __MDE_PERF__, __MDE_PERF_BUDGETS__ */
 
@@ -372,6 +373,12 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
     presentationContext.dismissPresentation('panel');
   }));
   const pluginPresentationP95 = percentile(presentationSamples, 0.95);
+  const suggestionCorpus = Array.from({ length: 2_000 }, (_, index) => ({
+    id: String(index), label: `Journal person ${index}`, keywords: [`team-${index % 20}`],
+  }));
+  const suggestionFilterP95 = percentile(Array.from({ length: 40 }, (_, index) => timed(() => {
+    filterSuggestions(suggestionCorpus, `person ${index % 20}`, 12);
+  })), 0.95);
 
   const endurance = timedEdits(editor100KB, Math.floor(editor100KB.markdown.length * 0.50), 100);
   // One minified/no-newline block is the parser and renderer's deliberately hostile
@@ -457,6 +464,7 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
 
   const report = {
     load100KB, load1MB, edit100KB, edit1MB, layer1MB, pluginPresentationP95,
+    suggestionFilterP95,
     typewriter100KB, scroll1MB, domNodes1MB,
     chunks1MB: editor1MB.chunkEls.length,
     editTop1MB: { p50: median(editTop1MB), p95: percentile(editTop1MB, 0.95) },
@@ -495,6 +503,9 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   );
   expect(pluginPresentationP95, 'plugin presentation show/dismiss p95').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.pluginPresentationP95,
+  );
+  expect(suggestionFilterP95, '2,000-item suggestion filter p95').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.suggestionFilterP95,
   );
   expect(typewriter100KB, '100 KB typewriter enable').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.typewriter100KB,

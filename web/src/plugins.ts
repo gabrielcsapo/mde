@@ -6,27 +6,83 @@ import { composeManifests } from './manifest.js';
 export type PluginCleanup = () => void;
 
 export type PluginPresentationAnchor = 'selection' | 'editor' | 'viewport';
+export type PluginPresentationPlacement = 'auto' | 'above' | 'below';
+export type PluginPresentationDismissReason =
+  | 'programmatic'
+  | 'escape'
+  | 'outside-pointer'
+  | 'replaced'
+  | 'plugin-removed';
+
+export interface PluginPresentationHandle {
+  readonly id: string;
+  update(options: Partial<PluginPresentationOptions>): void;
+  reposition(): void;
+  dismiss(reason?: PluginPresentationDismissReason): void;
+}
 
 /** A plugin-owned view that floats above the editor without entering its source DOM. */
 export interface PluginPresentationOptions {
   element: HTMLElement;
   /** Selection popover, editor-attached panel, or viewport-centred modal. */
   anchor?: PluginPresentationAnchor;
+  /** Selection presentations flip automatically when there is not enough room below. */
+  placement?: PluginPresentationPlacement;
+  /** Gap from the anchor in CSS pixels. Defaults to 8. */
+  offset?: number;
   /** Adds dialog semantics. Viewport presentations default to modal. */
   modal?: boolean;
   /** Escape dismisses by default. */
   dismissOnEscape?: boolean;
-  /** Called for Escape or a programmatic lifecycle dismissal. */
-  onDismiss?: () => void;
+  /** Pointer interaction outside the view dismisses it when enabled. */
+  dismissOnOutsidePointer?: boolean;
+  /** Modal presentations trap Tab by default. */
+  trapFocus?: boolean;
+  /** Return focus to the previously focused element on dismissal. Defaults to true. */
+  restoreFocus?: boolean;
+  /** Optional focus target after mounting. */
+  initialFocus?: HTMLElement | (() => HTMLElement | null);
+  /** Override the portal root. Defaults to document.body. */
+  container?: HTMLElement;
+  /** Called after teardown with the reason the view closed. */
+  onDismiss?: (reason: PluginPresentationDismissReason) => void;
 }
 
 export interface PluginCommandOptions {
-  key: string;
+  /** Human-readable label used by palettes, menus, and toolbars. */
+  title: string;
+  /** Optional keyboard key. Commands without one remain programmatically discoverable. */
+  key?: string;
   /** Command on Apple keyboards and Control elsewhere. */
   primary?: boolean;
   shift?: boolean;
   alt?: boolean;
-  handler: (event: KeyboardEvent) => void | boolean;
+  category?: string;
+  keywords?: readonly string[];
+  enabled?: () => boolean;
+  checked?: () => boolean;
+  handler: (event?: KeyboardEvent) => void | boolean;
+}
+
+export interface PluginCommandDescriptor {
+  readonly id: string;
+  readonly plugin: string;
+  readonly name: string;
+  readonly title: string;
+  readonly key: string | null;
+  readonly primary: boolean;
+  readonly shift: boolean;
+  readonly alt: boolean;
+  readonly category: string | null;
+  readonly keywords: readonly string[];
+  readonly enabled: boolean;
+  readonly checked: boolean;
+}
+
+export interface PluginCommandHandle {
+  readonly id: string;
+  update(options: Partial<PluginCommandOptions>): void;
+  unregister(): void;
 }
 
 export interface PluginAnalysisInput {
@@ -74,10 +130,10 @@ export interface EditorPluginContext {
   setLayer(name: string, spans: LayerSpan[]): void;
   clearLayer(name: string): void;
   /** Register an automatically removed editor keyboard command. */
-  registerCommand(name: string, command: PluginCommandOptions): void;
+  registerCommand(name: string, command: PluginCommandOptions): PluginCommandHandle;
   /** Show or replace one plugin-owned floating view. */
-  showPresentation(name: string, options: PluginPresentationOptions): void;
-  dismissPresentation(name: string): void;
+  showPresentation(name: string, options: PluginPresentationOptions): PluginPresentationHandle;
+  dismissPresentation(name: string, reason?: PluginPresentationDismissReason): void;
   /** Listen on the contenteditable host with the plugin lifecycle signal. */
   onRoot<K extends keyof HTMLElementEventMap>(
     type: K,
@@ -108,6 +164,8 @@ export interface EditorEventMap {
   linkopen: CustomEvent<{ decoration: Decoration; destination: string }>;
   pluginerror: CustomEvent<{ plugin: string; task: string; error: unknown }>;
   plugindiagnostic: CustomEvent<PluginAnalysisDiagnostic>;
+  commandschange: CustomEvent<{ commands: PluginCommandDescriptor[] }>;
+  commandconflict: CustomEvent<{ shortcut: string; commandIds: string[]; winner: string }>;
 }
 
 /** Preserve inference while checking a plugin object at its declaration site. */
@@ -121,7 +179,7 @@ export interface InstalledPlugin {
   controller: AbortController;
   layers: Set<string>;
   analyses: Map<string, PluginAnalysisRun>;
-  commands: Map<string, AbortController>;
+  commands: Set<string>;
   presentations: Set<string>;
   analysisSequence: number;
   cleanup?: PluginCleanup;

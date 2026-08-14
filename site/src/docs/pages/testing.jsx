@@ -6,7 +6,7 @@ import { tag } from '../../lib/highlight.js';
 
 const golden = tag('bash', `UPDATE_GOLDEN=1 cargo test -p mde-core --test golden`);
 const all = tag('bash', `./scripts/test.sh   # Rust, both Swift suites, and the browser suite`);
-const captures = tag('bash', `pnpm capture:cross-platform   # 5 scenarios × 4 renderers`);
+const captures = tag('bash', `pnpm capture:cross-platform   # 7 scenarios × 4 renderers`);
 const performance = tag('bash', `./scripts/test-performance.sh   # edit matrix + budgets`);
 
 const SUITES = [
@@ -33,7 +33,7 @@ const SUITES = [
   [
     'Web suite',
     'web/test/editor.browser.test.js',
-    'Vitest Browser Mode drives Chromium through Playwright: contenteditable behaviour, selection restore, CSS precedence, focus, and hit-testing all use the real browser.',
+    'Vitest Browser Mode drives Chromium, Firefox, and WebKit: contenteditable behaviour, selection restore, CSS precedence, focus, and hit-testing all use real browser engines.',
   ],
 ];
 
@@ -95,8 +95,8 @@ export default function Testing() {
       <SourceFigure className="mt-6" path="from the repository root" lang="bash" code={all} />
       <p className="mt-6">
         This is not a convenience. The web half runs through Vitest Browser Mode with Playwright
-        and headless Chromium, so selection, layout, focus and input stay native while every case
-        gets isolated reporting and reproducible automation. While the suite needed a human to
+        in Chromium, Firefox, and WebKit, so selection, layout, focus and input stay native while
+        every case gets isolated reporting and reproducible automation. While the suite needed a human to
         open a page, it grew a test that passed when written and failed on re-run because it
         depended on the window’s size.{' '}
         <strong>Nothing that is not in <code>test.sh</code> will stay honest.</strong>
@@ -105,14 +105,14 @@ export default function Testing() {
         The editor remains dependency-free at runtime. Vitest, Playwright, TypeScript and Vite are
         development-only tooling and are not included in <code>@mde/web</code>’s published runtime.
         On a fresh machine, run <code>pnpm --dir web run test:install-browser</code> once to install
-        Playwright’s Chromium build.
+        Playwright’s browser builds.
       </Note>
 
       <H2 id="visual-captures">Reproduce the cross-platform screenshot matrix</H2>
       <p>
-        These are captures of the real renderers, not HTML mockups. Five focused fixtures cover
-        CommonMark, rich tables and resources, host extensions, live syntax reveal, and selected
-        table source across JS, React, iOS, and macOS. Keeping each scenario short makes every
+        These are captures of the real renderers, not HTML mockups. Six focused fixtures cover
+        CommonMark, rich tables and resources, host extensions, plugin canvas UI, live syntax
+        reveal, and selected table source across JS, React, iOS, and macOS. Keeping each scenario short makes every
         feature visible at phone height and makes platform differences easy to spot.
       </p>
       <CaptureMatrix />

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import { MarkdownEditor, useEditorHistory, useMarkdownEditorRef } from '@mde/react';
-import { attachmentComposer, mentionAutocomplete } from '@mde/web/extensions/composer';
+import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/web/extensions/composer';
+import { linkEditor } from '@mde/web/extensions/productivity';
 import wasmUrl from '@mde/web/mde.wasm?url';
 
 import {
@@ -20,6 +21,8 @@ const COMPOSER_PLUGINS = [
     { handle: 'mira', label: 'Mira', detail: 'Journal' },
   ] }),
   attachmentComposer(),
+  linkEditor(),
+  slashCommandMenu(),
 ];
 
 export default function ReactEditor({ historyInitiallyOpen, descriptionId }) {

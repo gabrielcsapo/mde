@@ -110,6 +110,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
     onHit,
     onLinkOpen,
     onHistoryChange,
+    onCommandsChange,
     onReady,
     onError,
     widgetProvider,
@@ -213,6 +214,10 @@ function MarkdownEditorImpl(props, forwardedRef) {
       latest.current.onLinkOpen?.(event.detail, api);
     };
 
+    const onCommandsChange = (/** @type {any} */ event) => {
+      latest.current.onCommandsChange?.(event.detail?.commands ?? [], api);
+    };
+
     sharedCore(latest.current.wasm ?? DEFAULT_WASM_URL)
       .then((core) => {
         if (cancelled) return;
@@ -258,6 +263,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
         editor.addEventListener('selectionchange', onSelectionChange);
         editor.addEventListener('hit', onHit);
         editor.addEventListener('linkopen', onLinkOpen);
+        editor.addEventListener('commandschange', onCommandsChange);
 
         const initial = props0.value !== undefined ? props0.value : (props0.defaultValue ?? '');
         // Mounting is not a change the host made; firing `onChange` here would look like
@@ -305,6 +311,8 @@ function MarkdownEditorImpl(props, forwardedRef) {
         editor.removeEventListener('change', onChange);
         editor.removeEventListener('selectionchange', onSelectionChange);
         editor.removeEventListener('hit', onHit);
+        editor.removeEventListener('linkopen', onLinkOpen);
+        editor.removeEventListener('commandschange', onCommandsChange);
         // Removes the document-level `selectionchange` listener. Without this a
         // `StrictMode` double-mount leaves the first editor subscribed forever,
         // reacting to a document it no longer renders.
@@ -552,6 +560,8 @@ function makeHandle({ editorRef, coreRef, engineRef, hostRef }) {
     installPlugin: (plugin) => ed()?.installPlugin(plugin),
     removePlugin: (name) => !!ed()?.removePlugin(name),
     getInstalledPlugins: () => ed()?.installedPlugins ?? [],
+    getCommands: () => ed()?.listCommands() ?? [],
+    executeCommand: (id) => !!ed()?.executeCommand(id),
 
     // ---- introspection
     /** Live decorations. These carry `BigInt` keys — never put the result in state. */

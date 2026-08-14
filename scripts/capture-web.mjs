@@ -205,6 +205,13 @@ async function capture(cdp, origin, variant, scenario) {
       const mentionEnd = mentionStart + ${JSON.stringify(scenario.mention)}.length;
       window.__mde.editor.setSelectionRange({start: mentionEnd, end: mentionEnd});
       window.__mde.editor.onSelectionChange();` : ''}
+      ${scenario.slash ? `
+      window.__mde.editor.root.focus();
+      const slashStart = window.__mde.editor.markdown.indexOf(${JSON.stringify(scenario.slash)});
+      if (slashStart < 0) throw new Error('slash capture marker was not found');
+      const slashEnd = slashStart + ${JSON.stringify(scenario.slash)}.length;
+      window.__mde.editor.setSelectionRange({start: slashEnd, end: slashEnd});
+      window.__mde.editor.onSelectionChange();` : ''}
       return true;
     })()`
   );
@@ -214,6 +221,13 @@ async function capture(cdp, origin, variant, scenario) {
       cdp,
       `document.querySelector('[role="listbox"][aria-label="Mention suggestions"]')`,
       'mention suggestion presentation did not appear'
+    );
+  }
+  if (scenario.slash) {
+    await waitFor(
+      cdp,
+      `document.querySelector('[role="listbox"][aria-label="Editor commands"]')`,
+      'slash command presentation did not appear'
     );
   }
 

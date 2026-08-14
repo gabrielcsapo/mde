@@ -82,17 +82,16 @@ export default function Layers() {
       <p>
         A plugin is not limited to colored ranges. <code>showPresentation</code> mounts a
         lifecycle-owned view at the selection, editor edge, or viewport center;{' '}
-        <code>registerCommand</code> binds an editor-scoped shortcut; and web plugins can use{' '}
-        <code>onRoot</code> for listbox navigation. The view is a sibling presentation—not part of
+        <code>registerCommand</code> adds a discoverable editor command with an optional shortcut;
+        and web plugins can use <code>onRoot</code> for direct input events. The view is a sibling presentation—not part of
         the document DOM or TextKit storage—so its labels never leak into markdown, selection
         offsets, copy/paste, or undo.
       </p>
       <p>
-        The shipped <code>composer</code> extension is the executable example: typing <code>@</code>{' '}
-        opens an accessible autocomplete list, and Command-O opens an image/video/link composer.
-        The same implementations run through <code>@mde/web</code> and <code>@mde/react</code>; Swift
-        supplies <code>MentionAutocomplete</code> and <code>AttachmentComposer</code> once for both
-        UIKit and AppKit. Removing the plugin removes its listeners, commands, background work,
+        The shipped extensions are executable examples: mentions, tags, wiki links, slash commands,
+        formatting, templates, find/replace, image descriptions, and a full journal media importer.
+        The same plugin objects run through <code>@mde/web</code> and <code>@mde/react</code>; Swift
+        supplies the equivalent shared host implementations for UIKit and AppKit. Removing a plugin removes its listeners, commands, background work,
         layers, and every floating view as one operation.
       </p>
       <p>
@@ -149,6 +148,11 @@ export default function Layers() {
 
       <SeeAlso
         links={[
+          {
+            to: '/extend/plugins',
+            title: 'Interactive plugins',
+            note: 'commands, suggestions, popovers, and framework helpers',
+          },
           {
             to: '/extend/showcase',
             title: 'Two extensions, no editor changes',

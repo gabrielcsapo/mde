@@ -109,6 +109,14 @@ export default function Apple() {
         dirty, and they are a set rather than a bounding box.
       </p>
 
+      <H2 id="plugin-ui">Native and SwiftUI plugin UI</H2>
+      <p>
+        Plugin presentations are ordinary sibling <code>NSView</code> or <code>UIView</code> trees,
+        positioned against the selection, editor, or viewport with safe-area collision. Their
+        handles update, reposition, and dismiss them. <code>showSwiftUIPresentation</code> wraps a
+        SwiftUI view in the same lifecycle without making SwiftUI a dependency of the renderer.
+      </p>
+
       <H2 id="gallery">The reference apps</H2>
       <Lede>
         Both apps are real: a UIKit app in the simulator and an AppKit app on the desktop, each

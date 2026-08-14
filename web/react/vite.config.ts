@@ -16,7 +16,7 @@ export default defineConfig({
       fileName: () => 'index.js',
     },
     rollupOptions: {
-      external: ['react', 'react-dom', '@mde/web'],
+      external: ['react', 'react-dom', 'react-dom/client', '@mde/web'],
     },
   },
 });

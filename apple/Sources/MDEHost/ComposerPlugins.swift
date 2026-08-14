@@ -22,67 +22,31 @@ public struct MentionCandidate: Sendable, Equatable {
 /// Complete `@` autocomplete example using only the public plugin presentation API.
 public final class MentionAutocomplete: MarkdownPlugin {
     public let name = "mde.examples.mentions"
-    private let candidates: [MentionCandidate]
-    private let maximumResults: Int
-    private var context: MarkdownPluginContext?
+    private let suggestions: MarkdownSuggestionPlugin
 
     public init(candidates: [MentionCandidate], maximumResults: Int = 6) {
-        self.candidates = candidates
-        self.maximumResults = max(1, maximumResults)
+        suggestions = MarkdownSuggestionPlugin(
+            name: name,
+            triggers: [MarkdownSuggestionTrigger("@")],
+            maximumResults: maximumResults,
+            accessibilityLabel: "Mention suggestions"
+        ) { _, complete in
+            complete(candidates.map { candidate in
+                MarkdownSuggestionItem(
+                    id: candidate.handle,
+                    label: candidate.label,
+                    detail: candidate.detail ?? "@\(candidate.handle)",
+                    keywords: [candidate.handle],
+                    replacement: "@\(candidate.handle)"
+                )
+            })
+        }
     }
 
-    public func install(in context: MarkdownPluginContext) throws { self.context = context }
-    public func uninstall() { context = nil }
-    public func markdownDidChange() { update() }
-    public func selectionDidChange() { update() }
-
-    private func update() {
-        guard let context, let editor = context.editor else { return }
-        let selection = editor.selectedRange
-        guard selection.length == 0, selection.location != NSNotFound else {
-            context.dismissPresentation("suggestions")
-            return
-        }
-        let source = editor.markdown as NSString
-        guard selection.location <= source.length else { return }
-        let before = source.substring(to: selection.location) as NSString
-        let expression = try! NSRegularExpression(pattern: "(?:^|\\s)@([\\p{L}\\p{N}_-]*)$")
-        guard let match = expression.firstMatch(
-            in: before as String, range: NSRange(location: 0, length: before.length)
-        ), match.range(at: 1).location != NSNotFound else {
-            context.dismissPresentation("suggestions")
-            return
-        }
-        let query = before.substring(with: match.range(at: 1)).lowercased()
-        let results = candidates.filter {
-            $0.handle.lowercased().hasPrefix(query) || $0.label.lowercased().contains(query)
-        }.prefix(maximumResults)
-        guard !results.isEmpty else {
-            context.dismissPresentation("suggestions")
-            return
-        }
-        let replacement = NSRange(
-            location: selection.location - query.utf16.count - 1,
-            length: query.utf16.count + 1
-        )
-        let list = MentionSuggestionView(candidates: Array(results)) { [weak self] candidate in
-            self?.choose(candidate, range: replacement)
-        }
-        context.showPresentation("suggestions", view: list, anchor: .selection)
-    }
-
-    private func choose(_ candidate: MentionCandidate, range: NSRange) {
-        guard let context, let editor = context.editor else { return }
-        // Finish the trigger with a delimiter so restoring the caret does not reopen
-        // the same suggestion list on the following selection callback.
-        let text = "@\(candidate.handle) "
-        _ = editor.replaceMarkdown(
-            in: range, with: text,
-            selection: NSRange(location: range.location + text.utf16.count, length: 0)
-        )
-        context.dismissPresentation("suggestions")
-        _ = editor.becomeFirstResponder()
-    }
+    public func install(in context: MarkdownPluginContext) throws { try suggestions.install(in: context) }
+    public func uninstall() { suggestions.uninstall() }
+    public func markdownDidChange() { suggestions.markdownDidChange() }
+    public func selectionDidChange() { suggestions.selectionDidChange() }
 }
 
 public enum AttachmentKind: String, CaseIterable, Sendable { case image, video, link }
@@ -98,9 +62,10 @@ public final class AttachmentComposer: MarkdownPlugin {
 
     public func install(in context: MarkdownPluginContext) throws {
         self.context = context
-        context.registerCommand("open", title: "Add attachment", key: "o") { [weak self] in
-            self?.open()
-        }
+        context.registerCommand("open", command: MarkdownPluginCommand(
+            title: "Add attachment", key: "o", modifiers: .primary,
+            category: "Insert", keywords: ["image", "video", "audio", "file", "media"]
+        ) { [weak self] in self?.open() })
     }
 
     public func uninstall() { context = nil }
@@ -140,61 +105,6 @@ public final class AttachmentComposer: MarkdownPlugin {
 }
 
 #if os(macOS)
-private final class MentionSuggestionView: NSStackView {
-    private let choose: (MentionCandidate) -> Void
-    private let candidates: [MentionCandidate]
-
-    init(candidates: [MentionCandidate], choose: @escaping (MentionCandidate) -> Void) {
-        self.choose = choose
-        self.candidates = candidates
-        super.init(frame: .zero)
-        orientation = .vertical
-        alignment = .leading
-        spacing = 4
-        edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        wantsLayer = true
-        layer?.cornerRadius = 10
-        layer?.borderWidth = 1
-        updateColors()
-        setAccessibilityRole(.list)
-        setAccessibilityLabel("Mention suggestions")
-        for (index, candidate) in candidates.enumerated() {
-            let button = NSButton(
-                title: "\(candidate.label)  @\(candidate.handle)", target: self,
-                action: #selector(chosen(_:))
-            )
-            button.bezelStyle = .inline
-            button.tag = index
-            addArrangedSubview(button)
-        }
-    }
-
-    @objc private func chosen(_ sender: NSButton) {
-        guard candidates.indices.contains(sender.tag) else { return }
-        choose(candidates[sender.tag])
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        updateColors()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateColors()
-    }
-
-    private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-            layer?.borderColor = NSColor.separatorColor.cgColor
-        }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("not supported") }
-}
-
 private final class AttachmentComposerView: NSStackView {
     private let kind = NSPopUpButton()
     private let reference = NSTextField()
@@ -263,29 +173,6 @@ private final class AttachmentComposerView: NSStackView {
     required init?(coder: NSCoder) { fatalError("not supported") }
 }
 #else
-private final class MentionSuggestionView: UIStackView {
-    init(candidates: [MentionCandidate], choose: @escaping (MentionCandidate) -> Void) {
-        super.init(frame: .zero)
-        axis = .vertical
-        alignment = .fill
-        spacing = 4
-        isLayoutMarginsRelativeArrangement = true
-        directionalLayoutMargins = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
-        backgroundColor = .secondarySystemBackground
-        layer.cornerRadius = 10
-        accessibilityLabel = "Mention suggestions"
-        for candidate in candidates {
-            let button = UIButton(type: .system, primaryAction: UIAction(
-                title: "\(candidate.label)  @\(candidate.handle)"
-            ) { _ in choose(candidate) })
-            button.contentHorizontalAlignment = .leading
-            addArrangedSubview(button)
-        }
-    }
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError("not supported") }
-}
-
 private final class AttachmentComposerView: UIStackView {
     private let kind = UISegmentedControl(items: AttachmentKind.allCases.map { $0.rawValue.capitalized })
     private let reference = UITextField()

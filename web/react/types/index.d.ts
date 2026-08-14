@@ -1,4 +1,10 @@
-import type { CSSProperties, ForwardRefExoticComponent, HTMLAttributes, RefAttributes } from 'react';
+import type {
+  CSSProperties,
+  ForwardRefExoticComponent,
+  HTMLAttributes,
+  ReactNode,
+  RefAttributes,
+} from 'react';
 import type {
   Core,
   Decoration,
@@ -8,6 +14,10 @@ import type {
   LayerSpan as CoreLayerSpan,
   ManifestSpec,
   MarkdownEditor as CoreMarkdownEditor,
+  PluginCommandDescriptor,
+  PluginPresentationDismissReason,
+  PluginPresentationHandle,
+  PluginPresentationOptions,
   ResourceResolver,
   Revision,
   SelectionRange,
@@ -35,6 +45,12 @@ export type {
   SelectionRange,
   WidgetProvider,
   WidgetRequest,
+  PluginCommandDescriptor,
+  PluginCommandHandle,
+  PluginCommandOptions,
+  PluginPresentationDismissReason,
+  PluginPresentationHandle,
+  PluginPresentationOptions,
 } from '@mde/web';
 
 export interface HistoryState {
@@ -110,6 +126,8 @@ export interface MarkdownEditorHandle {
   installPlugin(plugin: EditorPlugin): void;
   removePlugin(name: string): boolean;
   getInstalledPlugins(): string[];
+  getCommands(): PluginCommandDescriptor[];
+  executeCommand(id: string): boolean;
 
   /** Live decorations. These carry `BigInt` keys — do not put the result in state. */
   getDecorations(): Decoration[];
@@ -145,6 +163,7 @@ export interface MarkdownEditorProps
   ): void;
   /** Fires only when one of the four scalars moves. Pair with `useEditorHistory`. */
   onHistoryChange?(state: HistoryState): void;
+  onCommandsChange?(commands: PluginCommandDescriptor[], editor: MarkdownEditorHandle): void;
   /** The editor exists and the document is rendered. */
   onReady?(editor: MarkdownEditorHandle): void;
   /** The wasm failed to load or the manifest was rejected. */
@@ -190,6 +209,41 @@ export declare const MarkdownEditor: ForwardRefExoticComponent<
 export declare function useMarkdownEditorRef(): { current: MarkdownEditorHandle | null };
 
 export declare function useEditorHistory(): [HistoryState, (next: HistoryState) => void];
+
+export declare function useEditorCommands(): [
+  PluginCommandDescriptor[],
+  (next: PluginCommandDescriptor[]) => void,
+];
+
+export type ReactPresentationOptions = Omit<
+  PluginPresentationOptions,
+  'element' | 'onDismiss'
+> & {
+  className?: string;
+  onDismiss?: (reason: PluginPresentationDismissReason) => void;
+};
+
+export interface ReactPresentationHandle {
+  readonly presentation: PluginPresentationHandle;
+  readonly element: HTMLDivElement;
+  render(node: ReactNode): void;
+  update(options: ReactPresentationOptions): void;
+  dismiss(reason?: PluginPresentationDismissReason): void;
+}
+
+export declare function createReactPresentation(
+  context: EditorPluginContext,
+  name: string,
+  node: ReactNode,
+  options?: ReactPresentationOptions,
+): ReactPresentationHandle;
+
+export declare function usePluginPresentation(
+  context: EditorPluginContext | null,
+  name: string,
+  node: ReactNode,
+  options?: ReactPresentationOptions,
+): ReactPresentationHandle | null;
 
 /** Compile the wasm before the first editor mounts. Idempotent. */
 export declare function preloadCore(

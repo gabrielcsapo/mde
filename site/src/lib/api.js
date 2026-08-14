@@ -407,10 +407,31 @@ export const WEB_API = [
         name: 'EditorPluginContext',
         kind: 'type',
         signature:
-          '{editor, signal, name, internRole(), setLayer(), clearLayer(), scheduleAnalysis(), cancelAnalysis(), on()}',
+          '{editor, signal, name, internRole(), setLayer(), clearLayer(), scheduleAnalysis(), cancelAnalysis(), registerCommand(), showPresentation(), dismissPresentation(), onRoot(), on()}',
         summary:
-          'An editor-scoped capability object. Its listeners and layers are owned by the plugin lifecycle.',
-        note: 'Analysis is latest-wins: replacing a named task aborts its signal and stale results never apply.',
+          'An editor-scoped capability object. Its listeners, layers, commands, analyses, and floating views are owned by the plugin lifecycle.',
+        note: 'Analysis is latest-wins; command names replace within a plugin; every owned surface is removed atomically during teardown.',
+      },
+      {
+        name: 'PluginPresentationOptions',
+        kind: 'type',
+        signature:
+          "{element, anchor?, placement?, offset?, modal?, dismissOnEscape?, dismissOnOutsidePointer?, trapFocus?, restoreFocus?, initialFocus?, container?, onDismiss(reason)?} → PluginPresentationHandle",
+        summary:
+          'Mount plugin UI outside the source projection. The returned handle updates, repositions, or dismisses it; the editor owns focus, collision, and teardown.',
+      },
+      {
+        name: 'PluginCommandOptions',
+        kind: 'type',
+        signature:
+          '{title, key?, primary?, shift?, alt?, category?, keywords?, enabled?, checked?, handler(event)} → PluginCommandHandle',
+        summary: 'A discoverable editor command with optional shortcut and live state, removed automatically with its plugin.',
+      },
+      {
+        name: 'MarkdownEditor.listCommands / executeCommand',
+        kind: 'method',
+        signature: 'listCommands(): PluginCommandDescriptor[] · executeCommand(id: string): boolean',
+        summary: 'Build slash menus, toolbars, and palettes from the same deterministic command registry.',
       },
       {
         name: 'checkPluginCompatibility',
@@ -959,7 +980,7 @@ export const SWIFT_API = [
         name: 'MarkdownPluginContext',
         kind: 'class',
         signature:
-          'editor · name · internRole(_:) · setLayer(_:_:) · clearLayer(_:) · scheduleAnalysis(_:delay:analyze:apply:) · cancelAnalysis(_:) · registerCommand(_:title:key:modifiers:handler:) · showPresentation(_:view:anchor:modal:) · dismissPresentation(_:)',
+          'editor · name · layers/analysis · registerCommand(_:command:) → MarkdownPluginCommandHandle · showPresentation(_:options:) → MarkdownPluginPresentationHandle · dismissPresentation(_:reason:)',
         summary:
           'The weak editor reference and automatically cleaned, plugin-namespaced layer, command, and floating-presentation surface.',
         note: 'Analysis publishes only the latest result. Commands and presentations are removed atomically with the plugin.',
@@ -972,10 +993,22 @@ export const SWIFT_API = [
           'Place plugin-owned UI at the caret, editor edge, or viewport center without adding anything to markdown storage.',
       },
       {
+        name: 'MarkdownPluginPresentationOptions / Handle',
+        kind: 'type',
+        signature: 'view · anchor · placement · offset · modal · Escape/outside interaction · initial/focus restoration · onDismiss · update/reposition/dismiss',
+        summary: 'Cross-platform owned popovers and dialogs with safe-area collision and explicit dismissal reasons.',
+      },
+      {
         name: 'MarkdownPluginCommandModifiers',
         kind: 'type',
         signature: 'OptionSet · .primary · .shift · .option',
         summary: 'Portable hardware-keyboard modifiers for editor-scoped plugin commands.',
+      },
+      {
+        name: 'registeredPluginCommands / executePluginCommand',
+        kind: 'property',
+        signature: 'var registeredPluginCommands: [MarkdownPluginCommandDescriptor] · func executePluginCommand(id: String) -> Bool',
+        summary: 'The central native registry used by hardware shortcuts, menus, toolbars, and slash commands.',
       },
       {
         name: 'MarkdownPluginCompatibility.check',

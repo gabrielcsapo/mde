@@ -6,7 +6,8 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 // `server.fs.allow` to the repository root so the dev server can read them, and the
 // `?url` import makes the wasm an emitted asset rather than something bundled.
 import { MarkdownEditor, Role, encodeManifest, loadCore } from '@mde/web';
-import { attachmentComposer, mentionAutocomplete } from '@mde/web/extensions/composer';
+import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/web/extensions/composer';
+import { linkEditor } from '@mde/web/extensions/productivity';
 import wasmUrl from '@mde/web/mde.wasm?url';
 import {
   manifestSpec,
@@ -64,6 +65,8 @@ export default function VanillaEditor({ historyInitiallyOpen, descriptionId }) {
         { handle: 'mira', label: 'Mira', detail: 'Journal' },
       ] }));
       ed.installPlugin(attachmentComposer());
+      ed.installPlugin(linkEditor());
+      ed.installPlugin(slashCommandMenu());
 
       try {
         ed.resourceSizes = JSON.parse(localStorage.getItem(SIZES_KEY) ?? '{}');

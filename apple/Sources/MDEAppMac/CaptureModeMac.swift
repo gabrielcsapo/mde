@@ -142,6 +142,11 @@ enum CaptureMode {
             guard range.location != NSNotFound else { return }
             editor.window?.makeFirstResponder(editor)
             editor.setSelectedRange(NSRange(location: range.upperBound, length: 0))
+        case "commands":
+            let range = (storage.string as NSString).range(of: "/")
+            guard range.location != NSNotFound else { return }
+            editor.window?.makeFirstResponder(editor)
+            editor.setSelectedRange(NSRange(location: range.upperBound, length: 0))
         case "editing":
             let range = (storage.string as NSString).range(of: "revealed syntax")
             guard range.location != NSNotFound else { return }

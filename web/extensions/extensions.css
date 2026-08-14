@@ -77,6 +77,27 @@
   font-size: 0.82em;
 }
 
+.mde-suggestion-menu {
+  max-width: min(380px, calc(100vw - 24px));
+  max-height: min(360px, 50vh);
+  overflow: auto;
+}
+
+.mde-suggestion-option { align-items: center; }
+.mde-suggestion-copy { display: grid; flex: 1; min-width: 0; gap: 1px; }
+.mde-suggestion-copy strong,
+.mde-suggestion-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mde-suggestion-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.mde-suggestion-group {
+  padding: 8px 10px 4px;
+  color: GrayText;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mde-suggestion-status { padding: 12px; color: GrayText; font-size: 0.9rem; }
+
 .mde-composer-dialog {
   display: grid;
   gap: 10px;
@@ -88,3 +109,37 @@
 .mde-composer-dialog input,
 .mde-composer-dialog select { font: inherit; padding: 9px 10px; }
 .mde-composer-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.mde-floating-toolbar {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  color: CanvasText;
+  background: Canvas;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgb(0 0 0 / 20%);
+}
+.mde-floating-toolbar button {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: inherit;
+  background: transparent;
+}
+.mde-floating-toolbar button:hover { background: color-mix(in srgb, AccentColor 14%, transparent); }
+
+.mde-upload-panel {
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 24px));
+  padding: 12px;
+  color: CanvasText;
+  background: Canvas;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 18%);
+}
+.mde-upload-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; gap: 8px; align-items: center; }
+.mde-upload-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

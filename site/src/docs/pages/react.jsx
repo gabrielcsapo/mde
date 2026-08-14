@@ -143,6 +143,15 @@ export default function ReactPage() {
       </Lede>
       <SourceFigure className="mt-6" path="Toolbar.jsx" lang="javascript" code={reactCommandsJsx} />
 
+      <H2 id="plugin-ui">React-owned plugin UI</H2>
+      <p>
+        <code>createReactPresentation</code> renders any React node into an editor-owned popover or
+        modal, while <code>usePluginPresentation</code> keeps one synchronized with component state.
+        Dismissal unmounts the React root safely even when it originated inside a React event.
+        <code>useEditorCommands</code> returns the live central command registry for application
+        toolbars and command palettes.
+      </p>
+
       <H2 id="layers-prop">Layers, declaratively</H2>
       <p>
         <Link to="/extend/layers">Host decoration layers</Link> are a natural fit for a prop: the

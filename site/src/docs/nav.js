@@ -136,6 +136,22 @@ export const GROUPS = [
         keywords: 'setLayer clearLayer internRole rebase paint order runtime roles',
       },
       {
+        path: '/extend/plugins',
+        file: 'plugins',
+        title: 'Interactive plugins',
+        summary:
+          'Commands, popovers, suggestions, React and SwiftUI helpers, and the included authoring plugins.',
+        keywords: 'plugin command palette slash menu autocomplete mention tag wikilink modal toolbar react swiftui',
+      },
+      {
+        path: '/extend/journal',
+        file: 'journal',
+        title: 'Journal media workflow',
+        summary:
+          'Picker, paste, drop, local previews, progress, cancellation, metadata, and durable attachment references.',
+        keywords: 'journal photo image video audio attachment upload import photos picker drop paste progress',
+      },
+      {
         path: '/extend/showcase',
         file: 'showcase',
         title: 'Two extensions, no editor changes',

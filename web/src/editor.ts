@@ -19,6 +19,11 @@ import type {
   EditorPluginContext,
   InstalledPlugin,
   PluginAnalysisRun,
+  PluginCommandDescriptor,
+  PluginCommandHandle,
+  PluginCommandOptions,
+  PluginPresentationDismissReason,
+  PluginPresentationHandle,
   PluginPresentationOptions,
 } from './plugins.js';
 import type { PreparedDocument } from './preparation.js';
@@ -119,10 +124,18 @@ export class MarkdownEditor extends EventTarget {
   onDocumentSelectionChange: () => void;
   destroyed: boolean;
   private plugins: Map<string, InstalledPlugin>;
+  private pluginCommands: Map<string, {
+    id: string;
+    plugin: string;
+    name: string;
+    options: PluginCommandOptions;
+  }>;
   private pluginPresentations: Map<string, {
     options: PluginPresentationOptions;
     controller: AbortController;
     resizeObserver: ResizeObserver | null;
+    previousFocus: HTMLElement | null;
+    position: () => void;
   }>;
   private resourcePriorityFrame: number | null;
   private virtualizationFrame: number | null;
@@ -210,6 +223,7 @@ export class MarkdownEditor extends EventTarget {
     this.root.addEventListener('click', (e) => this.onClick(e), listener);
     // Before the browser gets to place a caret — see `onMouseDown`.
     this.root.addEventListener('mousedown', (e) => this.onMouseDown(e), listener);
+    this.root.addEventListener('keydown', (e) => this.handlePluginKeyDown(e), listener);
     this.resourcePriorityFrame = null;
     this.virtualizationFrame = null;
     this.virtualizesDocument = false;
@@ -231,6 +245,7 @@ export class MarkdownEditor extends EventTarget {
     };
     document.addEventListener('selectionchange', this.onDocumentSelectionChange, listener);
     this.plugins = new Map();
+    this.pluginCommands = new Map();
     this.pluginPresentations = new Map();
     this.destroyed = false;
   }
@@ -437,7 +452,7 @@ export class MarkdownEditor extends EventTarget {
       controller,
       layers: new Set(),
       analyses: new Map(),
-      commands: new Map(),
+      commands: new Set(),
       presentations: new Set(),
       analysisSequence: 0,
     };
@@ -479,44 +494,29 @@ export class MarkdownEditor extends EventTarget {
         this.clearLayer(layer);
       },
       registerCommand: (local, command) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) throw new Error(`Plugin "${name}" is no longer active`);
         const canonical = local.trim();
         if (!canonical) throw new Error(`Plugin "${name}" used an empty command name`);
         const qualified = pluginLayerName(name, `command:${canonical}`);
-        installed.commands.get(qualified)?.abort();
-        const commandController = new AbortController();
-        installed.commands.set(qualified, commandController);
-        const abortCommand = () => commandController.abort();
-        controller.signal.addEventListener('abort', abortCommand, { once: true });
-        commandController.signal.addEventListener('abort', () => {
-          controller.signal.removeEventListener('abort', abortCommand);
-        }, { once: true });
-        const key = command.key.toLocaleLowerCase();
-        this.root.addEventListener('keydown', (event) => {
-          if (event.key.toLocaleLowerCase() !== key) return;
-          if (!!command.primary !== (event.metaKey || event.ctrlKey)) return;
-          if (!!command.shift !== event.shiftKey || !!command.alt !== event.altKey) return;
-          const handled = command.handler(event);
-          if (handled !== false) {
-            event.preventDefault();
-            event.stopPropagation();
-          }
-        }, { signal: commandController.signal });
+        installed.commands.add(qualified);
+        return this.registerPluginCommand(qualified, name, canonical, command, () => {
+          installed.commands.delete(qualified);
+        });
       },
       showPresentation: (local, options) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) throw new Error(`Plugin "${name}" is no longer active`);
         const canonical = local.trim();
         if (!canonical) throw new Error(`Plugin "${name}" used an empty presentation name`);
         const qualified = pluginLayerName(name, `presentation:${canonical}`);
         installed.presentations.add(qualified);
-        this.showPluginPresentation(qualified, options);
+        return this.showPluginPresentation(qualified, options);
       },
-      dismissPresentation: (local) => {
+      dismissPresentation: (local, reason = 'programmatic') => {
         const canonical = local.trim();
         if (!canonical) return;
         const qualified = pluginLayerName(name, `presentation:${canonical}`);
         installed.presentations.delete(qualified);
-        this.dismissPluginPresentation(qualified);
+        this.dismissPluginPresentation(qualified, reason);
       },
       onRoot: (type, listener) => this.root.addEventListener(
         type,
@@ -607,10 +607,11 @@ export class MarkdownEditor extends EventTarget {
       this.plugins.delete(name);
       controller.abort();
       for (const task of [...installed.analyses.keys()]) cancelAnalysis(task);
+      for (const command of installed.commands) this.unregisterPluginCommand(command);
       installed.commands.clear();
       for (const layer of installed.layers) this.clearLayer(layer);
       for (const presentation of installed.presentations) {
-        this.dismissPluginPresentation(presentation);
+        this.dismissPluginPresentation(presentation, 'plugin-removed');
       }
       throw error;
     }
@@ -623,6 +624,7 @@ export class MarkdownEditor extends EventTarget {
     if (!installed) return false;
     this.plugins.delete(canonical);
     installed.controller.abort();
+    for (const command of installed.commands) this.unregisterPluginCommand(command);
     installed.commands.clear();
     for (const task of [...installed.analyses.keys()]) {
       const run = installed.analyses.get(task);
@@ -640,7 +642,7 @@ export class MarkdownEditor extends EventTarget {
       for (const layer of installed.layers) this.clearLayer(layer);
       installed.layers.clear();
       for (const presentation of installed.presentations) {
-        this.dismissPluginPresentation(presentation);
+        this.dismissPluginPresentation(presentation, 'plugin-removed');
       }
       installed.presentations.clear();
     }
@@ -653,29 +655,154 @@ export class MarkdownEditor extends EventTarget {
     return [...this.plugins.keys()];
   }
 
-  private showPluginPresentation(name: string, options: PluginPresentationOptions): void {
-    this.dismissPluginPresentation(name, false);
-    const element = options.element;
-    const anchor = options.anchor ?? 'selection';
+  /** Discover every plugin command in deterministic registration order. */
+  listCommands(): PluginCommandDescriptor[] {
+    return [...this.pluginCommands.values()].map(({ id, plugin, name, options }) => ({
+      id,
+      plugin,
+      name,
+      title: options.title ?? name,
+      key: options.key?.toLocaleLowerCase() ?? null,
+      primary: options.primary ?? false,
+      shift: options.shift ?? false,
+      alt: options.alt ?? false,
+      category: options.category ?? null,
+      keywords: options.keywords ?? [],
+      enabled: options.enabled?.() ?? true,
+      checked: options.checked?.() ?? false,
+    }));
+  }
+
+  /** Execute a discoverable command by its qualified id. */
+  executeCommand(id: string, event?: KeyboardEvent): boolean {
+    const command = this.pluginCommands.get(id);
+    if (!command || command.options.enabled?.() === false) return false;
+    return command.options.handler(event) !== false;
+  }
+
+  private registerPluginCommand(
+    id: string,
+    plugin: string,
+    name: string,
+    options: PluginCommandOptions,
+    onUnregister: () => void,
+  ): PluginCommandHandle {
+    // Re-registration is an update with fresh priority, so shortcut conflicts have a
+    // deterministic last-registered winner on every engine.
+    this.pluginCommands.delete(id);
+    const registration = { id, plugin, name, options: { ...options } };
+    this.pluginCommands.set(id, registration);
+    this.dispatchCommandsChange();
+    let active = true;
+    return {
+      id,
+      update: (patch) => {
+        if (!active) return;
+        const current = this.pluginCommands.get(id);
+        if (current !== registration) return;
+        current.options = { ...current.options, ...patch };
+        this.dispatchCommandsChange();
+      },
+      unregister: () => {
+        if (!active) return;
+        active = false;
+        if (this.pluginCommands.get(id) !== registration) return;
+        onUnregister();
+        this.unregisterPluginCommand(id);
+      },
+    };
+  }
+
+  private unregisterPluginCommand(id: string): void {
+    if (!this.pluginCommands.delete(id)) return;
+    this.dispatchCommandsChange();
+  }
+
+  private dispatchCommandsChange(): void {
+    this.dispatchEvent(new CustomEvent('commandschange', {
+      detail: { commands: this.listCommands() },
+    }));
+  }
+
+  private handlePluginKeyDown(event: KeyboardEvent): void {
+    if (event.defaultPrevented || event.isComposing) return;
+    const key = event.key.toLocaleLowerCase();
+    const matches = [...this.pluginCommands.values()].filter(({ options }) =>
+      !!options.key
+      && options.key.toLocaleLowerCase() === key
+      && (options.primary ?? false) === (event.metaKey || event.ctrlKey)
+      && (options.shift ?? false) === event.shiftKey
+      && (options.alt ?? false) === event.altKey
+      && (options.enabled?.() ?? true)
+    );
+    if (matches.length === 0) return;
+    const winner = matches[matches.length - 1];
+    if (matches.length > 1) {
+      this.dispatchEvent(new CustomEvent('commandconflict', {
+        detail: {
+          shortcut: this.commandShortcut(winner.options),
+          commandIds: matches.map((command) => command.id),
+          winner: winner.id,
+        },
+      }));
+    }
+    if (!this.executeCommand(winner.id, event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  private commandShortcut(options: PluginCommandOptions): string {
+    return [
+      options.primary ? 'Primary' : null,
+      options.shift ? 'Shift' : null,
+      options.alt ? 'Alt' : null,
+      options.key,
+    ].filter(Boolean).join('+');
+  }
+
+  private showPluginPresentation(
+    name: string,
+    options: PluginPresentationOptions,
+  ): PluginPresentationHandle {
+    const replaced = this.pluginPresentations.get(name);
+    this.dismissPluginPresentation(name, 'replaced', false);
     const controller = new AbortController();
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const presentation = {
+      options: { ...options },
+      controller,
+      resizeObserver: null as ResizeObserver | null,
+      previousFocus,
+      position: () => {},
+    };
+    const element = presentation.options.element;
     element.dataset.mdeIgnore = '';
     element.dataset.mdePluginPresentation = name;
     element.style.position = 'fixed';
-    element.style.zIndex ||= '1000';
-    if (options.modal ?? anchor === 'viewport') {
-      element.setAttribute('role', element.getAttribute('role') ?? 'dialog');
-      element.setAttribute('aria-modal', 'true');
-    }
-    document.body.appendChild(element);
+    element.style.zIndex ||= String(1000 + this.pluginPresentations.size);
+    this.configurePresentationSemantics(presentation.options);
+    (presentation.options.container ?? document.body).appendChild(element);
 
     const position = () => {
+      const options = presentation.options;
+      const element = options.element;
       if (!element.isConnected) return;
+      const anchor = options.anchor ?? 'selection';
+      const visualViewport = globalThis.visualViewport;
+      const viewportLeft = visualViewport?.offsetLeft ?? 0;
+      const viewportTop = visualViewport?.offsetTop ?? 0;
+      const viewportWidth = visualViewport?.width ?? globalThis.innerWidth;
+      const viewportHeight = visualViewport?.height ?? globalThis.innerHeight;
+      const viewportRight = viewportLeft + viewportWidth;
+      const viewportBottom = viewportTop + viewportHeight;
       const editorRect = this.root.getBoundingClientRect();
       let left = editorRect.left + 12;
       let top = editorRect.top + 12;
       if (anchor === 'viewport') {
-        left = (globalThis.innerWidth - element.offsetWidth) / 2;
-        top = (globalThis.innerHeight - element.offsetHeight) / 2;
+        left = viewportLeft + (viewportWidth - element.offsetWidth) / 2;
+        top = viewportTop + (viewportHeight - element.offsetHeight) / 2;
       } else if (anchor === 'selection') {
         const selection = document.getSelection();
         const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
@@ -683,41 +810,173 @@ export class MarkdownEditor extends EventTarget {
           ? (range.getClientRects().item(range.getClientRects().length - 1)
             ?? range.getBoundingClientRect())
           : editorRect;
+        const offset = Math.max(0, options.offset ?? 8);
+        const placement = options.placement ?? 'auto';
+        const fitsBelow = rect.bottom + offset + element.offsetHeight <= viewportBottom - 8;
+        const resolved = placement === 'auto' ? (fitsBelow ? 'below' : 'above') : placement;
         left = rect.left;
-        top = rect.bottom + 8;
+        top = resolved === 'above'
+          ? rect.top - element.offsetHeight - offset
+          : rect.bottom + offset;
+        element.dataset.mdePlacement = resolved;
       }
       const margin = 8;
-      left = Math.max(margin, Math.min(left, globalThis.innerWidth - element.offsetWidth - margin));
-      top = Math.max(margin, Math.min(top, globalThis.innerHeight - element.offsetHeight - margin));
+      left = Math.max(
+        viewportLeft + margin,
+        Math.min(left, viewportRight - element.offsetWidth - margin),
+      );
+      top = Math.max(
+        viewportTop + margin,
+        Math.min(top, viewportBottom - element.offsetHeight - margin),
+      );
       element.style.left = `${Math.round(left)}px`;
       element.style.top = `${Math.round(top)}px`;
     };
+    presentation.position = position;
     const listener = { signal: controller.signal, capture: true };
     globalThis.addEventListener('resize', position, listener);
     globalThis.addEventListener('scroll', position, listener);
-    if (options.dismissOnEscape !== false) {
-      globalThis.addEventListener('keydown', (event) => {
-        if (event.key !== 'Escape') return;
+    globalThis.visualViewport?.addEventListener('resize', position, listener);
+    globalThis.visualViewport?.addEventListener('scroll', position, listener);
+    globalThis.addEventListener('keydown', (event) => {
+      const current = presentation.options;
+      const modal = current.modal ?? current.anchor === 'viewport';
+      if (event.key === 'Escape' && current.dismissOnEscape !== false) {
         event.preventDefault();
-        this.dismissPluginPresentation(name);
-      }, listener);
-    }
+        this.dismissPluginPresentation(name, 'escape');
+        return;
+      }
+      if (event.key !== 'Tab' || !(current.trapFocus ?? modal)) return;
+      this.trapPresentationFocus(current.element, event);
+    }, listener);
+    document.addEventListener('pointerdown', (event) => {
+      const current = presentation.options;
+      const modal = current.modal ?? current.anchor === 'viewport';
+      if (!(current.dismissOnOutsidePointer ?? !modal)) return;
+      if (event.target instanceof Node && current.element.contains(event.target)) return;
+      this.dismissPluginPresentation(name, 'outside-pointer');
+    }, listener);
     const resizeObserver = typeof ResizeObserver === 'undefined'
       ? null
       : new ResizeObserver(position);
     resizeObserver?.observe(element);
-    this.pluginPresentations.set(name, { options, controller, resizeObserver });
+    presentation.resizeObserver = resizeObserver;
+    this.pluginPresentations.set(name, presentation);
     position();
+    // Publish replacement only after the new record is live. If the callback opens a
+    // third view under this name, that normal replacement wins without leaking either
+    // of the first two elements or their global listeners.
+    replaced?.options.onDismiss?.('replaced');
+    requestAnimationFrame(() => {
+      if (this.pluginPresentations.get(name) !== presentation) return;
+      const focus = typeof presentation.options.initialFocus === 'function'
+        ? presentation.options.initialFocus()
+        : presentation.options.initialFocus;
+      focus?.focus({ preventScroll: true });
+    });
+    return {
+      id: name,
+      update: (patch) => {
+        if (this.pluginPresentations.get(name) === presentation) {
+          this.updatePluginPresentation(name, patch);
+        }
+      },
+      reposition: () => {
+        if (this.pluginPresentations.get(name) === presentation) presentation.position();
+      },
+      dismiss: (reason = 'programmatic') => {
+        if (this.pluginPresentations.get(name) === presentation) {
+          this.dismissPluginPresentation(name, reason);
+        }
+      },
+    };
   }
 
-  private dismissPluginPresentation(name: string, notify = true): void {
+  private updatePluginPresentation(
+    name: string,
+    patch: Partial<PluginPresentationOptions>,
+  ): void {
+    const presentation = this.pluginPresentations.get(name);
+    if (!presentation) return;
+    const previousElement = presentation.options.element;
+    presentation.options = { ...presentation.options, ...patch };
+    const element = presentation.options.element;
+    if (element !== previousElement) {
+      presentation.resizeObserver?.unobserve(previousElement);
+      previousElement.remove();
+      element.dataset.mdeIgnore = '';
+      element.dataset.mdePluginPresentation = name;
+      element.style.position = 'fixed';
+      element.style.zIndex ||= previousElement.style.zIndex;
+      (presentation.options.container ?? document.body).appendChild(element);
+      presentation.resizeObserver?.observe(element);
+    } else if (patch.container && element.parentElement !== patch.container) {
+      patch.container.appendChild(element);
+    }
+    this.configurePresentationSemantics(presentation.options);
+    presentation.position();
+  }
+
+  private configurePresentationSemantics(options: PluginPresentationOptions): void {
+    const modal = options.modal ?? options.anchor === 'viewport';
+    if (modal) {
+      if (!options.element.hasAttribute('role')) {
+        options.element.setAttribute('role', 'dialog');
+        options.element.dataset.mdeAutoRole = '';
+      }
+      options.element.setAttribute('aria-modal', 'true');
+    } else {
+      options.element.removeAttribute('aria-modal');
+      if ('mdeAutoRole' in options.element.dataset) {
+        options.element.removeAttribute('role');
+        delete options.element.dataset.mdeAutoRole;
+      }
+    }
+  }
+
+  private trapPresentationFocus(element: HTMLElement, event: KeyboardEvent): void {
+    const focusable = [...element.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),'
+      + 'textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+    )].filter((candidate) => !candidate.hidden && candidate.getClientRects().length > 0);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      if (!element.hasAttribute('tabindex')) element.tabIndex = -1;
+      element.focus({ preventScroll: true });
+      return;
+    }
+    const current = document.activeElement;
+    const index = focusable.indexOf(current as HTMLElement);
+    const next = event.shiftKey
+      ? (index <= 0 ? focusable.length - 1 : index - 1)
+      : (index < 0 || index === focusable.length - 1 ? 0 : index + 1);
+    event.preventDefault();
+    focusable[next].focus({ preventScroll: true });
+  }
+
+  private dismissPluginPresentation(
+    name: string,
+    reason: PluginPresentationDismissReason = 'programmatic',
+    notify = true,
+  ): void {
     const presentation = this.pluginPresentations.get(name);
     if (!presentation) return;
     this.pluginPresentations.delete(name);
     presentation.controller.abort();
     presentation.resizeObserver?.disconnect();
     presentation.options.element.remove();
-    if (notify) presentation.options.onDismiss?.();
+    if (
+      reason !== 'replaced'
+      && presentation.options.restoreFocus !== false
+      && presentation.previousFocus?.isConnected
+    ) {
+      presentation.previousFocus.focus({ preventScroll: true });
+    }
+    if (notify) presentation.options.onDismiss?.(reason);
+  }
+
+  private repositionPluginPresentations(): void {
+    for (const presentation of this.pluginPresentations.values()) presentation.position();
   }
 
   /**
@@ -963,6 +1222,7 @@ export class MarkdownEditor extends EventTarget {
     // Hosts that decorate from the caret's position — a focus mode, a live outline —
     // recompute here and push a layer (DESIGN §5.3).
     this.dispatchEvent(new CustomEvent('selectionchange', { detail: { range } }));
+    this.repositionPluginPresentations();
   }
 
   /**

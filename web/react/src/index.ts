@@ -4,7 +4,9 @@
 // optional layer over it and imports it directly, never a fork of it.
 
 export { MarkdownEditor, activeEditorCount } from './MarkdownEditor.js';
-export { useEditorHistory, useMarkdownEditorRef } from './hooks.js';
+export { useEditorCommands, useEditorHistory, useMarkdownEditorRef } from './hooks.js';
+export { createReactPresentation, usePluginPresentation } from './presentations.js';
+export type { ReactPresentationHandle, ReactPresentationOptions } from './presentations.js';
 export { preloadCore, DEFAULT_WASM_URL, loadedCoreCount } from './core.js';
 
 // Re-exported so a host does not have to reach past this package for the vocabulary the

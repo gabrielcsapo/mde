@@ -17,6 +17,8 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private var partsOfSpeech: PartsOfSpeech!
     private var mentions: MentionAutocomplete!
     private var attachments: AttachmentComposer!
+    private var slashCommands: MarkdownSuggestionPlugin!
+    private var linkEditor: LinkEditor!
     private var redoItem: NSButton!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -41,8 +43,10 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
             MentionCandidate(handle: "mira", label: "Mira", detail: "Journal"),
         ])
         attachments = AttachmentComposer()
+        linkEditor = LinkEditor()
+        slashCommands = MarkdownSuggestionPlugins.slashCommands()
         editor = try! MarkdownTextView(
-            plugins: [typewriter, partsOfSpeech, mentions, attachments],
+            plugins: [typewriter, partsOfSpeech, mentions, attachments, linkEditor, slashCommands],
             manifest: HostExtensions.manifest,
             theme: theme
         )

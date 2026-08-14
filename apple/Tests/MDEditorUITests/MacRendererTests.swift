@@ -1814,6 +1814,193 @@ extension MacRendererTests {
         XCTAssertTrue(editor.removePlugin(named: attachments.name))
         XCTAssertFalse(editor.subviews.contains { $0 is NSStackView && !($0 is WidgetContainer) })
     }
+
+    func testSuggestionMatchingFuzzyFilteringAndShippedConfigurations() throws {
+        XCTAssertEqual(
+            matchSuggestion(
+                triggers: [MarkdownSuggestionTrigger("[[", requiresBoundary: false, allowsSpaces: true)],
+                markdownBeforeCaret: "See [[Day O", caret: 11
+            ),
+            MarkdownSuggestionMatch(trigger: "[[", query: "Day O", range: NSRange(location: 4, length: 7))
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(markdownSuggestionScore(query: "gabe", candidate: "Gabriel @gabe")),
+            try XCTUnwrap(markdownSuggestionScore(query: "gabe", candidate: "Grace Baker"))
+        )
+
+        let tags = MarkdownSuggestionPlugins.tags(["travel", "work"])
+        try editor.installPlugin(tags)
+        editor.setMarkdown("#")
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+        tags.selectionDidChange()
+        editor.layoutSubtreeIfNeeded()
+        XCTAssertTrue(editor.subviews.contains { $0 is NSStackView && !($0 is WidgetContainer) })
+        XCTAssertEqual(editor.markdown, "#", "presenting suggestions changed source")
+        let down = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\u{F701}",
+            charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125
+        ))
+        let enter = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\r",
+            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36
+        ))
+        XCTAssertTrue(editor.performKeyEquivalent(with: down))
+        XCTAssertTrue(editor.performKeyEquivalent(with: enter))
+        XCTAssertEqual(editor.markdown, "#work ")
+    }
+
+    func testCommandAndPresentationHandlesUpdateAndStaleHandlesAreInert() throws {
+        let plugin = AdvancedPresentationPlugin()
+        try editor.installPlugin(plugin)
+        XCTAssertEqual(editor.registeredPluginCommands.map(\.title), ["First"])
+        plugin.command?.update(MarkdownPluginCommand(title: "Updated") {})
+        XCTAssertEqual(editor.registeredPluginCommands.map(\.title), ["Updated"])
+        XCTAssertTrue(editor.executePluginCommand(id: try XCTUnwrap(plugin.command?.id)))
+
+        let replacement = FixedSizeView(size: CGSize(width: 220, height: 70))
+        plugin.presentation?.update(MarkdownPluginPresentationOptions(
+            view: replacement,
+            anchor: .editor,
+            onDismiss: { [weak plugin] in plugin?.dismissalReason = $0 }
+        ))
+        editor.layoutSubtreeIfNeeded()
+        XCTAssertTrue(replacement.superview === editor)
+        let stale = plugin.presentation
+        plugin.replacePresentation()
+        XCTAssertEqual(plugin.dismissalReason, .replaced)
+        stale?.dismiss()
+        XCTAssertNotNil(plugin.replacementPanel?.superview, "stale handle dismissed its replacement")
+        plugin.presentation?.dismiss()
+        plugin.currentPresentation?.dismiss()
+        XCTAssertNil(plugin.replacementPanel?.superview)
+        plugin.command?.unregister()
+        XCTAssertTrue(editor.registeredPluginCommands.isEmpty)
+    }
+
+    func testJournalAttachmentImporterReplacesLocalPreviewWithDurableReference() throws {
+        let importer = TestAttachmentImporter()
+        let plugin = JournalAttachments(importer: importer)
+        try editor.installPlugin(plugin)
+        editor.setMarkdown("")
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+        let url = URL(fileURLWithPath: "/tmp/Morning-Photo.jpg")
+        plugin.add([url])
+        XCTAssertTrue(editor.markdown.contains("file:///tmp/Morning-Photo.jpg"))
+        importer.progress?(0.5)
+        importer.completion?(.success(JournalAttachmentImportResult(
+            reference: "journal/morning.jpg", alt: "A quiet morning"
+        )))
+        XCTAssertEqual(editor.markdown, "![A quiet morning](journal/morning.jpg)")
+
+        editor.setMarkdown("")
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+        plugin.add([URL(fileURLWithPath: "/tmp/broken.mov")])
+        importer.completion?(.failure(TestAttachmentError.failed))
+        XCTAssertEqual(editor.markdown, "", "failed import left a temporary reference")
+    }
+
+    func testLinkEditorUpdatesAnExistingLinkWithoutNestingMarkup() throws {
+        editor.setMarkdown("Read [the entry](journal/day-one) today.")
+        editor.setSelectedRange(NSRange(location: 10, length: 0))
+        let plugin = LinkEditor()
+        try editor.installPlugin(plugin)
+        plugin.open()
+        editor.layoutSubtreeIfNeeded()
+
+        func descendants(_ view: NSView) -> [NSView] {
+            view.subviews.flatMap { [$0] + descendants($0) }
+        }
+        let views = descendants(editor)
+        let fields = views.compactMap { $0 as? NSTextField }.filter(\.isEditable)
+        XCTAssertEqual(fields.map(\.stringValue), ["the entry", "journal/day-one"])
+        fields[0].stringValue = "today"
+        fields[1].stringValue = "journal/today"
+        let update = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first {
+            $0.title == "Update"
+        })
+        update.performClick(nil)
+        XCTAssertEqual(editor.markdown, "Read [today](journal/today) today.")
+    }
+
+    func testAReplacementCallbackCanPresentAgainWithoutLeakingViews() throws {
+        let plugin = ReentrantPresentationPlugin()
+        try editor.installPlugin(plugin)
+        XCTAssertNil(plugin.first.superview)
+        XCTAssertNil(plugin.second.superview)
+        XCTAssertTrue(plugin.final.superview === editor)
+    }
+}
+
+private final class ReentrantPresentationPlugin: MarkdownPlugin {
+    let name = "test.reentrant-presentation"
+    let first = FixedSizeView(size: CGSize(width: 100, height: 40))
+    let second = FixedSizeView(size: CGSize(width: 110, height: 40))
+    let final = FixedSizeView(size: CGSize(width: 120, height: 40))
+
+    func install(in context: MarkdownPluginContext) throws {
+        context.showPresentation("panel", options: MarkdownPluginPresentationOptions(
+            view: first,
+            onDismiss: { [weak self, weak context] reason in
+                guard reason == .replaced, let self else { return }
+                context?.showPresentation("panel", view: self.final)
+            }
+        ))
+        context.showPresentation("panel", view: second)
+    }
+}
+
+private final class AdvancedPresentationPlugin: MarkdownPlugin {
+    let name = "test.advanced-presentation"
+    var command: MarkdownPluginCommandHandle?
+    var presentation: MarkdownPluginPresentationHandle?
+    var currentPresentation: MarkdownPluginPresentationHandle?
+    var replacementPanel: FixedSizeView?
+    var dismissalReason: MarkdownPluginPresentationDismissReason?
+    private var context: MarkdownPluginContext?
+    func install(in context: MarkdownPluginContext) throws {
+        self.context = context
+        command = context.registerCommand("first", command: MarkdownPluginCommand(title: "First") {})
+        presentation = context.showPresentation(
+            "panel",
+            options: MarkdownPluginPresentationOptions(
+                view: FixedSizeView(size: CGSize(width: 100, height: 40)),
+                anchor: .selection,
+                onDismiss: { [weak self] in self?.dismissalReason = $0 }
+            )
+        )
+        currentPresentation = presentation
+    }
+    func replacePresentation() {
+        replacementPanel = FixedSizeView(size: CGSize(width: 160, height: 50))
+        currentPresentation = context?.showPresentation(
+            "panel",
+            options: MarkdownPluginPresentationOptions(
+                view: replacementPanel!, anchor: .editor
+            )
+        )
+    }
+}
+
+private final class TestAttachmentCancellation: JournalAttachmentImportCancellation {
+    func cancel() {}
+}
+
+private enum TestAttachmentError: Error { case failed }
+
+private final class TestAttachmentImporter: JournalAttachmentImporting {
+    var progress: ((Double) -> Void)?
+    var completion: ((Result<JournalAttachmentImportResult, Error>) -> Void)?
+    func selectAttachments(completion: @escaping ([URL]) -> Void) { completion([]) }
+    func importAttachment(
+        _ url: URL,
+        progress: @escaping (Double) -> Void,
+        completion: @escaping (Result<JournalAttachmentImportResult, Error>) -> Void
+    ) -> (any JournalAttachmentImportCancellation)? {
+        self.progress = progress; self.completion = completion
+        return TestAttachmentCancellation()
+    }
 }
 
 private final class PresentationPlugin: MarkdownPlugin {

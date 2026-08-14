@@ -1,34 +1,36 @@
 // Path → component. The only file that imports the pages.
 //
-// Prose stays eager so moving between documentation pages is immediate. The one route
-// that imports the editor, reference host, extensions and wasm binding is split: none of
-// that code helps a reader on the landing page or in an API reference.
+// Every document is route-split. The landing page needs none of this prose or the large
+// API reference tables, and navigation still begins fetching a page in the same click
+// that updates the URL. The live editor remains an isolated chunk inside its route.
 
 import { lazy } from 'react';
 
-import Overview from './pages/overview.jsx';
+const Overview = lazy(() => import('./pages/overview.jsx'));
 const Try = lazy(() => import('./pages/try.jsx'));
-import Install from './pages/install.jsx';
-import React from './pages/react.jsx';
-import InlineRendering from './pages/inline-rendering.jsx';
-import Decorations from './pages/decorations.jsx';
-import Reveal from './pages/reveal.jsx';
-import Widgets from './pages/widgets.jsx';
-import History from './pages/history.jsx';
-import Manifest from './pages/manifest.jsx';
-import Layers from './pages/layers.jsx';
-import Showcase from './pages/showcase.jsx';
-import Web from './pages/web.jsx';
-import Apple from './pages/apple.jsx';
-import RefWeb from './pages/ref-web.jsx';
-import RefSwift from './pages/ref-swift.jsx';
-import RefFfi from './pages/ref-ffi.jsx';
-import RefRoles from './pages/ref-roles.jsx';
-import MarkdownSupport from './pages/markdown.jsx';
-import Architecture from './pages/architecture.jsx';
-import Performance from './pages/performance.jsx';
-import Testing from './pages/testing.jsx';
-import Status from './pages/status.jsx';
+const Install = lazy(() => import('./pages/install.jsx'));
+const React = lazy(() => import('./pages/react.jsx'));
+const InlineRendering = lazy(() => import('./pages/inline-rendering.jsx'));
+const Decorations = lazy(() => import('./pages/decorations.jsx'));
+const Reveal = lazy(() => import('./pages/reveal.jsx'));
+const Widgets = lazy(() => import('./pages/widgets.jsx'));
+const History = lazy(() => import('./pages/history.jsx'));
+const Manifest = lazy(() => import('./pages/manifest.jsx'));
+const Layers = lazy(() => import('./pages/layers.jsx'));
+const Plugins = lazy(() => import('./pages/plugins.jsx'));
+const Journal = lazy(() => import('./pages/journal.jsx'));
+const Showcase = lazy(() => import('./pages/showcase.jsx'));
+const Web = lazy(() => import('./pages/web.jsx'));
+const Apple = lazy(() => import('./pages/apple.jsx'));
+const RefWeb = lazy(() => import('./pages/ref-web.jsx'));
+const RefSwift = lazy(() => import('./pages/ref-swift.jsx'));
+const RefFfi = lazy(() => import('./pages/ref-ffi.jsx'));
+const RefRoles = lazy(() => import('./pages/ref-roles.jsx'));
+const MarkdownSupport = lazy(() => import('./pages/markdown.jsx'));
+const Architecture = lazy(() => import('./pages/architecture.jsx'));
+const Performance = lazy(() => import('./pages/performance.jsx'));
+const Testing = lazy(() => import('./pages/testing.jsx'));
+const Status = lazy(() => import('./pages/status.jsx'));
 
 /** Keyed by the same paths `nav.js` declares; a mismatch is a 404 the site can show. */
 export const ROUTES = {
@@ -43,6 +45,8 @@ export const ROUTES = {
   '/concepts/history': History,
   '/extend/manifest': Manifest,
   '/extend/layers': Layers,
+  '/extend/plugins': Plugins,
+  '/extend/journal': Journal,
   '/extend/showcase': Showcase,
   '/platforms/web': Web,
   '/platforms/apple': Apple,

@@ -1,6 +1,8 @@
 import { definePlugin } from '../src/plugins.js';
 import type { EditorPlugin, EditorPluginContext } from '../src/plugins.js';
 import type { SelectionRange } from '../src/core.js';
+import { filterSuggestions, suggestionPlugin } from './suggestions.js';
+import type { SuggestionProvider } from './suggestions.js';
 
 export interface MentionCandidate {
   handle: string;
@@ -9,109 +11,132 @@ export interface MentionCandidate {
 }
 
 export interface MentionPluginOptions {
-  candidates: readonly MentionCandidate[];
+  candidates?: readonly MentionCandidate[];
+  provider?: (
+    query: string,
+    signal: AbortSignal,
+  ) => readonly MentionCandidate[] | Promise<readonly MentionCandidate[]>;
   maximumResults?: number;
+  debounceMs?: number;
 }
 
 /** A complete `@` autocomplete example built only on the public plugin surface. */
-export function mentionAutocomplete(options: MentionPluginOptions): EditorPlugin {
-  return definePlugin({
+export function mentionAutocomplete(options: MentionPluginOptions = {}): EditorPlugin {
+  return suggestionPlugin({
     name: 'mde.examples.mentions',
-    setup(context) {
-      let active: { range: SelectionRange; results: MentionCandidate[]; index: number } | null = null;
-
-      const choose = (candidate: MentionCandidate) => {
-        if (!active) return;
-        const range = active.range;
-        // A delimiter finishes the trigger so the selectionchange caused by restoring
-        // the caret cannot immediately reopen the same menu.
-        const replacement = `@${candidate.handle} `;
-        context.editor.root.focus();
-        context.editor.replaceRange(range.start, range.end, replacement);
-        const caret = range.start + replacement.length;
-        context.editor.setSelectionRange({ start: caret, end: caret });
-        active = null;
-        context.dismissPresentation('suggestions');
-      };
-
-      const render = () => {
-        if (!active) return;
-        const menu = document.createElement('div');
-        menu.className = 'mde-composer-menu';
-        menu.setAttribute('role', 'listbox');
-        menu.setAttribute('aria-label', 'Mention suggestions');
-        for (const [index, candidate] of active.results.entries()) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'mde-composer-option';
-          button.setAttribute('role', 'option');
-          button.setAttribute('aria-selected', String(index === active.index));
-          button.tabIndex = -1;
-          const title = document.createElement('strong');
-          title.textContent = candidate.label ?? `@${candidate.handle}`;
-          const detail = document.createElement('span');
-          detail.textContent = candidate.detail ?? `@${candidate.handle}`;
-          button.append(title, detail);
-          button.addEventListener('pointerdown', (event) => {
-            event.preventDefault();
-            choose(candidate);
-          });
-          menu.appendChild(button);
-        }
-        context.showPresentation('suggestions', {
-          element: menu,
-          anchor: 'selection',
-          onDismiss: () => { active = null; },
-        });
-      };
-
-      const update = () => {
-        const selection = context.editor.selectionRange();
-        if (!selection || selection.start !== selection.end) {
-          active = null;
-          context.dismissPresentation('suggestions');
-          return;
-        }
-        const before = context.editor.markdown.slice(0, selection.start);
-        const match = /(?:^|\s)@([\p{L}\p{N}_-]*)$/u.exec(before);
-        if (!match) {
-          active = null;
-          context.dismissPresentation('suggestions');
-          return;
-        }
-        const query = match[1].toLocaleLowerCase();
-        const results = options.candidates.filter((candidate) =>
-          candidate.handle.toLocaleLowerCase().startsWith(query)
-          || candidate.label?.toLocaleLowerCase().includes(query)
-        ).slice(0, Math.max(1, options.maximumResults ?? 6));
-        if (results.length === 0) {
-          active = null;
-          context.dismissPresentation('suggestions');
-          return;
-        }
-        active = {
-          range: { start: selection.start - query.length - 1, end: selection.start },
-          results,
-          index: Math.min(active?.index ?? 0, results.length - 1),
-        };
-        render();
-      };
-
-      context.on('change', update);
-      context.on('selectionchange', update);
-      context.onRoot('keydown', (event) => {
-        if (!active) return;
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault();
-          const direction = event.key === 'ArrowDown' ? 1 : -1;
-          active.index = (active.index + direction + active.results.length) % active.results.length;
-          render();
-        } else if (event.key === 'Enter' || event.key === 'Tab') {
-          event.preventDefault();
-          choose(active.results[active.index]);
-        }
-      });
+    triggers: [{ trigger: '@' }],
+    maximumResults: options.maximumResults ?? 6,
+    debounceMs: options.debounceMs,
+    ariaLabel: 'Mention suggestions',
+    loadingLabel: options.provider ? 'Searching people…' : undefined,
+    provider: async ({ query, signal }) => {
+      const candidates = options.provider
+        ? await options.provider(query, signal)
+        : (options.candidates ?? []);
+      return filterSuggestions(candidates.map((candidate) => ({
+        id: candidate.handle,
+        label: candidate.label ?? `@${candidate.handle}`,
+        detail: candidate.detail ?? `@${candidate.handle}`,
+        keywords: [candidate.handle],
+        insertText: `@${candidate.handle}`,
+        suffix: ' ',
+      })), query, options.maximumResults ?? 6);
     },
+  });
+}
+
+export interface NamedSuggestion {
+  id: string;
+  label: string;
+  detail?: string;
+  keywords?: readonly string[];
+}
+
+export interface NamedSuggestionOptions {
+  items?: readonly NamedSuggestion[];
+  provider?: SuggestionProvider;
+  maximumResults?: number;
+  debounceMs?: number;
+}
+
+/** `#topic` autocomplete for journal tags. */
+export function tagAutocomplete(options: NamedSuggestionOptions = {}): EditorPlugin {
+  return suggestionPlugin({
+    name: 'mde.examples.tags',
+    triggers: [{ trigger: '#' }],
+    maximumResults: options.maximumResults ?? 8,
+    debounceMs: options.debounceMs,
+    ariaLabel: 'Tag suggestions',
+    provider: options.provider ?? (({ query }) => filterSuggestions(
+      (options.items ?? []).map((item) => ({
+        ...item,
+        insertText: `#${item.id}`,
+        suffix: ' ',
+      })),
+      query,
+      options.maximumResults ?? 8,
+    )),
+  });
+}
+
+/** `[[Note title]]` autocomplete for linking journal entries. */
+export function wikilinkAutocomplete(options: NamedSuggestionOptions = {}): EditorPlugin {
+  return suggestionPlugin({
+    name: 'mde.examples.wikilinks',
+    triggers: [{ trigger: '[[', boundary: false, allowSpaces: true }],
+    maximumResults: options.maximumResults ?? 8,
+    debounceMs: options.debounceMs,
+    ariaLabel: 'Note suggestions',
+    provider: options.provider ?? (({ query }) => filterSuggestions(
+      (options.items ?? []).map((item) => ({
+        ...item,
+        insertText: `[[${item.label}]]`,
+        suffix: ' ',
+      })),
+      query,
+      options.maximumResults ?? 8,
+    )),
+  });
+}
+
+/** A line-leading `/` menu populated from the editor's central command registry. */
+export function slashCommandMenu(): EditorPlugin {
+  return suggestionPlugin({
+    name: 'mde.examples.slash-menu',
+    triggers: [{
+      trigger: '/',
+      match(markdownBeforeCaret, caret) {
+        const lineStart = markdownBeforeCaret.lastIndexOf('\n') + 1;
+        const source = markdownBeforeCaret.slice(lineStart);
+        if (!source.startsWith('/') || /\s/u.test(source.slice(1))) return null;
+        return {
+          trigger: '/',
+          query: source.slice(1),
+          range: { start: lineStart, end: caret },
+        };
+      },
+    }],
+    maximumResults: 12,
+    ariaLabel: 'Editor commands',
+    emptyLabel: 'No matching commands',
+    provider: ({ query, editor, range }) => filterSuggestions(
+      editor.listCommands()
+        .filter((command) => command.enabled && command.plugin !== 'mde.examples.slash-menu')
+        .map((command) => ({
+          id: command.id,
+          label: command.title,
+          detail: command.category ?? command.plugin,
+          group: command.category ?? 'Commands',
+          keywords: command.keywords,
+          select: () => {
+            editor.replaceRange(range.start, range.end, '');
+            editor.setSelectionRange({ start: range.start, end: range.start });
+            editor.executeCommand(command.id);
+          },
+        })),
+      query,
+      12,
+    ),
   });
 }
 
@@ -148,6 +173,9 @@ export function attachmentComposer(options: AttachmentComposerOptions = {}): Edi
         requestAnimationFrame(() => panel.querySelector<HTMLInputElement>('input')?.focus());
       };
       context.registerCommand('open', {
+        title: 'Add attachment',
+        category: 'Insert',
+        keywords: ['image', 'video', 'audio', 'file', 'media'],
         key: options.commandKey ?? 'o',
         primary: true,
         handler: open,
