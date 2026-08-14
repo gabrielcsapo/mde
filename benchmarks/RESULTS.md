@@ -197,3 +197,16 @@ most 32 resolved elements while preserving learned geometry. The 320-resource jo
 opens only the visible/overscanned resources, reducing its retained DOM from 5,797 to
 219 elements; jumping to the bottom resolves the demanded audio references without
 eagerly creating the hundreds of intervening image and video elements.
+
+## Plugin canvas interactions — 2026-08-13
+
+Plugins can now mount lifecycle-owned UI above the editor without placing any of that
+view text inside the markdown DOM or TextKit storage. The shared surface covers
+selection/editor/viewport anchoring, editor-scoped keyboard commands, automatic teardown,
+and programmatic source edits. The executable examples provide `@` mention autocomplete
+and a Command-O image/video/link composer in JS, React, UIKit, and AppKit.
+
+Forty selection-panel show/layout/dismiss cycles measured 0.7 ms p95 in Chromium and
+0.034 ms best-of-40 in AppKit. Both have dedicated regression budgets, while browser,
+React, Swift lifecycle tests verify exact source preservation and cleanup after plugin
+removal.

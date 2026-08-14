@@ -77,6 +77,24 @@ export default function Layers() {
         capture an immutable source snapshot and refuse late results after a newer edit or plugin
         removal.
       </p>
+
+      <H3 id="canvas-presentations">Plugins can own canvas UI and commands</H3>
+      <p>
+        A plugin is not limited to colored ranges. <code>showPresentation</code> mounts a
+        lifecycle-owned view at the selection, editor edge, or viewport center;{' '}
+        <code>registerCommand</code> binds an editor-scoped shortcut; and web plugins can use{' '}
+        <code>onRoot</code> for listbox navigation. The view is a sibling presentation—not part of
+        the document DOM or TextKit storage—so its labels never leak into markdown, selection
+        offsets, copy/paste, or undo.
+      </p>
+      <p>
+        The shipped <code>composer</code> extension is the executable example: typing <code>@</code>{' '}
+        opens an accessible autocomplete list, and Command-O opens an image/video/link composer.
+        The same implementations run through <code>@mde/web</code> and <code>@mde/react</code>; Swift
+        supplies <code>MentionAutocomplete</code> and <code>AttachmentComposer</code> once for both
+        UIKit and AppKit. Removing the plugin removes its listeners, commands, background work,
+        layers, and every floating view as one operation.
+      </p>
       <p>
         Published compatibility helpers—<code>@mde/web/plugin-testing</code> and{' '}
         <code>MarkdownPluginCompatibility.check</code>—exercise installation, source preservation,

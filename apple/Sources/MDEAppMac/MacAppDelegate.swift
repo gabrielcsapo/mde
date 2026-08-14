@@ -15,6 +15,8 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private var historyItem: NSButton!
     private var typewriter: TypewriterMode!
     private var partsOfSpeech: PartsOfSpeech!
+    private var mentions: MentionAutocomplete!
+    private var attachments: AttachmentComposer!
     private var redoItem: NSButton!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -33,8 +35,14 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
 
         typewriter = TypewriterMode()
         partsOfSpeech = PartsOfSpeech()
+        mentions = MentionAutocomplete(candidates: [
+            MentionCandidate(handle: "gabe", label: "Gabriel", detail: "Editor team"),
+            MentionCandidate(handle: "grace", label: "Grace", detail: "Design"),
+            MentionCandidate(handle: "mira", label: "Mira", detail: "Journal"),
+        ])
+        attachments = AttachmentComposer()
         editor = try! MarkdownTextView(
-            plugins: [typewriter, partsOfSpeech],
+            plugins: [typewriter, partsOfSpeech, mentions, attachments],
             manifest: HostExtensions.manifest,
             theme: theme
         )

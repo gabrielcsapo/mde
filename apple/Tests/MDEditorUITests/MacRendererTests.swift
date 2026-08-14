@@ -1703,6 +1703,7 @@ extension MacRendererTests {
         XCTAssertThrowsError(try editor.installPlugin(plugin))
         XCTAssertEqual(editor.installedPluginNames, [])
         XCTAssertFalse(editor.decorations.contains { $0.role == plugin.role })
+        XCTAssertNil(plugin.panel.superview, "failed plugin setup leaked a canvas view")
 
         // The failed install did not leave the name reserved.
         let replacement = CountingPlugin(name: plugin.name)
@@ -1761,6 +1762,70 @@ extension MacRendererTests {
 
         XCTAssertTrue(diagnostics.contains { $0.task == "cancelled" && $0.cancelled })
         XCTAssertTrue(diagnostics.contains { $0.task == "slow" && $0.overBudget })
+    }
+
+    func testPluginsOwnFloatingCanvasViewsAndKeyboardCommands() throws {
+        editor.setMarkdown("hello @ga")
+        editor.setSelectedRange(NSRange(location: 9, length: 0))
+        let plugin = PresentationPlugin()
+        try editor.installPlugin(plugin)
+        editor.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(plugin.panel.superview === editor)
+        XCTAssertGreaterThan(plugin.panel.frame.width, 0)
+        XCTAssertGreaterThan(plugin.panel.frame.height, 0)
+        XCTAssertEqual(editor.markdown, "hello @ga")
+        XCTAssertEqual(storage.string, "hello @ga")
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "o", charactersIgnoringModifiers: "o",
+            isARepeat: false, keyCode: 31
+        ))
+        XCTAssertTrue(editor.performKeyEquivalent(with: event))
+        XCTAssertEqual(plugin.commandInvocations, 1)
+
+        XCTAssertTrue(editor.removePlugin(named: plugin.name))
+        XCTAssertNil(plugin.panel.superview, "plugin removal leaked its canvas view")
+        _ = editor.performKeyEquivalent(with: event)
+        XCTAssertEqual(plugin.commandInvocations, 1, "plugin removal leaked its command")
+    }
+
+    func testHostComposerExamplesPresentMentionsAndAttachmentUIWithoutChangingSource() throws {
+        let mentions = MentionAutocomplete(candidates: [
+            MentionCandidate(handle: "gabe", label: "Gabriel"),
+            MentionCandidate(handle: "grace", label: "Grace"),
+        ])
+        try editor.installPlugin(mentions)
+        editor.setMarkdown("Hello @ga")
+        editor.setSelectedRange(NSRange(location: 9, length: 0))
+        mentions.selectionDidChange()
+        editor.layoutSubtreeIfNeeded()
+        XCTAssertTrue(editor.subviews.contains { $0 is NSStackView && !($0 is WidgetContainer) })
+        XCTAssertEqual(editor.markdown, "Hello @ga")
+        XCTAssertTrue(editor.removePlugin(named: mentions.name))
+
+        let attachments = AttachmentComposer()
+        try editor.installPlugin(attachments)
+        attachments.open()
+        editor.layoutSubtreeIfNeeded()
+        XCTAssertTrue(editor.subviews.contains { $0 is NSStackView })
+        XCTAssertEqual(editor.markdown, "Hello @ga")
+        XCTAssertTrue(editor.removePlugin(named: attachments.name))
+        XCTAssertFalse(editor.subviews.contains { $0 is NSStackView && !($0 is WidgetContainer) })
+    }
+}
+
+private final class PresentationPlugin: MarkdownPlugin {
+    let name = "test.presentation"
+    let panel = FixedSizeView(size: CGSize(width: 180, height: 64))
+    private(set) var commandInvocations = 0
+
+    func install(in context: MarkdownPluginContext) throws {
+        context.showPresentation("mentions", view: panel, anchor: .selection)
+        context.registerCommand("attachments", title: "Add attachment", key: "o") {
+            self.commandInvocations += 1
+        }
     }
 }
 
@@ -1832,12 +1897,15 @@ private final class ManifestPlugin: MarkdownPlugin {
 private final class FailingPlugin: MarkdownPlugin {
     let name = "test.failing"
     private(set) var role: UInt32 = .max
+    let panel = FixedSizeView(size: CGSize(width: 120, height: 40))
 
     func install(in context: MarkdownPluginContext) throws {
         role = context.internRole("test-failed-mark")
         context.setLayer("partial", [
             LayerSpan(range: NSRange(location: 0, length: 5), role: role),
         ])
+        context.showPresentation("partial", view: panel, anchor: .editor)
+        context.registerCommand("partial", title: "Partial", key: "p") {}
         throw TestPluginFailure.expected
     }
 }

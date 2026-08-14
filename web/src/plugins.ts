@@ -5,6 +5,30 @@ import { composeManifests } from './manifest.js';
 
 export type PluginCleanup = () => void;
 
+export type PluginPresentationAnchor = 'selection' | 'editor' | 'viewport';
+
+/** A plugin-owned view that floats above the editor without entering its source DOM. */
+export interface PluginPresentationOptions {
+  element: HTMLElement;
+  /** Selection popover, editor-attached panel, or viewport-centred modal. */
+  anchor?: PluginPresentationAnchor;
+  /** Adds dialog semantics. Viewport presentations default to modal. */
+  modal?: boolean;
+  /** Escape dismisses by default. */
+  dismissOnEscape?: boolean;
+  /** Called for Escape or a programmatic lifecycle dismissal. */
+  onDismiss?: () => void;
+}
+
+export interface PluginCommandOptions {
+  key: string;
+  /** Command on Apple keyboards and Control elsewhere. */
+  primary?: boolean;
+  shift?: boolean;
+  alt?: boolean;
+  handler: (event: KeyboardEvent) => void | boolean;
+}
+
 export interface PluginAnalysisInput {
   /** Immutable source snapshot captured when the analysis was scheduled. */
   readonly markdown: string;
@@ -49,6 +73,16 @@ export interface EditorPluginContext {
   internRole(name: string): number;
   setLayer(name: string, spans: LayerSpan[]): void;
   clearLayer(name: string): void;
+  /** Register an automatically removed editor keyboard command. */
+  registerCommand(name: string, command: PluginCommandOptions): void;
+  /** Show or replace one plugin-owned floating view. */
+  showPresentation(name: string, options: PluginPresentationOptions): void;
+  dismissPresentation(name: string): void;
+  /** Listen on the contenteditable host with the plugin lifecycle signal. */
+  onRoot<K extends keyof HTMLElementEventMap>(
+    type: K,
+    listener: (event: HTMLElementEventMap[K]) => void,
+  ): void;
   /**
    * Run latest-wins analysis against a source snapshot. A replacement with the same
    * name aborts the previous signal; results from stale work are never applied.
@@ -87,6 +121,8 @@ export interface InstalledPlugin {
   controller: AbortController;
   layers: Set<string>;
   analyses: Map<string, PluginAnalysisRun>;
+  commands: Map<string, AbortController>;
+  presentations: Set<string>;
   analysisSequence: number;
   cleanup?: PluginCleanup;
 }

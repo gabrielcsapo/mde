@@ -892,6 +892,14 @@ export const SWIFT_API = [
         summary: 'Flip a checkbox through the normal edit path, as its own undo step.',
       },
       {
+        name: 'MarkdownTextView.replaceMarkdown',
+        kind: 'method',
+        signature:
+          '@discardableResult func replaceMarkdown(in range: NSRange, with text: String, selection: NSRange? = nil) -> Bool',
+        summary:
+          'Apply an exact source edit through the normal storage, history, decoration, and callback path. Intended for plugin UI and host commands.',
+      },
+      {
         name: 'MarkdownTextView.requestOpenLink',
         kind: 'method',
         signature: '@discardableResult func requestOpenLink(at offset: Int) -> Bool',
@@ -935,7 +943,7 @@ export const SWIFT_API = [
   {
     id: 'host-contracts',
     title: 'What the host supplies',
-    file: 'apple/Sources/MDEditorUI/Widgets.swift · Resources.swift · Theme.swift',
+    file: 'apple/Sources/MDEditorUI/Plugins.swift · Widgets.swift · Resources.swift · Theme.swift',
     intro:
       'The per-platform seam. The core resolves syntax, ranges, reveal state, identity and the reference; the host only draws.',
     symbols: [
@@ -951,10 +959,23 @@ export const SWIFT_API = [
         name: 'MarkdownPluginContext',
         kind: 'class',
         signature:
-          'editor · name · internRole(_:) · setLayer(_:_:) · clearLayer(_:) · scheduleAnalysis(_:delay:analyze:apply:) · cancelAnalysis(_:)',
+          'editor · name · internRole(_:) · setLayer(_:_:) · clearLayer(_:) · scheduleAnalysis(_:delay:analyze:apply:) · cancelAnalysis(_:) · registerCommand(_:title:key:modifiers:handler:) · showPresentation(_:view:anchor:modal:) · dismissPresentation(_:)',
         summary:
-          'The weak editor reference and automatically cleaned, plugin-namespaced layer surface.',
-        note: 'Analysis runs on a shared concurrent queue and publishes only the latest result on the main queue.',
+          'The weak editor reference and automatically cleaned, plugin-namespaced layer, command, and floating-presentation surface.',
+        note: 'Analysis publishes only the latest result. Commands and presentations are removed atomically with the plugin.',
+      },
+      {
+        name: 'MarkdownPluginPresentationAnchor',
+        kind: 'enum',
+        signature: 'case selection · case editor · case viewport',
+        summary:
+          'Place plugin-owned UI at the caret, editor edge, or viewport center without adding anything to markdown storage.',
+      },
+      {
+        name: 'MarkdownPluginCommandModifiers',
+        kind: 'type',
+        signature: 'OptionSet · .primary · .shift · .option',
+        summary: 'Portable hardware-keyboard modifiers for editor-scoped plugin commands.',
       },
       {
         name: 'MarkdownPluginCompatibility.check',

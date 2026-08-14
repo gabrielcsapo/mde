@@ -19,6 +19,7 @@ import type {
   EditorPluginContext,
   InstalledPlugin,
   PluginAnalysisRun,
+  PluginPresentationOptions,
 } from './plugins.js';
 import type { PreparedDocument } from './preparation.js';
 
@@ -118,6 +119,11 @@ export class MarkdownEditor extends EventTarget {
   onDocumentSelectionChange: () => void;
   destroyed: boolean;
   private plugins: Map<string, InstalledPlugin>;
+  private pluginPresentations: Map<string, {
+    options: PluginPresentationOptions;
+    controller: AbortController;
+    resizeObserver: ResizeObserver | null;
+  }>;
   private resourcePriorityFrame: number | null;
   private virtualizationFrame: number | null;
   private virtualizesDocument: boolean;
@@ -225,6 +231,7 @@ export class MarkdownEditor extends EventTarget {
     };
     document.addEventListener('selectionchange', this.onDocumentSelectionChange, listener);
     this.plugins = new Map();
+    this.pluginPresentations = new Map();
     this.destroyed = false;
   }
 
@@ -430,6 +437,8 @@ export class MarkdownEditor extends EventTarget {
       controller,
       layers: new Set(),
       analyses: new Map(),
+      commands: new Map(),
+      presentations: new Set(),
       analysisSequence: 0,
     };
     const cancelAnalysis = (task: string) => {
@@ -469,6 +478,51 @@ export class MarkdownEditor extends EventTarget {
         installed.layers.delete(layer);
         this.clearLayer(layer);
       },
+      registerCommand: (local, command) => {
+        if (controller.signal.aborted) return;
+        const canonical = local.trim();
+        if (!canonical) throw new Error(`Plugin "${name}" used an empty command name`);
+        const qualified = pluginLayerName(name, `command:${canonical}`);
+        installed.commands.get(qualified)?.abort();
+        const commandController = new AbortController();
+        installed.commands.set(qualified, commandController);
+        const abortCommand = () => commandController.abort();
+        controller.signal.addEventListener('abort', abortCommand, { once: true });
+        commandController.signal.addEventListener('abort', () => {
+          controller.signal.removeEventListener('abort', abortCommand);
+        }, { once: true });
+        const key = command.key.toLocaleLowerCase();
+        this.root.addEventListener('keydown', (event) => {
+          if (event.key.toLocaleLowerCase() !== key) return;
+          if (!!command.primary !== (event.metaKey || event.ctrlKey)) return;
+          if (!!command.shift !== event.shiftKey || !!command.alt !== event.altKey) return;
+          const handled = command.handler(event);
+          if (handled !== false) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }, { signal: commandController.signal });
+      },
+      showPresentation: (local, options) => {
+        if (controller.signal.aborted) return;
+        const canonical = local.trim();
+        if (!canonical) throw new Error(`Plugin "${name}" used an empty presentation name`);
+        const qualified = pluginLayerName(name, `presentation:${canonical}`);
+        installed.presentations.add(qualified);
+        this.showPluginPresentation(qualified, options);
+      },
+      dismissPresentation: (local) => {
+        const canonical = local.trim();
+        if (!canonical) return;
+        const qualified = pluginLayerName(name, `presentation:${canonical}`);
+        installed.presentations.delete(qualified);
+        this.dismissPluginPresentation(qualified);
+      },
+      onRoot: (type, listener) => this.root.addEventListener(
+        type,
+        listener as EventListener,
+        { signal: controller.signal },
+      ),
       scheduleAnalysis: (task, analyze, apply, options = {}) => {
         if (controller.signal.aborted) return;
         const canonical = task.trim();
@@ -553,7 +607,11 @@ export class MarkdownEditor extends EventTarget {
       this.plugins.delete(name);
       controller.abort();
       for (const task of [...installed.analyses.keys()]) cancelAnalysis(task);
+      installed.commands.clear();
       for (const layer of installed.layers) this.clearLayer(layer);
+      for (const presentation of installed.presentations) {
+        this.dismissPluginPresentation(presentation);
+      }
       throw error;
     }
   }
@@ -565,6 +623,7 @@ export class MarkdownEditor extends EventTarget {
     if (!installed) return false;
     this.plugins.delete(canonical);
     installed.controller.abort();
+    installed.commands.clear();
     for (const task of [...installed.analyses.keys()]) {
       const run = installed.analyses.get(task);
       installed.analyses.delete(task);
@@ -580,6 +639,10 @@ export class MarkdownEditor extends EventTarget {
     } finally {
       for (const layer of installed.layers) this.clearLayer(layer);
       installed.layers.clear();
+      for (const presentation of installed.presentations) {
+        this.dismissPluginPresentation(presentation);
+      }
+      installed.presentations.clear();
     }
     if (cleanupError !== undefined) throw cleanupError;
     return true;
@@ -588,6 +651,73 @@ export class MarkdownEditor extends EventTarget {
   /** Installed plugin names, in installation order. */
   get installedPlugins(): string[] {
     return [...this.plugins.keys()];
+  }
+
+  private showPluginPresentation(name: string, options: PluginPresentationOptions): void {
+    this.dismissPluginPresentation(name, false);
+    const element = options.element;
+    const anchor = options.anchor ?? 'selection';
+    const controller = new AbortController();
+    element.dataset.mdeIgnore = '';
+    element.dataset.mdePluginPresentation = name;
+    element.style.position = 'fixed';
+    element.style.zIndex ||= '1000';
+    if (options.modal ?? anchor === 'viewport') {
+      element.setAttribute('role', element.getAttribute('role') ?? 'dialog');
+      element.setAttribute('aria-modal', 'true');
+    }
+    document.body.appendChild(element);
+
+    const position = () => {
+      if (!element.isConnected) return;
+      const editorRect = this.root.getBoundingClientRect();
+      let left = editorRect.left + 12;
+      let top = editorRect.top + 12;
+      if (anchor === 'viewport') {
+        left = (globalThis.innerWidth - element.offsetWidth) / 2;
+        top = (globalThis.innerHeight - element.offsetHeight) / 2;
+      } else if (anchor === 'selection') {
+        const selection = document.getSelection();
+        const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+        const rect = range && this.root.contains(range.startContainer)
+          ? (range.getClientRects().item(range.getClientRects().length - 1)
+            ?? range.getBoundingClientRect())
+          : editorRect;
+        left = rect.left;
+        top = rect.bottom + 8;
+      }
+      const margin = 8;
+      left = Math.max(margin, Math.min(left, globalThis.innerWidth - element.offsetWidth - margin));
+      top = Math.max(margin, Math.min(top, globalThis.innerHeight - element.offsetHeight - margin));
+      element.style.left = `${Math.round(left)}px`;
+      element.style.top = `${Math.round(top)}px`;
+    };
+    const listener = { signal: controller.signal, capture: true };
+    globalThis.addEventListener('resize', position, listener);
+    globalThis.addEventListener('scroll', position, listener);
+    if (options.dismissOnEscape !== false) {
+      globalThis.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        this.dismissPluginPresentation(name);
+      }, listener);
+    }
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(position);
+    resizeObserver?.observe(element);
+    this.pluginPresentations.set(name, { options, controller, resizeObserver });
+    position();
+  }
+
+  private dismissPluginPresentation(name: string, notify = true): void {
+    const presentation = this.pluginPresentations.get(name);
+    if (!presentation) return;
+    this.pluginPresentations.delete(name);
+    presentation.controller.abort();
+    presentation.resizeObserver?.disconnect();
+    presentation.options.element.remove();
+    if (notify) presentation.options.onDismiss?.();
   }
 
   /**

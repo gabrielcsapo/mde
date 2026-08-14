@@ -49,6 +49,7 @@ fi
         testBenchmarkWarmSessionSwitching \
         testBenchmarkSharedEditMatrix \
         testBenchmarkPluginLayerUpdate \
+        testBenchmarkPluginPresentationUpdate \
         testBenchmarkPositionAndTailLatency \
         testBenchmarkRepaintScopeAndDirtyRange \
         testBenchmarkResourceReferenceLookup

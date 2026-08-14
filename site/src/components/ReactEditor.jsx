@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import { MarkdownEditor, useEditorHistory, useMarkdownEditorRef } from '@mde/react';
+import { attachmentComposer, mentionAutocomplete } from '@mde/web/extensions/composer';
 import wasmUrl from '@mde/web/mde.wasm?url';
 
 import {
@@ -11,6 +12,15 @@ import { TOOLBAR } from '../lib/toolbar.js';
 import { sample } from '../lib/sample.js';
 import HistoryPanel from './HistoryPanel.jsx';
 import Toolbar from './Toolbar.jsx';
+
+const COMPOSER_PLUGINS = [
+  mentionAutocomplete({ candidates: [
+    { handle: 'gabe', label: 'Gabriel', detail: 'Editor team' },
+    { handle: 'grace', label: 'Grace', detail: 'Design' },
+    { handle: 'mira', label: 'Mira', detail: 'Journal' },
+  ] }),
+  attachmentComposer(),
+];
 
 export default function ReactEditor({ historyInitiallyOpen, descriptionId }) {
   const editorRef = useMarkdownEditorRef();
@@ -84,6 +94,7 @@ export default function ReactEditor({ historyInitiallyOpen, descriptionId }) {
           wasm={wasmUrl}
           widgetProvider={widgetProvider}
           resourceResolver={resourceResolver}
+          plugins={COMPOSER_PLUGINS}
           onChange={updateStatus}
           onSelectionChange={refresh}
           onLinkOpen={({ destination }) => {

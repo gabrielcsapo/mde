@@ -31,6 +31,7 @@ import {
 // editor, and testing them here is the check that they never needed to be.
 import { TypewriterMode } from '../dist/extensions/typewriter.js';
 import { PartsOfSpeech, tagWord } from '../dist/extensions/parts-of-speech.js';
+import { attachmentComposer, mentionAutocomplete } from '../dist/extensions/composer.js';
 import { checkPluginCompatibility } from '../dist/plugin-testing.js';
 
 function assert(condition, message) {
@@ -1786,19 +1787,24 @@ function makeEditor(options = {}) {
     const e = makeEditor();
     e.setMarkdown('hello');
     let changes = 0;
+    const panel = document.createElement('div');
     const broken = definePlugin({
       name: 'test.broken',
       setup(context) {
         const role = context.internRole('broken-marker');
         context.on('change', () => { changes++; });
+        context.onRoot('keydown', () => { changes++; });
+        context.showPresentation('partial', { element: panel, anchor: 'editor' });
         context.setLayer('partial', [{ start: 0, end: 5, role }]);
         throw new Error('setup failed');
       },
     });
     expect(() => e.installPlugin(broken)).toThrow(/setup failed/);
     assertEqual(e.installedPlugins, []);
+    assert(!panel.isConnected, 'failed setup leaked a presentation');
     assert(!e.decorations.some((d) => d.role === e.internRole('broken-marker')));
     e.setMarkdown('again');
+    e.root.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
     assertEqual(changes, 0);
   });
 
@@ -1811,6 +1817,128 @@ function makeEditor(options = {}) {
     e.destroy();
     e.destroy();
     assertEqual(cleaned, 1);
+  });
+
+  test('plugins own floating canvas views and keyboard commands without changing source', async () => {
+    const e = makeEditor();
+    e.setMarkdown('hello @ga');
+    e.root.focus();
+    e.setSelectionRange({ start: 9, end: 9 });
+    let dismissed = 0;
+    const panel = document.createElement('div');
+    panel.textContent = 'Gabe';
+    panel.style.cssText = 'width:120px;height:40px';
+    e.installPlugin(definePlugin({
+      name: 'test.presentation',
+      setup(context) {
+        context.registerCommand('open', {
+          key: 'o', primary: true,
+          handler: () => context.showPresentation('picker', {
+            element: panel, anchor: 'selection', onDismiss: () => { dismissed++; },
+          }),
+        });
+      },
+    }));
+
+    e.root.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'o', metaKey: true, bubbles: true, cancelable: true,
+    }));
+    assert(panel.isConnected, 'the command did not mount its presentation');
+    assert(panel.hasAttribute(IGNORE_ATTR), 'the floating view was not source-ignored');
+    assertEqual(domText(e.root), 'hello @ga');
+    assertEqual(e.markdown, 'hello @ga');
+    assert(Number.parseFloat(panel.style.top) > 0, 'the selection presentation was not positioned');
+
+    globalThis.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await Promise.resolve();
+    assert(!panel.isConnected, 'Escape did not dismiss the presentation');
+    assertEqual(dismissed, 1);
+  });
+
+  test('removing a plugin tears down its presentations and root listeners', () => {
+    const e = makeEditor();
+    const panel = document.createElement('div');
+    let keys = 0;
+    e.installPlugin(definePlugin({
+      name: 'test.presentation-cleanup',
+      setup(context) {
+        context.onRoot('keydown', () => { keys++; });
+        context.showPresentation('modal', { element: panel, anchor: 'viewport' });
+      },
+    }));
+    assert(panel.isConnected);
+    assertEqual(panel.getAttribute('role'), 'dialog');
+    assertEqual(panel.getAttribute('aria-modal'), 'true');
+    e.removePlugin('test.presentation-cleanup');
+    assert(!panel.isConnected, 'plugin removal leaked a floating view');
+    e.root.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+    assertEqual(keys, 0, 'plugin removal leaked a root listener');
+  });
+
+  test('registering the same local command replaces its previous handler', () => {
+    const e = makeEditor();
+    let oldRuns = 0;
+    let newRuns = 0;
+    e.installPlugin(definePlugin({
+      name: 'test.command-replacement',
+      setup(context) {
+        context.registerCommand('open', {
+          key: 'o', primary: true, handler: () => { oldRuns++; },
+        });
+        context.registerCommand('open', {
+          key: 'o', primary: true, handler: () => { newRuns++; },
+        });
+      },
+    }));
+    e.root.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'o', metaKey: true, bubbles: true, cancelable: true,
+    }));
+    assertEqual(oldRuns, 0);
+    assertEqual(newRuns, 1);
+  });
+
+  test('the mention example autocompletes through the public presentation API', () => {
+    const e = makeEditor();
+    e.installPlugin(mentionAutocomplete({
+      candidates: [
+        { handle: 'gabe', label: 'Gabriel' },
+        { handle: 'grace', label: 'Grace' },
+      ],
+    }));
+    e.setMarkdown('Hello @ga');
+    e.root.focus();
+    e.setSelectionRange({ start: 9, end: 9 });
+    e.dispatchEvent(new CustomEvent('selectionchange', {
+      detail: { range: { start: 9, end: 9 } },
+    }));
+    const menu = document.querySelector('.mde-composer-menu');
+    assert(menu, 'typing @ did not show mention suggestions');
+    assertEqual(menu.querySelectorAll('[role="option"]').length, 1);
+    e.root.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Enter', bubbles: true, cancelable: true,
+    }));
+    assertEqual(e.markdown, 'Hello @gabe ');
+    assertEqual(domText(e.root), 'Hello @gabe ');
+    assert(!menu.isConnected, 'choosing a mention left its menu mounted');
+  });
+
+  test('the attachment example inserts image, video, and link markdown from Command-O', () => {
+    const e = makeEditor();
+    e.setMarkdown('Journal: ');
+    e.root.focus();
+    e.setSelectionRange({ start: 9, end: 9 });
+    e.installPlugin(attachmentComposer());
+    e.root.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'o', metaKey: true, bubbles: true, cancelable: true,
+    }));
+    const form = document.querySelector('.mde-composer-dialog');
+    assert(form, 'Command-O did not show the attachment composer');
+    const [reference, label] = form.querySelectorAll('input');
+    reference.value = 'photos/day-one.jpg';
+    label.value = 'Day one';
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+    assertEqual(e.markdown, 'Journal: ![Day one](photos/day-one.jpg)');
+    assert(!form.isConnected, 'submitting left the attachment composer mounted');
   });
 
   test('plugin analysis is latest-wins and cannot apply after removal', async () => {

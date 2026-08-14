@@ -68,6 +68,9 @@ export default defineConfig({
       edit100KB: Number(process.env.MDE_WEB_100KB_EDIT_BUDGET_MS ?? 75),
       edit1MB: Number(process.env.MDE_WEB_1MB_EDIT_BUDGET_MS ?? 450),
       layer1MB: Number(process.env.MDE_WEB_1MB_LAYER_BUDGET_MS ?? 25),
+      pluginPresentationP95: Number(
+        process.env.MDE_WEB_PLUGIN_PRESENTATION_P95_BUDGET_MS ?? 8,
+      ),
       typewriter100KB: Number(process.env.MDE_WEB_100KB_TYPEWRITER_BUDGET_MS ?? 50),
       giantParagraph: Number(process.env.MDE_WEB_GIANT_PARAGRAPH_BUDGET_MS ?? 150),
       warmSessionSwitchP95: Number(
@@ -186,6 +189,7 @@ export default defineConfig({
         'plugin-testing': `${here}src/plugin-testing.ts`,
         'extensions/typewriter': `${here}extensions/typewriter.ts`,
         'extensions/parts-of-speech': `${here}extensions/parts-of-speech.ts`,
+        'extensions/composer': `${here}extensions/composer.ts`,
       },
       formats: ['es'],
       fileName: (_format, entryName) => `${entryName}.js`,

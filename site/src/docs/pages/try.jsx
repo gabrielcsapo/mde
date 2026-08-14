@@ -31,6 +31,10 @@ const THINGS_TO_TRY = [
     Turn on <strong className="font-semibold text-text">Parts of speech</strong>. Nothing in that
     tint is in the markdown.
   </>,
+  <>
+    Type <code>@ga</code> and choose a person, or press <strong>Command-O</strong> (Control-O on
+    Windows/Linux) to insert an image, video, or link. Both floating interfaces are plugins.
+  </>,
 ];
 
 export default function Try() {
@@ -62,6 +66,11 @@ export default function Try() {
         reserved first — which is why the document does not jump when they land. The document holds{' '}
         <code>chart.png</code>, never the bytes.
       </Note>
+      <p>
+        This demo also installs the shipped composer examples in both integrations. Their menus
+        render above the editor canvas rather than inside its contenteditable source, so opening,
+        navigating, and dismissing them cannot add presentation text to the markdown.
+      </p>
 
       <H2 id="toolbar">The toolbar is a list, not markup</H2>
       <p>

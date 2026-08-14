@@ -91,6 +91,30 @@ test('React composes plugin syntax before constructing the engine', async () => 
   )).toBe(true);
 });
 
+test('React plugin presentations stay outside its subtree and clean up on removal', async () => {
+  const ref = createRef();
+  const panel = document.createElement('div');
+  panel.textContent = 'Mention suggestions';
+  const plugin = definePlugin({
+    name: 'test.react-presentation',
+    setup(context) {
+      context.showPresentation('mentions', { element: panel, anchor: 'editor' });
+    },
+  });
+  const { root, host } = mount(createElement(MarkdownEditor, {
+    ref, defaultValue: 'Hello @ga', plugins: [plugin],
+  }));
+  await until(() => ref.current?.isReady(), 'React editor never became ready');
+  expect(panel.isConnected).toBe(true);
+  expect(host.contains(panel)).toBe(false);
+  expect(ref.current.getMarkdown()).toBe('Hello @ga');
+
+  root.render(createElement(MarkdownEditor, {
+    ref, defaultValue: 'Hello @ga', plugins: [],
+  }));
+  await until(() => !panel.isConnected, 'React plugin presentation leaked after removal');
+});
+
 test('controlled acknowledgement does not roll back an accepted local edit', async () => {
   const ref = createRef();
   const seen = [];

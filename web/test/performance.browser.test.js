@@ -6,7 +6,9 @@ import { afterEach, beforeAll, expect, test } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../src/theme.css';
-import { MarkdownEditor, MarkdownSession, encodeManifest, loadCore } from '../dist/index.js';
+import {
+  MarkdownEditor, MarkdownSession, definePlugin, encodeManifest, loadCore,
+} from '../dist/index.js';
 import {
   MarkdownEditor as ReactMarkdownEditor,
   preloadCore as preloadReactCore,
@@ -354,6 +356,23 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   }));
   editor1MB.clearLayer('performance-plugin');
 
+  const presentationEditor = makeEditor();
+  presentationEditor.setMarkdown('Plugin canvas performance');
+  presentationEditor.root.focus();
+  presentationEditor.setSelectionRange({ start: 6, end: 6 });
+  let presentationContext;
+  presentationEditor.installPlugin(definePlugin({
+    name: 'performance.presentation',
+    setup(context) { presentationContext = context; },
+  }));
+  const presentationSamples = Array.from({ length: 40 }, () => timed(() => {
+    const panel = document.createElement('div');
+    panel.style.cssText = 'width:240px;height:80px';
+    presentationContext.showPresentation('panel', { element: panel, anchor: 'selection' });
+    presentationContext.dismissPresentation('panel');
+  }));
+  const pluginPresentationP95 = percentile(presentationSamples, 0.95);
+
   const endurance = timedEdits(editor100KB, Math.floor(editor100KB.markdown.length * 0.50), 100);
   // One minified/no-newline block is the parser and renderer's deliberately hostile
   // shape: there is no safe CommonMark block boundary to use for a regional reparse.
@@ -437,7 +456,8 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   };
 
   const report = {
-    load100KB, load1MB, edit100KB, edit1MB, layer1MB, typewriter100KB, scroll1MB, domNodes1MB,
+    load100KB, load1MB, edit100KB, edit1MB, layer1MB, pluginPresentationP95,
+    typewriter100KB, scroll1MB, domNodes1MB,
     chunks1MB: editor1MB.chunkEls.length,
     editTop1MB: { p50: median(editTop1MB), p95: percentile(editTop1MB, 0.95) },
     editMiddle1MB: { p50: median(editMiddle1MB), p95: percentile(editMiddle1MB, 0.95) },
@@ -472,6 +492,9 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(edit1MB, '1 MB local edit').toBeLessThanOrEqual(__MDE_PERF_BUDGETS__.edit1MB);
   expect(layer1MB, '1 MB one-span plugin layer').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.layer1MB,
+  );
+  expect(pluginPresentationP95, 'plugin presentation show/dismiss p95').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.pluginPresentationP95,
   );
   expect(typewriter100KB, '100 KB typewriter enable').toBeLessThanOrEqual(
     __MDE_PERF_BUDGETS__.typewriter100KB,

@@ -31,6 +31,10 @@
       "types": "./dist/types/extensions/parts-of-speech.d.ts",
       "import": "./dist/extensions/parts-of-speech.js"
     },
+    "./extensions/composer": {
+      "types": "./dist/types/extensions/composer.d.ts",
+      "import": "./dist/extensions/composer.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

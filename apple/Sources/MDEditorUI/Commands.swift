@@ -66,18 +66,34 @@ public func markdownCommand(
 }
 
 public extension MarkdownTextView {
+    /// Programmatic source edit for plugins and host commands. It follows the same
+    /// storage delegate path as typing, so history, decoration patches, and callbacks
+    /// remain exact.
     @discardableResult
-    func execute(_ command: MarkdownCommand, selection: NSRange? = nil) -> Bool {
-        let result = markdownCommand(command, markdown: markdown, selection: selection ?? selectedRange)
+    func replaceMarkdown(
+        in range: NSRange,
+        with text: String,
+        selection: NSRange? = nil
+    ) -> Bool {
+        let length = (markdown as NSString).length
+        guard range.location != NSNotFound,
+              range.location <= length,
+              range.length <= length - range.location else { return false }
         closeUndoGroup()
         #if os(macOS)
         guard let storage = textStorage else { return false }
         #else
         let storage = textStorage
         #endif
-        storage.replaceCharacters(in: result.range, with: result.text)
+        storage.replaceCharacters(in: range, with: text)
         closeUndoGroup()
-        selectedRange = result.selection
+        selectedRange = selection ?? NSRange(location: range.location + text.utf16.count, length: 0)
         return true
+    }
+
+    @discardableResult
+    func execute(_ command: MarkdownCommand, selection: NSRange? = nil) -> Bool {
+        let result = markdownCommand(command, markdown: markdown, selection: selection ?? selectedRange)
+        return replaceMarkdown(in: result.range, with: result.text, selection: result.selection)
     }
 }

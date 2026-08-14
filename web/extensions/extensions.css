@@ -41,3 +41,50 @@
 @media (prefers-reduced-motion: reduce) {
   .mde-typewriter-active .mde-line { transition: none; }
 }
+.mde-composer-menu,
+.mde-composer-dialog {
+  color: CanvasText;
+  background: Canvas;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 22%);
+  padding: 6px;
+  min-width: 240px;
+}
+
+.mde-composer-option {
+  appearance: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.mde-composer-option[aria-selected='true'],
+.mde-composer-option:hover {
+  background: color-mix(in srgb, AccentColor 14%, transparent);
+}
+
+.mde-composer-option span {
+  color: GrayText;
+  font-size: 0.82em;
+}
+
+.mde-composer-dialog {
+  display: grid;
+  gap: 10px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px;
+}
+
+.mde-composer-dialog h2 { margin: 0 0 2px; font-size: 1.05rem; }
+.mde-composer-dialog input,
+.mde-composer-dialog select { font: inherit; padding: 9px 10px; }
+.mde-composer-actions { display: flex; justify-content: flex-end; gap: 8px; }

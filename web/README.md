@@ -123,6 +123,27 @@ context.on('change', () => {
 Every analysis emits `plugindiagnostic` with its duration, budget status, sequence, and
 cancellation state; compatibility reports include those diagnostics.
 
+Plugins can also add lifecycle-owned canvas UI without placing presentation text inside
+the contenteditable document. This shipped extension provides `@` autocomplete and a
+Command-O image/video/link composer; the same plugin object works through `@mde/react`:
+
+```ts
+import {
+  attachmentComposer,
+  mentionAutocomplete,
+} from '@mde/web/extensions/composer';
+import '@mde/web/extensions.css';
+
+editor.installPlugin(mentionAutocomplete({
+  candidates: [{ handle: 'gabe', label: 'Gabriel' }],
+}));
+editor.installPlugin(attachmentComposer());
+```
+
+Package authors build the same behavior from `context.showPresentation`,
+`dismissPresentation`, `registerCommand`, and `onRoot`. All owned views, shortcuts, and
+listeners disappear automatically on plugin removal or editor teardown.
+
 Plugin packages can verify the portable lifecycle without depending on a particular
 test framework:
 

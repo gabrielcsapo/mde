@@ -26,6 +26,33 @@ public enum MarkdownPluginError: Error, Equatable {
     case invalidManifest
 }
 
+public struct MarkdownPluginCommandModifiers: OptionSet, Sendable {
+    public let rawValue: UInt
+    public init(rawValue: UInt) { self.rawValue = rawValue }
+    public static let primary = Self(rawValue: 1 << 0)
+    public static let shift = Self(rawValue: 1 << 1)
+    public static let option = Self(rawValue: 1 << 2)
+}
+
+public enum MarkdownPluginPresentationAnchor: Sendable {
+    case selection
+    case editor
+    case viewport
+}
+
+struct MarkdownPluginCommandRegistration {
+    let title: String
+    let key: String
+    let modifiers: MarkdownPluginCommandModifiers
+    let handler: () -> Void
+}
+
+struct MarkdownPluginPresentation {
+    let view: PlatformView
+    let anchor: MarkdownPluginPresentationAnchor
+    let modal: Bool
+}
+
 public struct MarkdownPluginAnalysisDiagnostic: Sendable {
     public let plugin: String
     public let task: String
@@ -134,6 +161,8 @@ public final class MarkdownPluginContext {
     public private(set) weak var editor: MarkdownTextView?
     public let name: String
     private var layers: Set<String> = []
+    private var commands: Set<String> = []
+    private var presentations: Set<String> = []
     private var analyses: [String: MarkdownPluginAnalysisRun] = [:]
     private var active = true
 
@@ -156,6 +185,49 @@ public final class MarkdownPluginContext {
         guard active, let editor, let qualified = layerName(name) else { return }
         layers.remove(qualified)
         editor.clearLayer(qualified)
+    }
+
+    /// Register an editor-scoped hardware-keyboard command. It is removed with the plugin.
+    @discardableResult
+    public func registerCommand(
+        _ name: String,
+        title: String,
+        key: String,
+        modifiers: MarkdownPluginCommandModifiers = [.primary],
+        handler: @escaping () -> Void
+    ) -> Bool {
+        guard active, let editor, let qualified = qualified("command", name), !key.isEmpty else {
+            return false
+        }
+        commands.insert(qualified)
+        editor.setPluginCommand(qualified, MarkdownPluginCommandRegistration(
+            title: title, key: key, modifiers: modifiers, handler: handler
+        ))
+        return true
+    }
+
+    /// Place a plugin-owned view above the editor without inserting it into markdown storage.
+    @discardableResult
+    public func showPresentation(
+        _ name: String,
+        view: PlatformView,
+        anchor: MarkdownPluginPresentationAnchor = .selection,
+        modal: Bool = false
+    ) -> Bool {
+        guard active, let editor, let qualified = qualified("presentation", name) else {
+            return false
+        }
+        presentations.insert(qualified)
+        editor.setPluginPresentation(
+            qualified, MarkdownPluginPresentation(view: view, anchor: anchor, modal: modal)
+        )
+        return true
+    }
+
+    public func dismissPresentation(_ name: String) {
+        guard active, let editor, let qualified = qualified("presentation", name) else { return }
+        presentations.remove(qualified)
+        editor.removePluginPresentation(qualified)
     }
 
     /// Schedule latest-wins work against an immutable markdown snapshot.
@@ -238,19 +310,30 @@ public final class MarkdownPluginContext {
     }
 
     private func layerName(_ local: String) -> String? {
-        guard !local.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return "plugin:\(name):\(local)"
+        qualified(nil, local)
     }
 
-    fileprivate func removeAllLayers() {
+    private func qualified(_ kind: String?, _ local: String) -> String? {
+        let canonical = local.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !canonical.isEmpty else { return nil }
+        return ["plugin", name, kind, canonical].compactMap { $0 }.joined(separator: ":")
+    }
+
+    fileprivate func removeAllOwnedState() {
         defer { active = false }
         for name in Array(analyses.keys) { cancelAnalysis(name) }
         guard let editor else {
             layers.removeAll()
+            commands.removeAll()
+            presentations.removeAll()
             return
         }
         for layer in layers { editor.clearLayer(layer) }
+        for command in commands { editor.removePluginCommand(command) }
+        for presentation in presentations { editor.removePluginPresentation(presentation) }
         layers.removeAll()
+        commands.removeAll()
+        presentations.removeAll()
     }
 }
 
@@ -295,7 +378,7 @@ public extension MarkdownTextView {
         } catch {
             pluginInstallations.removeAll { $0 === installation }
             plugin.uninstall()
-            context.removeAllLayers()
+            context.removeAllOwnedState()
             throw error
         }
         plugin.markdownDidChange()
@@ -312,7 +395,7 @@ public extension MarkdownTextView {
         }
         let installation = pluginInstallations.remove(at: index)
         installation.plugin.uninstall()
-        installation.context.removeAllLayers()
+        installation.context.removeAllOwnedState()
         return true
     }
 
@@ -335,7 +418,7 @@ public extension MarkdownTextView {
     internal func uninstallAllPlugins() {
         while let installation = pluginInstallations.popLast() {
             installation.plugin.uninstall()
-            installation.context.removeAllLayers()
+            installation.context.removeAllOwnedState()
         }
     }
 }

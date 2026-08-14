@@ -198,10 +198,24 @@ async function capture(cdp, origin, variant, scenario) {
       if (window.__mde.editor.root.querySelectorAll('.mde-line-table').length < 5) {
         throw new Error('the selected table did not reveal all source lines');
       }` : ''}
+      ${scenario.mention ? `
+      window.__mde.editor.root.focus();
+      const mentionStart = window.__mde.editor.markdown.indexOf(${JSON.stringify(scenario.mention)});
+      if (mentionStart < 0) throw new Error('mention capture marker was not found');
+      const mentionEnd = mentionStart + ${JSON.stringify(scenario.mention)}.length;
+      window.__mde.editor.setSelectionRange({start: mentionEnd, end: mentionEnd});
+      window.__mde.editor.onSelectionChange();` : ''}
       return true;
     })()`
   );
   await new Promise((resolve) => setTimeout(resolve, 450));
+  if (scenario.mention) {
+    await waitFor(
+      cdp,
+      `document.querySelector('[role="listbox"][aria-label="Mention suggestions"]')`,
+      'mention suggestion presentation did not appear'
+    );
+  }
 
   const clip = await evaluate(
     cdp,

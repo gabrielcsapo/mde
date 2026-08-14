@@ -89,6 +89,8 @@ public final class MarkdownTextView: UITextView {
     private var widgetLayoutScheduled = false
     private var presentationSuspended = false
     var pluginInstallations: [MarkdownPluginInstallation] = []
+    private var pluginCommands: [String: MarkdownPluginCommandRegistration] = [:]
+    private var pluginPresentations: [String: MarkdownPluginPresentation] = [:]
 
     /// Set while an undo is written into the storage, so it is not reported back to the
     /// core as a fresh edit.
@@ -177,6 +179,7 @@ public final class MarkdownTextView: UITextView {
         super.layoutSubviews()
         scheduleViewportPaint()
         scheduleWidgetLayout()
+        layoutPluginPresentations()
     }
 
     override public func scrollRangeToVisible(_ range: NSRange) {
@@ -190,6 +193,94 @@ public final class MarkdownTextView: UITextView {
     /// markdown structure, so undoing a bold-toggle would come back as two unrelated
     /// character deletions. History lives in the core instead (DESIGN §9).
     override public var undoManager: UndoManager? { ownUndoManager }
+
+    override public var keyCommands: [UIKeyCommand]? {
+        let owned = pluginCommands.map { name, registration in
+            UIKeyCommand(
+                title: registration.title,
+                action: #selector(handlePluginCommand(_:)),
+                input: registration.key,
+                modifierFlags: Self.keyModifierFlags(registration.modifiers),
+                propertyList: name
+            )
+        }
+        return (super.keyCommands ?? []) + owned
+    }
+
+    @objc private func handlePluginCommand(_ command: UIKeyCommand) {
+        guard let name = command.propertyList as? String else { return }
+        pluginCommands[name]?.handler()
+    }
+
+    private static func keyModifierFlags(
+        _ modifiers: MarkdownPluginCommandModifiers
+    ) -> UIKeyModifierFlags {
+        var flags: UIKeyModifierFlags = []
+        if modifiers.contains(.primary) { flags.insert(.command) }
+        if modifiers.contains(.shift) { flags.insert(.shift) }
+        if modifiers.contains(.option) { flags.insert(.alternate) }
+        return flags
+    }
+
+    func setPluginCommand(_ name: String, _ command: MarkdownPluginCommandRegistration) {
+        pluginCommands[name] = command
+    }
+
+    func removePluginCommand(_ name: String) {
+        pluginCommands.removeValue(forKey: name)
+    }
+
+    func setPluginPresentation(_ name: String, _ presentation: MarkdownPluginPresentation) {
+        removePluginPresentation(name)
+        pluginPresentations[name] = presentation
+        presentation.view.accessibilityViewIsModal = presentation.modal
+        addSubview(presentation.view)
+        layoutPluginPresentations()
+    }
+
+    func removePluginPresentation(_ name: String) {
+        pluginPresentations.removeValue(forKey: name)?.view.removeFromSuperview()
+    }
+
+    private func layoutPluginPresentations() {
+        guard !pluginPresentations.isEmpty else { return }
+        let viewport = CGRect(origin: contentOffset, size: bounds.size).insetBy(dx: 8, dy: 8)
+        let selectionRect: CGRect = {
+            guard selectedRange.location != NSNotFound,
+                  selectedRange.location <= textStorage.length else { return viewport }
+            let glyphs = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: selectedRange.location, length: 0),
+                actualCharacterRange: nil
+            )
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+            rect.origin.x += textContainerInset.left
+            rect.origin.y += textContainerInset.top
+            return rect
+        }()
+        for presentation in pluginPresentations.values {
+            let view = presentation.view
+            var size = view.intrinsicContentSize
+            if size.width <= 0 || size.height <= 0 {
+                size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+            }
+            if size.width <= 0 { size.width = min(320, viewport.width) }
+            if size.height <= 0 { size.height = 44 }
+            size.width = min(size.width, viewport.width)
+            size.height = min(size.height, viewport.height)
+            var origin: CGPoint
+            switch presentation.anchor {
+            case .selection:
+                origin = CGPoint(x: selectionRect.minX, y: selectionRect.maxY + 8)
+            case .editor:
+                origin = CGPoint(x: viewport.minX + 4, y: viewport.minY + 4)
+            case .viewport:
+                origin = CGPoint(x: viewport.midX - size.width / 2, y: viewport.midY - size.height / 2)
+            }
+            origin.x = min(max(origin.x, viewport.minX), viewport.maxX - size.width)
+            origin.y = min(max(origin.y, viewport.minY), viewport.maxY - size.height)
+            view.frame = CGRect(origin: origin, size: size)
+        }
+    }
 
     // MARK: - Document
 

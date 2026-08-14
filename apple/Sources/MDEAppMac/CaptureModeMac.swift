@@ -137,6 +137,11 @@ enum CaptureMode {
         scroll(editor, to: 0)
         guard let storage = editor.textStorage else { return }
         switch scenario {
+        case "composer":
+            let range = (storage.string as NSString).range(of: "@ga")
+            guard range.location != NSNotFound else { return }
+            editor.window?.makeFirstResponder(editor)
+            editor.setSelectedRange(NSRange(location: range.upperBound, length: 0))
         case "editing":
             let range = (storage.string as NSString).range(of: "revealed syntax")
             guard range.location != NSNotFound else { return }

@@ -535,6 +535,26 @@ final class MacRendererBenchmarks: XCTestCase {
         _ = window
     }
 
+    func testBenchmarkPluginPresentationUpdate() throws {
+        let (window, editor) = makeEditor()
+        editor.setMarkdown("Plugin canvas performance")
+        editor.setSelectedRange(NSRange(location: 6, length: 0))
+        let plugin = BenchmarkPresentationPlugin()
+        try editor.installPlugin(plugin)
+        let update = best(40) {
+            plugin.show()
+            editor.layoutSubtreeIfNeeded()
+            plugin.dismiss()
+        }
+        print(String(format: "plugin presentation show/dismiss %8.3f ms", update))
+        enforceBudget(
+            update,
+            environment: "MDE_APPLE_PLUGIN_PRESENTATION_BUDGET_MS",
+            metric: "AppKit plugin presentation show/dismiss"
+        )
+        _ = window
+    }
+
     func testBenchmarkGiantUnicodeParagraph() throws {
         guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
             throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
@@ -868,6 +888,31 @@ final class MacRendererBenchmarks: XCTestCase {
         _ = window
     }
 
+}
+
+private final class BenchmarkPresentationPlugin: MarkdownPlugin {
+    let name = "benchmark.presentation"
+    private var context: MarkdownPluginContext?
+    func install(in context: MarkdownPluginContext) throws { self.context = context }
+    func show() {
+        context?.showPresentation(
+            "panel",
+            view: FixedBenchmarkView(size: CGSize(width: 240, height: 80)),
+            anchor: .selection
+        )
+    }
+    func dismiss() { context?.dismissPresentation("panel") }
+}
+
+private final class FixedBenchmarkView: NSView {
+    private let size: CGSize
+    init(size: CGSize) {
+        self.size = size
+        super.init(frame: CGRect(origin: .zero, size: size))
+    }
+    override var intrinsicContentSize: CGSize { size }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
 }
 
 /// Runs in its own test process from the performance script. The large-document suite

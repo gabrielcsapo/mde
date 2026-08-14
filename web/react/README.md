@@ -137,6 +137,12 @@ const plugins = useMemo(() => [commentsPlugin], []);
 <MarkdownEditor plugins={plugins} defaultValue={note} />
 ```
 
+Plugins retain the full framework-free presentation surface. A plugin may show a
+selection-anchored autocomplete menu or viewport modal and register keyboard commands;
+those views live outside React's editor subtree and are removed automatically with the
+plugin. The ready-made `@mde/web/extensions/composer` plugin is used unchanged by the
+React example.
+
 ### History
 
 `onHistoryChange` carries only scalars, so a toolbar re-renders when Undo becomes
