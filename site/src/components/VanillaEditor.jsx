@@ -6,8 +6,8 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 // `server.fs.allow` to the repository root so the dev server can read them, and the
 // `?url` import makes the wasm an emitted asset rather than something bundled.
 import { MarkdownEditor, Role, encodeManifest, loadCore } from '@mde/web';
-import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/web/extensions/composer';
-import { linkEditor } from '@mde/web/extensions/productivity';
+import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/plugins/composer';
+import { linkEditor } from '@mde/plugins/productivity';
 import wasmUrl from '@mde/web/mde.wasm?url';
 import {
   manifestSpec,

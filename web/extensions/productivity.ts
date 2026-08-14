@@ -2,11 +2,51 @@ import { definePlugin } from '../src/plugins.js';
 import type { EditorPlugin, EditorPluginContext } from '../src/plugins.js';
 import type { SelectionRange } from '../src/core.js';
 
+export interface TextTransformCommand {
+  name: string;
+  title: string;
+  before: string;
+  after?: string;
+  key?: string;
+  primary?: boolean;
+}
+
+/** Generic formatting plugin factory; products supply data, not editor wiring. */
+export function textTransformCommands(
+  name: string,
+  transforms: readonly TextTransformCommand[],
+): EditorPlugin {
+  return definePlugin({
+    name,
+    requires: { apiVersion: 1, capabilities: ['document', 'selection', 'commands'] },
+    setup(context) {
+      for (const transform of transforms) {
+        context.commands.register(transform.name, {
+          title: transform.title, category: 'Formatting', key: transform.key,
+          primary: transform.primary,
+          enabled: () => context.selection.range != null,
+          handler: () => {
+            const range = context.selection.range;
+            if (!range) return false;
+            replaceSelection(context, range, transform.before, transform.after);
+          },
+        });
+      }
+    },
+  });
+}
+
 export interface TemplateItem {
   id: string;
   title: string;
   markdown: string;
   detail?: string;
+}
+
+export interface ContextualTextAction {
+  label: string;
+  before: string;
+  after?: string;
 }
 
 function replaceSelection(
@@ -15,21 +55,29 @@ function replaceSelection(
   before: string,
   after = before,
 ): void {
-  const source = context.editor.markdown.slice(range.start, range.end);
+  const source = context.document.slice(range);
   const replacement = `${before}${source}${after}`;
-  context.editor.replaceRange(range.start, range.end, replacement);
   const start = range.start + before.length;
-  context.editor.setSelectionRange({ start, end: start + source.length });
+  context.document.transact({
+    edits: [{ ...range, text: replacement }],
+    selection: { start, end: start + source.length },
+    metadata: { label: 'Format selection', origin: context.name },
+  });
 }
 
 /** A compact formatting bar anchored to non-empty selections. */
-export function floatingSelectionToolbar(): EditorPlugin {
+export function floatingSelectionToolbar(actions: readonly ContextualTextAction[] = [
+  { label: 'Bold', before: '**' },
+  { label: 'Italic', before: '*' },
+  { label: 'Code', before: '`' },
+  { label: 'Link', before: '[', after: '](https://)' },
+]): EditorPlugin {
   return definePlugin({
     name: 'mde.examples.selection-toolbar',
     setup(context) {
       let visible = false;
       const update = () => {
-        const range = context.editor.selectionRange();
+        const range = context.selection.range;
         if (!range || range.start === range.end) {
           if (visible) context.dismissPresentation('toolbar');
           visible = false;
@@ -39,7 +87,7 @@ export function floatingSelectionToolbar(): EditorPlugin {
         toolbar.className = 'mde-floating-toolbar';
         toolbar.setAttribute('role', 'toolbar');
         toolbar.setAttribute('aria-label', 'Text formatting');
-        const action = (label: string, before: string, after = before) => {
+        const addAction = (label: string, before: string, after = before) => {
           const button = document.createElement('button');
           button.type = 'button';
           button.textContent = label;
@@ -49,10 +97,9 @@ export function floatingSelectionToolbar(): EditorPlugin {
           });
           toolbar.appendChild(button);
         };
-        action('Bold', '**');
-        action('Italic', '*');
-        action('Code', '`');
-        action('Link', '[', '](https://)');
+        for (const action of actions) addAction(
+          action.label, action.before, action.after ?? action.before,
+        );
         context.showPresentation('toolbar', {
           element: toolbar,
           anchor: 'selection',
@@ -88,14 +135,17 @@ export function linkEditor(): EditorPlugin {
 }
 
 function openLinkEditor(context: EditorPluginContext): void {
-  const currentSelection = context.editor.selectionRange() ?? {
-    start: context.editor.markdown.length,
-    end: context.editor.markdown.length,
+  const currentSelection = context.selection.range ?? {
+    start: context.document.length,
+    end: context.document.length,
   };
-  const existing = inlineLinkAtSelection(context.editor.markdown, currentSelection);
+  const linkNode = context.semantics.query({ roles: ['link'], range: currentSelection, intersects: false })[0];
+  const existing = linkNode
+    ? inlineLinkAtSelection(linkNode.source, { start: 0, end: linkNode.source.length }, linkNode.start)
+    : inlineLinkAtSelection(context.document.markdown, currentSelection);
   const selection = existing?.range ?? currentSelection;
   const selected = existing?.label
-    ?? context.editor.markdown.slice(selection.start, selection.end);
+    ?? context.document.slice(selection);
   const form = dialog(existing ? 'Edit link' : 'Add a link');
   const label = input('Link text', selected || 'link');
   const destination = input('URL', existing?.destination ?? 'https://');
@@ -106,9 +156,12 @@ function openLinkEditor(context: EditorPluginContext): void {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const markdown = `[${escapeLabel(label.value)}](${destination.value.trim()})`;
-    context.editor.replaceRange(selection.start, selection.end, markdown);
     const caret = selection.start + markdown.length;
-    context.editor.setSelectionRange({ start: caret, end: caret });
+    context.document.transact({
+      edits: [{ ...selection, text: markdown }],
+      selection: { start: caret, end: caret },
+      metadata: { label: existing ? 'Edit link' : 'Add link', origin: context.name },
+    });
     context.dismissPresentation('link');
   });
   context.showPresentation('link', {
@@ -127,7 +180,7 @@ interface InlineLink {
 }
 
 /** Find a plain inline link containing the caret/selection without treating images as links. */
-function inlineLinkAtSelection(markdown: string, selection: SelectionRange): InlineLink | null {
+function inlineLinkAtSelection(markdown: string, selection: SelectionRange, offset = 0): InlineLink | null {
   const links = /\[(?:\\.|[^\]\\])*\]\((?:\\.|[^)\\\n])*\)/g;
   for (const match of markdown.matchAll(links)) {
     const start = match.index;
@@ -136,7 +189,7 @@ function inlineLinkAtSelection(markdown: string, selection: SelectionRange): Inl
     const divider = match[0].indexOf('](');
     if (divider < 1) continue;
     return {
-      range: { start, end },
+      range: { start: start + offset, end: end + offset },
       label: match[0].slice(1, divider).replace(/\\([\\\]])/g, '$1'),
       destination: match[0].slice(divider + 2, -1).replace(/\\([\\)])/g, '$1'),
     };
@@ -154,9 +207,9 @@ export function templatePicker(templates: readonly TemplateItem[]): EditorPlugin
         category: 'Insert',
         keywords: ['journal', 'daily', 'prompt'],
         handler: () => {
-          const range = context.editor.selectionRange() ?? {
-            start: context.editor.markdown.length,
-            end: context.editor.markdown.length,
+          const range = context.selection.range ?? {
+            start: context.document.length,
+            end: context.document.length,
           };
           const menu = document.createElement('div');
           menu.className = 'mde-composer-menu';
@@ -173,9 +226,12 @@ export function templatePicker(templates: readonly TemplateItem[]): EditorPlugin
               option.appendChild(detail);
             }
             option.addEventListener('click', () => {
-              context.editor.replaceRange(range.start, range.end, template.markdown);
               const caret = range.start + template.markdown.length;
-              context.editor.setSelectionRange({ start: caret, end: caret });
+              context.document.transact({
+                edits: [{ ...range, text: template.markdown }],
+                selection: { start: caret, end: caret },
+                metadata: { label: 'Insert template', origin: context.name },
+              });
               context.dismissPresentation('templates');
             });
             menu.appendChild(option);
@@ -216,9 +272,12 @@ export function findAndReplace(): EditorPlugin {
           form.addEventListener('submit', (event) => {
             event.preventDefault();
             if (!find.value) return;
-            const source = context.editor.markdown;
+            const source = context.document.markdown;
             const count = source.split(find.value).length - 1;
-            if (count > 0) context.editor.replaceRange(0, source.length, source.split(find.value).join(replacement.value));
+            if (count > 0) context.document.transact({
+              edits: [{ start: 0, end: source.length, text: source.split(find.value).join(replacement.value) }],
+              metadata: { label: 'Replace all', origin: context.name },
+            });
             status.textContent = `${count} replacement${count === 1 ? '' : 's'}`;
           });
           context.showPresentation('find-replace', {
@@ -254,7 +313,10 @@ export function imageAltEditor(): EditorPlugin {
           form.addEventListener('submit', (event) => {
             event.preventDefault();
             const markdown = `![${escapeLabel(alt.value)}](${image.destination})`;
-            context.editor.replaceRange(image.start, image.end, markdown);
+            context.document.transact({
+              edits: [{ start: image.start, end: image.end, text: markdown }],
+              metadata: { label: 'Edit image description', origin: context.name },
+            });
             context.dismissPresentation('image-alt');
           });
           context.showPresentation('image-alt', {
@@ -270,15 +332,11 @@ export function imageAltEditor(): EditorPlugin {
 }
 
 function imageAtSelection(context: EditorPluginContext) {
-  const caret = context.editor.selectionRange()?.start ?? -1;
-  const expression = /!\[([^\]]*)\]\(([^)]+)\)/gu;
-  for (const match of context.editor.markdown.matchAll(expression)) {
-    const start = match.index;
-    const end = start + match[0].length;
-    if (caret >= start && caret <= end) {
-      return { start, end, alt: match[1], destination: match[2] };
-    }
-  }
+  const caret = context.selection.range?.start ?? -1;
+  const node = context.semantics.at(caret, ['image'])[0];
+  if (!node) return null;
+  const match = /^!\[([^\]]*)\]\(([^)]+)\)$/u.exec(node.source);
+  if (match) return { start: node.start, end: node.end, alt: match[1], destination: match[2] };
   return null;
 }
 

@@ -31,6 +31,10 @@ const PROFILE = [
   ['attribute application in the renderer', '0.03', '0.2%', 0.5],
 ];
 
+const PLUGIN_SCALE = [
+  ['0', '0.10 ms'], ['1', '0.10 ms'], ['10', '0.10 ms'], ['50', '0.10 ms'],
+];
+
 export default function Performance() {
   return (
     <>
@@ -92,6 +96,19 @@ export default function Performance() {
         </tbody>
       </TableFrame>
       <Note>500 KB now fits inside a 60 fps frame at the core level, against ~120 KB before.</Note>
+
+      <H2 id="plugin-scale">Optional features stay optional in cost</H2>
+      <Lede>
+        Every performance run installs 0, 1, 10, and 50 capability-only plugins and measures
+        steady-state edits. The 50-plugin web p95 is currently 0.10 ms with a 20 ms gate; AppKit
+        runs the same matrix with a 25 ms gate. Install and teardown are budgeted separately.
+      </Lede>
+      <TableFrame className="mt-6 max-w-[520px]">
+        <thead><tr><th>Installed plugins</th><th>Edit p95, web</th></tr></thead>
+        <tbody>{PLUGIN_SCALE.map(([count, value]) => (
+          <tr key={count}><td>{count}</td><td className="now">{value}</td></tr>
+        ))}</tbody>
+      </TableFrame>
 
       <H2 id="three-changes">What actually changed</H2>
       <Clauses>

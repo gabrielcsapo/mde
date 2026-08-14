@@ -1,5 +1,6 @@
 #if !os(macOS)
 import MDECore
+import MDEPluginKit
 import UIKit
 
 /// UIKit callbacks a host can observe without taking the `UITextViewDelegate` slot,
@@ -42,6 +43,8 @@ private final class UIKitPluginPresentationRecord {
 public final class MarkdownTextView: UITextView {
     public var engine: MarkdownEngine { applier.engine }
     public weak var markdownDelegate: (any MarkdownTextViewDelegate)?
+    /// Optional host-backed persistence for namespaced plugin state.
+    public var pluginStateStore: (any MarkdownPluginStateStore)?
 
     public var widgetProvider: (any WidgetProvider)? {
         get { applier.widgetProvider }
@@ -51,8 +54,8 @@ public final class MarkdownTextView: UITextView {
     /// Resolves references (`![a](photo.jpg)`) to views. See `ResourceResolver` — the
     /// document holds the reference, never the content.
     public var resourceResolver: (any ResourceResolver)? {
-        get { applier.resources.resolver }
-        set { applier.resources.resolver = newValue }
+        get { pluginResourceBaseResolver }
+        set { pluginResourceBaseResolver = newValue; refreshPluginResourceResolver() }
     }
 
     /// Sizes of resources that have already resolved, keyed by reference.
@@ -99,6 +102,8 @@ public final class MarkdownTextView: UITextView {
     private var widgetLayoutScheduled = false
     private var presentationSuspended = false
     var pluginInstallations: [MarkdownPluginInstallation] = []
+    var pluginResourceBaseResolver: (any ResourceResolver)?
+    var pluginResourceContributions: [String: MarkdownPluginResourceRegistration] = [:]
     private var pluginCommands: [String: MarkdownPluginCommandRegistration] = [:]
     private var pluginCommandOrder: [String] = []
     private var pluginPresentations: [String: UIKitPluginPresentationRecord] = [:]
@@ -109,6 +114,12 @@ public final class MarkdownTextView: UITextView {
     private var isRewinding = false
 
     deinit { uninstallAllPlugins() }
+
+    func applyPluginResourceResolver(_ resolver: (any ResourceResolver)?) {
+        applier.resources.reset()
+        applier.resources.resolver = resolver
+        refreshPainting()
+    }
 
     // MARK: - Init
 
@@ -479,7 +490,13 @@ public final class MarkdownTextView: UITextView {
         guard presentationSuspended else { return }
         presentationSuspended = false
         applier.resources.resume()
-        refreshPainting()
+        // Suspension removes native overlays, but it deliberately leaves the
+        // length-preserving attributed source intact. Repainting the whole document
+        // here made foregrounding a media-heavy journal proportional to document
+        // size. Recreate only the visible overlays; their attachments restart any
+        // preview loads that were cancelled while backgrounded.
+        scheduleViewportPaint()
+        layoutWidgetOverlays()
     }
 
     /// Every decoration currently in effect, reveal already applied. Useful for hosts
@@ -1175,6 +1192,16 @@ extension MarkdownTextView: NSTextStorageDelegate {
 // MARK: - UITextViewDelegate
 
 extension MarkdownTextView: UITextViewDelegate {
+    public func textView(
+        _ textView: UITextView,
+        shouldChangeTextIn range: NSRange,
+        replacementText text: String
+    ) -> Bool {
+        selectedRange = range
+        return !applyPluginInputRules(inputType: text.contains("\n") ? "insertLineBreak" : "insertText",
+                                      text: text)
+    }
+
     public func textViewDidChangeSelection(_ textView: UITextView) {
         reportSelection()
     }

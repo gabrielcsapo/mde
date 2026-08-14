@@ -47,6 +47,10 @@
       "types": "./dist/types/extensions/composer.d.ts",
       "import": "./dist/extensions/composer.js"
     },
+    "./extensions/examples": {
+      "types": "./dist/types/extensions/examples.d.ts",
+      "import": "./dist/extensions/examples.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -81,6 +85,7 @@
     "wasm"
   ],
   "devDependencies": {
+    "@mde/plugin-sdk": "workspace:*",
     "@vitest/browser-playwright": "^4.1.10",
     "playwright": "^1.62.1",
     "react": "^19.2.8",

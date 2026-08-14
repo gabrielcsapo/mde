@@ -556,6 +556,40 @@ final class MacRendererBenchmarks: XCTestCase {
         _ = window
     }
 
+    func testBenchmarkPluginScale() throws {
+        guard let corpus = try corpora().first(where: { $0.label == "10KB" }) else {
+            throw XCTSkip("10KB corpus is required for plugin scale")
+        }
+        var lastInstall = 0.0
+        var lastEdit = 0.0
+        for count in [0, 1, 10, 50] {
+            let (window, editor) = makeEditor()
+            editor.setMarkdown(corpus.text)
+            lastInstall = timed {
+                for index in 0 ..< count {
+                    try! editor.installPlugin(BenchmarkNoOpPlugin(
+                        name: "benchmark.noop-\(count)-\(index)"
+                    ))
+                }
+            }
+            var samples: [Double] = []
+            for _ in 0 ..< 25 {
+                samples.append(timed {
+                    let at = max(0, (editor.markdown as NSString).length - 4)
+                    _ = editor.replaceMarkdown(in: NSRange(location: at, length: 0), with: "x")
+                })
+            }
+            lastEdit = percentile(samples, 0.95)
+            print(String(format: "%2d plugins install %8.3f ms edit p95 %8.3f ms",
+                         count, lastInstall, lastEdit))
+            _ = window
+        }
+        enforceBudget(lastInstall, environment: "MDE_APPLE_PLUGIN_SCALE_50_INSTALL_BUDGET_MS",
+                      metric: "AppKit 50-plugin install", fallback: 35)
+        enforceBudget(lastEdit, environment: "MDE_APPLE_PLUGIN_SCALE_50_EDIT_P95_BUDGET_MS",
+                      metric: "AppKit 50-plugin edit p95", fallback: 25)
+    }
+
     func testBenchmarkSuggestionFiltering() {
         let items = (0..<2_000).map { index in
             MarkdownSuggestionItem(
@@ -922,6 +956,12 @@ private final class BenchmarkPresentationPlugin: MarkdownPlugin {
         )
     }
     func dismiss() { context?.dismissPresentation("panel") }
+}
+
+private final class BenchmarkNoOpPlugin: MarkdownPlugin {
+    let name: String
+    init(name: String) { self.name = name }
+    func install(in _: MarkdownPluginContext) throws {}
 }
 
 private final class FixedBenchmarkView: NSView {

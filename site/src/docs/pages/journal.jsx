@@ -1,31 +1,48 @@
 import { Aside, Clause, Clauses, H2, H3, Lede, Note, SeeAlso } from '../../components/Doc.jsx';
 import SourceFigure from '../../components/SourceFigure.jsx';
 
-const webJournal = `editor.installPlugin(journalAttachments({
+const webJournal = `import { attachmentImports } from '@mde/plugins/attachments';
+
+editor.installPlugin(attachmentImports({
+  name: 'journal.assets',
+  commandTitle: 'Add to journal',
+  select: () => journalAssets.pick(),
+  label: asset => asset.name,
+  placeholder: (asset, preview) => \`![\${asset.name}](\${preview})\`,
+  serialize: stored => \`![\${stored.alt}](\${stored.path})\`,
+  sourcesFromTransfer: transfer => journalAssets.claim(transfer),
+  async import(asset, { signal, reportProgress }) {
+    return journalAssets.store(asset, { signal, reportProgress });
+  },
+}));
+
+// File convenience preset:
+editor.installPlugin(journalAttachments({
   async importFile(file, { signal, reportProgress }) {
     const asset = await journalAssets.store(file, { signal, reportProgress });
     return { reference: asset.path, alt: asset.description, metadata: asset.metadata };
   },
 }));`;
 
-const swiftJournal = `final class JournalAssets: JournalAttachmentImporting {
+const swiftJournal = `final class JournalAssets: MarkdownAttachmentImporting {
   func selectAttachments(completion: @escaping ([URL]) -> Void) {
     // Present PhotosPicker, UIDocumentPicker, or NSOpenPanel.
   }
 
   func importAttachment(_ url: URL, progress: @escaping (Double) -> Void,
-                        completion: @escaping (Result<JournalAttachmentImportResult, Error>) -> Void)
-    -> JournalAttachmentImportCancellation? { /* copy or upload */ }
+                        completion: @escaping (Result<MarkdownAttachmentImportResult, Error>) -> Void)
+    -> MarkdownAttachmentImportCancellation? { /* copy or upload */ }
 }
 
-try editor.installPlugin(JournalAttachments(importer: assets))`;
+try editor.installPlugin(MarkdownAttachments(importer: assets))
+editor.routePluginTransfer(MarkdownTransfer(kind: .drop, value: urls))`;
 
 export default function Journal() {
   return (
     <>
       <H2 id="flow">Media is an import workflow</H2>
       <Lede>
-        A journaling editor has to feel instant even when persistence is not. The attachment plugin
+        An editor has to feel instant even when persistence is not. The generic attachment pipeline
         inserts a local preview first, then swaps only that markdown reference after the host finishes
         copying or uploading the asset.
       </Lede>
@@ -47,9 +64,9 @@ export default function Journal() {
       <H2 id="web">Web and React</H2>
       <SourceFigure path="journal-editor.ts" lang="typescript" code={webJournal} />
       <p className="mt-5">
-        The extension accepts a custom picker for an existing asset library. Without one it uses the
-        browser file picker and also handles files pasted or dropped on the editor. React installs the
-        same plugin object through its <code>plugins</code> prop.
+        The pipeline accepts any source type: files, URLs, asset-library records, camera captures, or
+        application objects. <code>journalAttachments</code> is only a File-oriented preset. React
+        installs the same plugin object through its <code>plugins</code> prop.
       </p>
 
       <H2 id="apple">iOS and macOS</H2>

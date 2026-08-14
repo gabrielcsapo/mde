@@ -15,6 +15,7 @@ export interface PluginCompatibilityReport {
   sourcePreserved: boolean;
   contributedLayerDecorations: number;
   cleanupRemovedLayers: boolean;
+  usedLegacyEditor: boolean;
   diagnostics: Array<{
     task: string;
     durationMs: number;
@@ -66,6 +67,9 @@ export async function checkPluginCompatibility(
   const during = layerKeys(editor);
   const contributed = [...during].filter((key) => !before.has(key));
   const sourcePreserved = editor.markdown === markdown;
+  const usedLegacyEditor = editor.pluginCompatibility.find(
+    (entry) => entry.name === plugin.name.trim(),
+  )?.usedLegacyEditor ?? false;
   const removed = editor.removePlugin(plugin.name.trim());
   const after = layerKeys(editor);
   editor.removeEventListener('plugindiagnostic', onDiagnostic);
@@ -77,6 +81,7 @@ export async function checkPluginCompatibility(
     sourcePreserved,
     contributedLayerDecorations: contributed.length,
     cleanupRemovedLayers: contributed.every((key) => !after.has(key)),
+    usedLegacyEditor,
     diagnostics,
   };
 }

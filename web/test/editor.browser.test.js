@@ -42,6 +42,7 @@ import { suggestionPlugin } from '../dist/extensions/suggestions.js';
 import { findAndReplace, linkEditor, templatePicker } from '../dist/extensions/productivity.js';
 import { journalAttachments } from '../dist/extensions/journal-attachments.js';
 import { checkPluginCompatibility } from '../dist/plugin-testing.js';
+import { backlinks, mediaGallery } from '../dist/extensions/examples.js';
 
 function assert(condition, message) {
   expect(condition, message).toBeTruthy();
@@ -2351,6 +2352,115 @@ function makeEditor(options = {}) {
     assertEqual(applied, ['latest snapshot']);
   });
 
+  test('capability plugins transact atomically and expose semantic nodes without legacy access', () => {
+    const e = makeEditor();
+    e.setMarkdown('one ![photo](journal/a.jpg) three');
+    e.installPlugin(definePlugin({
+      name: 'test.capabilities',
+      requires: { apiVersion: 1, capabilities: ['document', 'selection', 'semantics', 'state'] },
+      setup(context) {
+        const images = context.semantics.query({ roles: ['image'] });
+        assertEqual(images.length, 1);
+        assertEqual(images[0].payload, 'journal/a.jpg');
+        void context.state.set('images', images.length);
+        context.document.transact({
+          edits: [
+            { start: 0, end: 3, text: 'ONE' },
+            { start: context.document.length - 5, end: context.document.length, text: 'THREE' },
+          ],
+          selection: { start: 3, end: 3 },
+          metadata: { label: 'Two edits' },
+        });
+      },
+    }));
+    assertEqual(e.markdown, 'ONE ![photo](journal/a.jpg) THREE');
+    assertEqual(e.pluginCompatibility, [{ name: 'test.capabilities', usedLegacyEditor: false }]);
+    assert(e.undo(), 'transaction should create one undo step');
+    assertEqual(e.markdown, 'one ![photo](journal/a.jpg) three');
+  });
+
+  test('input rules and transfer handlers are priority ordered and lifecycle scoped', async () => {
+    const e = makeEditor();
+    e.root.focus();
+    e.setSelectionRange({ start: 0, end: 0 });
+    const routed = [];
+    e.installPlugin(definePlugin({
+      name: 'test.routes',
+      requires: { apiVersion: 1, capabilities: ['input-rules', 'transfers'] },
+      setup(context) {
+        context.inputRules.register('emdash', {
+          match: ({ data }) => data === '--',
+          apply: ({ selection }) => selection && ({
+            edits: [{ ...selection, text: '—' }],
+            selection: { start: selection.start + 1, end: selection.start + 1 },
+          }),
+        });
+        context.transfers.register('low', {
+          priority: 1, accepts: (payload) => payload.kind === 'host',
+          handle: () => { routed.push('low'); return true; },
+        });
+        context.transfers.register('high', {
+          priority: 10, accepts: (payload) => payload.kind === 'host',
+          handle: () => { routed.push('high'); return true; },
+        });
+      },
+    }));
+    e.root.dispatchEvent(new InputEvent('beforeinput', {
+      inputType: 'insertText', data: '--', bubbles: true, cancelable: true,
+    }));
+    assertEqual(e.markdown, '—');
+    assert(await e.routeTransfer({ kind: 'host', value: { url: 'asset://1' } }));
+    assertEqual(routed, ['high']);
+    e.removePlugin('test.routes');
+    assertEqual(await e.routeTransfer({ kind: 'host', value: null }), false);
+  });
+
+  test('backlinks and media gallery examples use only public capabilities', async () => {
+    const e = makeEditor();
+    e.setMarkdown('See [[Daily note]].\n\n![Morning](journal/morning.jpg)');
+    e.installPlugin(backlinks({ resolve: async (title) => ({ title }) }));
+    let activated = null;
+    e.installPlugin(mediaGallery({ onActivate: (reference) => { activated = reference; } }));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert(e.decorations.some((item) => e.engine.roleName(item.role) === 'backlink'));
+    const gallery = e.listCommands().find((command) => command.name === 'show');
+    assert(gallery && e.executeCommand(gallery.id));
+    const item = document.querySelector('.mde-media-gallery button');
+    assert(item, 'gallery did not render semantic images');
+    item.click();
+    assertEqual(activated, 'journal/morning.jpg');
+    assert(e.pluginCompatibility.every((plugin) => !plugin.usedLegacyEditor));
+  });
+
+  test('resource contributions are priority routed and removed with their plugin', async () => {
+    const e = makeEditor();
+    const requested = [];
+    e.installPlugin(definePlugin({
+      name: 'test.resources',
+      requires: { apiVersion: 1, capabilities: ['resources'] },
+      setup(context) {
+        context.resources.register('assets', {
+          priority: 10,
+          accepts: ({ reference }) => reference.startsWith('plugin://'),
+          resolver: {
+            reservedSize: () => ({ width: 80, height: 60 }),
+            async resolve({ reference }) {
+              requested.push(reference);
+              const view = document.createElement('span');
+              view.textContent = 'plugin asset';
+              return { state: 'ready', view };
+            },
+          },
+        });
+      },
+    }));
+    e.setMarkdown('![asset](plugin://photo)');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assertEqual(requested, ['plugin://photo']);
+    e.removePlugin('test.resources');
+    assertEqual(e.pluginCompatibility, []);
+  });
+
   test('plugin analysis reports explicit budget overruns', async () => {
     const e = makeEditor();
     let diagnostic;
@@ -2393,6 +2503,7 @@ function makeEditor(options = {}) {
       sourcePreserved: true,
       contributedLayerDecorations: 1,
       cleanupRemovedLayers: true,
+      usedLegacyEditor: false,
       diagnostics: [],
     });
   });

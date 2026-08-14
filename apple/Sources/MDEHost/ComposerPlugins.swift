@@ -1,5 +1,6 @@
 import Foundation
 import MDEditorUI
+import MDEPluginKit
 
 #if os(macOS)
 import AppKit
@@ -71,17 +72,18 @@ public final class AttachmentComposer: MarkdownPlugin {
     public func uninstall() { context = nil }
 
     public func open() {
-        guard let context, let editor = context.editor else { return }
-        insertion = editor.selectedRange
+        guard let context else { return }
+        insertion = context.selection.range ?? NSRange(location: context.document.length, length: 0)
         let panel = AttachmentComposerView(
             onInsert: { [weak self] kind, reference, label in
                 self?.insert(kind: kind, reference: reference, label: label)
             },
-            onCancel: { [weak self, weak editor] in
+            onCancel: { [weak self, weak context] in
+                guard let context else { return }
                 context.dismissPresentation("composer")
-                guard let self, let editor else { return }
-                editor.selectedRange = self.insertion
-                _ = editor.becomeFirstResponder()
+                guard let self else { return }
+                context.selection.range = self.insertion
+                _ = context.focusEditor()
             }
         )
         context.showPresentation("composer", view: panel, anchor: .viewport, modal: true)
@@ -89,7 +91,7 @@ public final class AttachmentComposer: MarkdownPlugin {
     }
 
     private func insert(kind: AttachmentKind, reference: String, label: String) {
-        guard let context, let editor = context.editor else { return }
+        guard let context else { return }
         let cleanReference = reference.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanReference.isEmpty else { return }
         let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -97,10 +99,14 @@ public final class AttachmentComposer: MarkdownPlugin {
         let markdown = kind == .link
             ? "[\(display)](\(cleanReference))"
             : "![\(display)](\(cleanReference))"
-        _ = editor.replaceMarkdown(in: insertion, with: markdown)
+        _ = try? context.document.transact(MarkdownPluginTransaction(
+            edits: [MarkdownPluginTextEdit(range: insertion, text: markdown)],
+            selection: NSRange(location: insertion.location + markdown.utf16.count, length: 0),
+            label: "Insert attachment", origin: name
+        ))
         onInsert?(kind, cleanReference)
         context.dismissPresentation("composer")
-        _ = editor.becomeFirstResponder()
+        _ = context.focusEditor()
     }
 }
 

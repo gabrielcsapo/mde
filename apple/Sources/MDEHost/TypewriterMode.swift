@@ -1,6 +1,7 @@
 import Foundation
 import MDECore
 import MDEditorUI
+import MDEPluginKit
 
 /// Typewriter (focus) mode — an extension, not a feature of the editor.
 ///
@@ -72,15 +73,9 @@ public final class TypewriterMode: MarkdownPlugin {
     }
 
     public func recompute() {
-        guard isEnabled, let context, let editor = context.editor else { return }
-        let text = editor.markdown as NSString
-        // `selectedRange` is a property on UITextView and a method on NSTextView — one
-        // of the few places the two AppKits genuinely differ in shape rather than name.
-        #if os(macOS)
-        let caret = editor.selectedRange().location
-        #else
-        let caret = editor.selectedRange.location
-        #endif
+        guard isEnabled, let context else { return }
+        let text = context.document.markdown as NSString
+        let caret = context.selection.range?.location ?? NSNotFound
 
         // No caret is not the same as a caret at 0. Dimming an entire document because
         // the editor lost focus would be a strange thing to look at.
@@ -110,9 +105,10 @@ public final class TypewriterMode: MarkdownPlugin {
     /// range leaves it alone. The extension can do this because the editor already
     /// publishes what it decorated, and roles are just names.
     private func focusSpans(over range: NSRange) -> [LayerSpan] {
-        guard let editor = context?.editor else { return [] }
-        let headings = editor.decorations
-            .filter { $0.role == Role.heading && NSIntersectionRange($0.range, range).length > 0 }
+        guard let context else { return [] }
+        let headings = context.semantics.query(MarkdownSemanticQuery(
+            roles: ["heading"], range: range
+        ))
             .map { NSIntersectionRange($0.range, range) }
             .sorted { $0.location < $1.location }
 

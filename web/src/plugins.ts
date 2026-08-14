@@ -1,7 +1,23 @@
 import type { Decoration, LayerSpan, SelectionRange } from './core.js';
 import type { MarkdownEditor } from './editor.js';
 import type { ManifestSpec } from './manifest.js';
+import type { ResourceRequest, ResourceResolver } from './resources.js';
 import { composeManifests } from './manifest.js';
+import type {
+  PluginDocumentCapability,
+  PluginInputRulesCapability,
+  PluginRequirement,
+  PluginSelectionCapability,
+  PluginSemanticsCapability,
+  PluginStateCapability,
+  PluginTransfersCapability,
+} from '@mde/plugin-sdk';
+export {
+  MDE_PLUGIN_API_VERSION,
+  PluginCompatibilityError,
+  assertPluginRequirements,
+} from '@mde/plugin-sdk';
+export type * from '@mde/plugin-sdk';
 
 export type PluginCleanup = () => void;
 
@@ -84,6 +100,26 @@ export interface PluginCommandHandle {
   update(options: Partial<PluginCommandOptions>): void;
   unregister(): void;
 }
+export interface PluginCommandsCapability {
+  register(name: string, command: PluginCommandOptions): PluginCommandHandle;
+  list(): PluginCommandDescriptor[];
+  execute(id: string, event?: KeyboardEvent): boolean;
+}
+export interface PluginViewCapability {
+  readonly root: HTMLElement;
+  focus(): void;
+  getActiveDescendant(): string | null;
+  setActiveDescendant(id: string | null): void;
+  reportError(task: string, error: unknown): void;
+}
+export interface PluginResourceContribution {
+  resolver: ResourceResolver;
+  priority?: number;
+  accepts?(request: ResourceRequest): boolean;
+}
+export interface PluginResourcesCapability {
+  register(name: string, contribution: PluginResourceContribution): import('@mde/plugin-sdk').PluginOwnedHandle;
+}
 
 export interface PluginAnalysisInput {
   /** Immutable source snapshot captured when the analysis was scheduled. */
@@ -117,12 +153,26 @@ export interface EditorPlugin {
   name: string;
   /** Optional parser syntax contributed before the engine is created. */
   manifest?: ManifestSpec;
+  /** Explicit host contract, checked before setup runs. */
+  requires?: PluginRequirement;
   /** Called once for each editor. Return cleanup for non-editor resources. */
   setup(context: EditorPluginContext): void | PluginCleanup;
 }
 
 /** The narrow, automatically-cleaned surface a plugin normally needs. */
 export interface EditorPluginContext {
+  readonly apiVersion: 1;
+  readonly capabilities: ReadonlySet<import('@mde/plugin-sdk').PluginCapabilityName>;
+  readonly document: PluginDocumentCapability;
+  readonly selection: PluginSelectionCapability;
+  readonly semantics: PluginSemanticsCapability;
+  readonly state: PluginStateCapability;
+  readonly inputRules: PluginInputRulesCapability;
+  readonly transfers: PluginTransfersCapability;
+  readonly commands: PluginCommandsCapability;
+  readonly view: PluginViewCapability;
+  readonly resources: PluginResourcesCapability;
+  /** @deprecated Use the small capability objects above. */
   readonly editor: MarkdownEditor;
   readonly signal: AbortSignal;
   readonly name: string;
@@ -166,6 +216,11 @@ export interface EditorEventMap {
   plugindiagnostic: CustomEvent<PluginAnalysisDiagnostic>;
   commandschange: CustomEvent<{ commands: PluginCommandDescriptor[] }>;
   commandconflict: CustomEvent<{ shortcut: string; commandIds: string[]; winner: string }>;
+  plugintransaction: CustomEvent<{
+    plugin: string;
+    transaction: import('@mde/plugin-sdk').PluginTransaction;
+    result: import('@mde/plugin-sdk').PluginTransactionResult;
+  }>;
 }
 
 /** Preserve inference while checking a plugin object at its declaration site. */
@@ -181,6 +236,10 @@ export interface InstalledPlugin {
   analyses: Map<string, PluginAnalysisRun>;
   commands: Set<string>;
   presentations: Set<string>;
+  inputRules: Set<string>;
+  transfers: Set<string>;
+  resources: Set<string>;
+  legacyEditorAccessed: boolean;
   analysisSequence: number;
   cleanup?: PluginCleanup;
 }

@@ -42,7 +42,7 @@ export default function ReactPage() {
         Both packages are TypeScript source compiled as ESM libraries with Vite. The framework-free
         build emits JavaScript and wasm separately, and the React build keeps React and{' '}
         <code>@mde/web</code> external. Import <code>@mde/web/theme.css</code> yourself, and{' '}
-        <code>@mde/web/extensions.css</code> if you use the shipped extensions.
+        <code>@mde/plugins/extensions.css</code> if you use the optional feature package.
       </p>
 
       <H2 id="uncontrolled">Uncontrolled by design</H2>

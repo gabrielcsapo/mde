@@ -1,34 +1,33 @@
 import { definePlugin } from '../src/plugins.js';
-import type { EditorPlugin, EditorPluginContext, PluginPresentationHandle } from '../src/plugins.js';
+import type { EditorPlugin, PluginPresentationHandle } from '../src/plugins.js';
+import type { PluginTransferPayload } from '@mde/plugin-sdk';
 
 export type JournalMediaKind = 'image' | 'video' | 'audio' | 'file';
 
-export interface JournalAttachmentResult {
-  reference: string;
-  kind?: JournalMediaKind;
-  alt?: string;
-  metadata?: Readonly<Record<string, string | number | boolean>>;
-}
-
-export interface JournalAttachmentImportContext {
+export interface AttachmentImportContext {
   readonly signal: AbortSignal;
   reportProgress(fraction: number): void;
 }
 
-export interface JournalAttachmentsOptions {
-  /** Persist a dropped, pasted, or selected file and return its document reference. */
-  importFile(file: File, context: JournalAttachmentImportContext): Promise<JournalAttachmentResult>;
-  /** Override the browser file picker (for a native bridge or an existing asset library). */
-  selectFiles?: () => Promise<readonly File[]>;
-  accept?: string;
-  multiple?: boolean;
-  onImported?: (result: JournalAttachmentResult, file: File) => void;
-  onError?: (error: unknown, file: File) => void;
+export interface AttachmentImportOptions<TSource, TResult> {
+  name: string;
+  commandTitle: string;
+  commandKeywords?: readonly string[];
+  select(): Promise<readonly TSource[]>;
+  import(source: TSource, context: AttachmentImportContext): Promise<TResult>;
+  label(source: TSource): string;
+  placeholder(source: TSource, uniqueReference: string): string;
+  serialize(result: TResult, source: TSource): string;
+  /** Convert a generic host/paste/drop payload into sources this importer owns. */
+  sourcesFromTransfer?(payload: PluginTransferPayload): readonly TSource[];
+  preview?(source: TSource): string | null;
+  onImported?(result: TResult, source: TSource): void;
+  onError?(error: unknown, source: TSource): void;
 }
 
-interface Upload {
+interface ImportJob<TSource> {
   id: number;
-  file: File;
+  source: TSource;
   controller: AbortController;
   placeholder: string;
   previewURL: string | null;
@@ -36,158 +35,187 @@ interface Upload {
 }
 
 /**
- * A production-shaped journal media workflow: picker, paste, drop, local previews,
- * cancellable async imports, progress, and host-owned durable references.
+ * Generic async import pipeline for files, URLs, asset-library records, camera captures,
+ * or host-defined objects. It owns no storage policy and serializes only durable results.
  */
-export function journalAttachments(options: JournalAttachmentsOptions): EditorPlugin {
+export function attachmentImports<TSource, TResult>(
+  options: AttachmentImportOptions<TSource, TResult>,
+): EditorPlugin {
   return definePlugin({
-    name: 'mde.journal.attachments',
+    name: options.name,
+    requires: {
+      apiVersion: 1,
+      capabilities: ['document', 'selection', 'transfers', 'commands', 'presentations'],
+    },
     setup(context) {
       let nextID = 0;
-      const uploads = new Map<number, Upload>();
+      const jobs = new Map<number, ImportJob<TSource>>();
       let panel: PluginPresentationHandle | null = null;
 
-      const renderUploads = () => {
-        if (uploads.size === 0) {
+      const render = () => {
+        if (jobs.size === 0) {
           panel?.dismiss();
           panel = null;
           return;
         }
         const list = document.createElement('section');
         list.className = 'mde-upload-panel';
-        list.setAttribute('aria-label', 'Attachment uploads');
+        list.setAttribute('aria-label', 'Imports');
         const heading = document.createElement('strong');
-        heading.textContent = 'Adding media';
+        heading.textContent = 'Adding content';
         list.appendChild(heading);
-        for (const upload of uploads.values()) {
+        for (const job of jobs.values()) {
           const row = document.createElement('div');
           row.className = 'mde-upload-row';
           const copy = document.createElement('span');
-          copy.textContent = upload.file.name;
+          copy.textContent = options.label(job.source);
           const progress = document.createElement('progress');
           progress.max = 1;
-          progress.value = upload.progress;
-          progress.setAttribute('aria-label', `${upload.file.name} upload progress`);
+          progress.value = job.progress;
+          progress.setAttribute('aria-label', `${copy.textContent} import progress`);
           const cancel = document.createElement('button');
           cancel.type = 'button';
           cancel.textContent = 'Cancel';
-          cancel.addEventListener('click', () => cancelUpload(upload));
+          cancel.addEventListener('click', () => cancelJob(job));
           row.append(copy, progress, cancel);
           list.appendChild(row);
         }
         if (panel) panel.update({ element: list });
-        else panel = context.showPresentation('uploads', {
-          element: list,
-          anchor: 'editor',
-          placement: 'below',
-          dismissOnEscape: false,
-          restoreFocus: false,
+        else panel = context.showPresentation('imports', {
+          element: list, anchor: 'editor', placement: 'below',
+          dismissOnEscape: false, restoreFocus: false,
         });
       };
 
-      const finish = (upload: Upload) => {
-        if (!uploads.delete(upload.id)) return;
-        if (upload.previewURL) URL.revokeObjectURL(upload.previewURL);
-        renderUploads();
+      const finish = (job: ImportJob<TSource>) => {
+        if (!jobs.delete(job.id)) return;
+        if (job.previewURL) URL.revokeObjectURL(job.previewURL);
+        render();
+      };
+      const replacePlaceholder = (job: ImportJob<TSource>, replacement: string) => {
+        const at = context.document.markdown.indexOf(job.placeholder);
+        if (at < 0) return;
+        context.document.transact({
+          edits: [{ start: at, end: at + job.placeholder.length, text: replacement }],
+          metadata: { label: 'Resolve import', origin: options.name },
+        });
+      };
+      const cancelJob = (job: ImportJob<TSource>) => {
+        job.controller.abort();
+        replacePlaceholder(job, '');
+        finish(job);
       };
 
-      const removePlaceholder = (upload: Upload) => {
-        const at = context.editor.markdown.indexOf(upload.placeholder);
-        if (at >= 0) context.editor.replaceRange(at, at + upload.placeholder.length, '');
-      };
-
-      const cancelUpload = (upload: Upload) => {
-        upload.controller.abort();
-        removePlaceholder(upload);
-        finish(upload);
-      };
-
-      const insertFiles = async (files: readonly File[]) => {
-        for (const file of files) {
-          const kind = mediaKind(file);
+      const insert = async (sources: readonly TSource[]) => {
+        for (const source of sources) {
           const id = ++nextID;
           const controller = new AbortController();
-          const previewURL = kind === 'file' ? null : URL.createObjectURL(file);
-          const placeholderReference = previewURL ?? `mde-import://${id}/${encodeURIComponent(file.name)}`;
-          const placeholder = attachmentMarkdown(kind, cleanAlt(file.name), placeholderReference);
-          const range = context.editor.selectionRange() ?? {
-            start: context.editor.markdown.length,
-            end: context.editor.markdown.length,
+          const previewURL = options.preview?.(source) ?? null;
+          const uniqueReference = previewURL ?? `mde-import://${encodeURIComponent(options.name)}/${id}`;
+          const placeholder = options.placeholder(source, uniqueReference);
+          const range = context.selection.range ?? {
+            start: context.document.length, end: context.document.length,
           };
-          context.editor.replaceRange(range.start, range.end, placeholder);
           const caret = range.start + placeholder.length;
-          context.editor.setSelectionRange({ start: caret, end: caret });
-          const upload: Upload = { id, file, controller, placeholder, previewURL, progress: 0 };
-          uploads.set(id, upload);
-          renderUploads();
-          void options.importFile(file, {
+          context.document.transact({
+            edits: [{ ...range, text: placeholder }],
+            selection: { start: caret, end: caret },
+            metadata: { label: 'Insert import', origin: options.name },
+          });
+          const job = { id, source, controller, placeholder, previewURL, progress: 0 };
+          jobs.set(id, job);
+          render();
+          void options.import(source, {
             signal: controller.signal,
             reportProgress(fraction) {
               if (controller.signal.aborted) return;
-              upload.progress = Math.max(0, Math.min(1, fraction));
-              renderUploads();
+              job.progress = Math.max(0, Math.min(1, fraction));
+              render();
             },
           }).then((result) => {
             if (controller.signal.aborted) return;
-            const source = context.editor.markdown;
-            const at = source.indexOf(upload.placeholder);
-            if (at >= 0) {
-              const replacement = attachmentMarkdown(
-                result.kind ?? kind,
-                result.alt ?? cleanAlt(file.name),
-                result.reference,
-              );
-              context.editor.replaceRange(at, at + upload.placeholder.length, replacement);
-            }
-            options.onImported?.(result, file);
+            replacePlaceholder(job, options.serialize(result, source));
+            options.onImported?.(result, source);
           }).catch((error) => {
             if (!controller.signal.aborted) {
-              removePlaceholder(upload);
-              options.onError?.(error, file);
+              replacePlaceholder(job, '');
+              options.onError?.(error, source);
             }
-          }).finally(() => finish(upload));
+          }).finally(() => finish(job));
         }
-      };
-
-      const chooseFiles = async () => {
-        const files = options.selectFiles
-          ? await options.selectFiles()
-          : await browserFiles(options.accept ?? 'image/*,video/*,audio/*', options.multiple ?? true);
-        await insertFiles(files);
       };
 
       context.registerCommand('add', {
-        title: 'Add photo, video, or audio',
-        category: 'Insert',
-        keywords: ['attachment', 'media', 'file', 'journal'],
-        key: 'o',
-        primary: true,
-        handler: () => { void chooseFiles(); },
+        title: options.commandTitle,
+        category: 'Insert', keywords: options.commandKeywords,
+        key: 'o', primary: true,
+        handler: () => { void options.select().then(insert); },
       });
-      context.onRoot('dragover', (event) => {
-        if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
-      });
-      context.onRoot('drop', (event) => {
-        const files = [...(event.dataTransfer?.files ?? [])];
-        if (files.length === 0) return;
-        event.preventDefault();
-        void insertFiles(files);
-      });
-      context.onRoot('paste', (event) => {
-        const files = [...(event.clipboardData?.files ?? [])];
-        if (files.length === 0) return;
-        event.preventDefault();
-        void insertFiles(files);
-      });
+      if (options.sourcesFromTransfer) {
+        context.transfers.register('imports', {
+          priority: 50,
+          accepts: (payload): payload is PluginTransferPayload<TSource[]> =>
+            options.sourcesFromTransfer!(payload).length > 0,
+          handle: async (payload) => {
+            const sources = options.sourcesFromTransfer!(payload);
+            if (sources.length === 0) return false;
+            await insert(sources);
+            return true;
+          },
+        });
+      }
       return () => {
-        for (const upload of uploads.values()) {
-          upload.controller.abort();
-          if (upload.previewURL) URL.revokeObjectURL(upload.previewURL);
+        for (const job of jobs.values()) {
+          job.controller.abort();
+          if (job.previewURL) URL.revokeObjectURL(job.previewURL);
         }
-        uploads.clear();
+        jobs.clear();
         panel?.dismiss('plugin-removed');
       };
     },
+  });
+}
+
+export interface JournalAttachmentResult {
+  reference: string;
+  kind?: JournalMediaKind;
+  alt?: string;
+  metadata?: Readonly<Record<string, string | number | boolean>>;
+}
+export interface JournalAttachmentsOptions {
+  importFile(file: File, context: AttachmentImportContext): Promise<JournalAttachmentResult>;
+  selectFiles?: () => Promise<readonly File[]>;
+  accept?: string;
+  multiple?: boolean;
+  onImported?: (result: JournalAttachmentResult, file: File) => void;
+  onError?: (error: unknown, file: File) => void;
+}
+
+/** File-oriented convenience preset retained for journal applications. */
+export function journalAttachments(options: JournalAttachmentsOptions): EditorPlugin {
+  return attachmentImports<File, JournalAttachmentResult>({
+    name: 'mde.journal.attachments',
+    commandTitle: 'Add photo, video, or audio',
+    commandKeywords: ['attachment', 'media', 'file', 'journal'],
+    select: () => options.selectFiles
+      ? Promise.resolve(options.selectFiles())
+      : browserFiles(options.accept ?? 'image/*,video/*,audio/*', options.multiple ?? true),
+    import: options.importFile,
+    label: (file) => file.name,
+    preview: (file) => mediaKind(file) === 'file' ? null : URL.createObjectURL(file),
+    placeholder: (file, reference) => attachmentMarkdown(
+      mediaKind(file), cleanAlt(file.name), reference,
+    ),
+    serialize: (result, file) => attachmentMarkdown(
+      result.kind ?? mediaKind(file), result.alt ?? cleanAlt(file.name), result.reference,
+    ),
+    sourcesFromTransfer: (payload) => {
+      if (payload.kind !== 'paste' && payload.kind !== 'drop') return [];
+      const value = payload.value as { files?: readonly File[] };
+      return value.files ?? [];
+    },
+    onImported: options.onImported,
+    onError: options.onError,
   });
 }
 
@@ -197,23 +225,18 @@ function mediaKind(file: File): JournalMediaKind {
   if (file.type.startsWith('audio/')) return 'audio';
   return 'file';
 }
-
 function attachmentMarkdown(kind: JournalMediaKind, alt: string, reference: string): string {
   const safeAlt = alt.replaceAll(']', '\\]');
   const prefix = kind === 'image' ? '' : `${kind}: `;
   return `![${prefix}${safeAlt}](${reference})`;
 }
-
 function cleanAlt(filename: string): string {
   return filename.replace(/\.[^.]+$/u, '').replaceAll(/[-_]+/gu, ' ').trim() || 'attachment';
 }
-
 function browserFiles(accept: string, multiple: boolean): Promise<File[]> {
   return new Promise((resolve) => {
     const picker = document.createElement('input');
-    picker.type = 'file';
-    picker.accept = accept;
-    picker.multiple = multiple;
+    picker.type = 'file'; picker.accept = accept; picker.multiple = multiple;
     picker.addEventListener('change', () => resolve([...(picker.files ?? [])]), { once: true });
     picker.addEventListener('cancel', () => resolve([]), { once: true });
     picker.click();

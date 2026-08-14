@@ -9,7 +9,7 @@ import '@mde/web/theme.css';
 // The showcase extensions' own styling. After theme.css on purpose: a role class and a
 // built-in class are both single-class selectors, so source order is what lets a focus
 // dim actually dim a heading. See the note at the top of the file.
-import '@mde/web/extensions.css';
+import '@mde/plugins/extensions.css';
 import './site.css';
 
 import App from './App.jsx';

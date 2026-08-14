@@ -1,5 +1,6 @@
 import Foundation
 import MDEditorUI
+import MDEPluginKit
 import UniformTypeIdentifiers
 
 #if os(macOS)
@@ -8,17 +9,17 @@ import AppKit
 import UIKit
 #endif
 
-public enum JournalAttachmentKind: String, Sendable { case image, video, audio, file }
+public enum MarkdownAttachmentKind: String, Sendable { case image, video, audio, file }
 
-public struct JournalAttachmentImportResult: Sendable {
+public struct MarkdownAttachmentImportResult: Sendable {
     public let reference: String
-    public let kind: JournalAttachmentKind?
+    public let kind: MarkdownAttachmentKind?
     public let alt: String?
     public let metadata: [String: String]
 
     public init(
         reference: String,
-        kind: JournalAttachmentKind? = nil,
+        kind: MarkdownAttachmentKind? = nil,
         alt: String? = nil,
         metadata: [String: String] = [:]
     ) {
@@ -26,30 +27,30 @@ public struct JournalAttachmentImportResult: Sendable {
     }
 }
 
-public protocol JournalAttachmentImportCancellation: AnyObject { func cancel() }
+public protocol MarkdownAttachmentImportCancellation: AnyObject { func cancel() }
 
-public protocol JournalAttachmentImporting: AnyObject {
+public protocol MarkdownAttachmentImporting: AnyObject {
     /// Present the host's document/Photos/asset-library picker.
     func selectAttachments(completion: @escaping ([URL]) -> Void)
     /// Copy or upload an asset and return the durable reference stored in Markdown.
     func importAttachment(
         _ url: URL,
         progress: @escaping (Double) -> Void,
-        completion: @escaping (Result<JournalAttachmentImportResult, Error>) -> Void
-    ) -> (any JournalAttachmentImportCancellation)?
+        completion: @escaping (Result<MarkdownAttachmentImportResult, Error>) -> Void
+    ) -> (any MarkdownAttachmentImportCancellation)?
 }
 
 /// Native journal attachment workflow with host-owned picking/persistence and live progress.
-public final class JournalAttachments: MarkdownPlugin {
-    public let name = "mde.journal.attachments"
-    public weak var importer: (any JournalAttachmentImporting)?
-    public var onImported: ((JournalAttachmentImportResult, URL) -> Void)?
+public final class MarkdownAttachments: MarkdownPlugin {
+    public let name = "mde.attachments"
+    public weak var importer: (any MarkdownAttachmentImporting)?
+    public var onImported: ((MarkdownAttachmentImportResult, URL) -> Void)?
     public var onError: ((Error, URL) -> Void)?
     private var context: MarkdownPluginContext?
     private var nextID = 0
     private var uploads: [Int: NativeAttachmentUpload] = [:]
 
-    public init(importer: any JournalAttachmentImporting) { self.importer = importer }
+    public init(importer: any MarkdownAttachmentImporting) { self.importer = importer }
 
     public func install(in context: MarkdownPluginContext) throws {
         self.context = context
@@ -57,6 +58,15 @@ public final class JournalAttachments: MarkdownPlugin {
             title: "Add photo, video, or audio", key: "o", modifiers: .primary,
             category: "Insert", keywords: ["attachment", "media", "file", "journal"]
         ) { [weak self] in self?.openPicker() })
+        context.registerTransferHandler(MarkdownPluginTransferHandler(
+            priority: 50,
+            accepts: { $0.value is [URL] },
+            handle: { [weak self] transfer in
+                guard let urls = transfer.value as? [URL], !urls.isEmpty else { return false }
+                self?.add(urls)
+                return true
+            }
+        ))
     }
 
     public func uninstall() {
@@ -72,18 +82,19 @@ public final class JournalAttachments: MarkdownPlugin {
 
     /// Hosts can route paste/drop/share-sheet URLs through the same tested import path.
     public func add(_ urls: [URL]) {
-        guard let context, let editor = context.editor, let importer else { return }
+        guard let context, let importer else { return }
         for url in urls {
             nextID += 1
             let id = nextID
             let kind = attachmentKind(url)
             let alt = cleanAttachmentAlt(url)
             let placeholder = attachmentMarkdown(kind: kind, alt: alt, reference: url.absoluteString)
-            let selection = editor.selectedRange
-            _ = editor.replaceMarkdown(
-                in: selection, with: placeholder,
-                selection: NSRange(location: selection.location + placeholder.utf16.count, length: 0)
-            )
+            let selection = context.selection.range ?? NSRange(location: context.document.length, length: 0)
+            _ = try? context.document.transact(MarkdownPluginTransaction(
+                edits: [MarkdownPluginTextEdit(range: selection, text: placeholder)],
+                selection: NSRange(location: selection.location + placeholder.utf16.count, length: 0),
+                label: "Insert attachment", origin: name
+            ))
             let upload = NativeAttachmentUpload(id: id, url: url, placeholder: placeholder)
             uploads[id] = upload
             renderUploads()
@@ -109,12 +120,12 @@ public final class JournalAttachments: MarkdownPlugin {
     }
 
     private func finish(
-        id: Int, kind: JournalAttachmentKind,
-        result: Result<JournalAttachmentImportResult, Error>
+        id: Int, kind: MarkdownAttachmentKind,
+        result: Result<MarkdownAttachmentImportResult, Error>
     ) {
         guard let upload = uploads.removeValue(forKey: id) else { return }
-        if case let .success(value) = result, let editor = context?.editor {
-            let source = editor.markdown as NSString
+        if case let .success(value) = result, let context {
+            let source = context.document.markdown as NSString
             let range = source.range(of: upload.placeholder)
             if range.location != NSNotFound {
                 let replacement = attachmentMarkdown(
@@ -122,7 +133,10 @@ public final class JournalAttachments: MarkdownPlugin {
                     alt: value.alt ?? cleanAttachmentAlt(upload.url),
                     reference: value.reference
                 )
-                _ = editor.replaceMarkdown(in: range, with: replacement)
+                _ = try? context.document.transact(MarkdownPluginTransaction(
+                    edits: [MarkdownPluginTextEdit(range: range, text: replacement)],
+                    label: "Resolve attachment", origin: name
+                ))
             }
             onImported?(value, upload.url)
         } else if case let .failure(error) = result {
@@ -151,10 +165,15 @@ public final class JournalAttachments: MarkdownPlugin {
     }
 
     private func removePlaceholder(_ upload: NativeAttachmentUpload) {
-        guard let editor = context?.editor else { return }
-        let source = editor.markdown as NSString
+        guard let context else { return }
+        let source = context.document.markdown as NSString
         let range = source.range(of: upload.placeholder)
-        if range.location != NSNotFound { _ = editor.replaceMarkdown(in: range, with: "") }
+        if range.location != NSNotFound {
+            _ = try? context.document.transact(MarkdownPluginTransaction(
+                edits: [MarkdownPluginTextEdit(range: range, text: "")],
+                label: "Remove attachment", origin: name
+            ))
+        }
     }
 }
 
@@ -163,13 +182,13 @@ private final class NativeAttachmentUpload {
     let url: URL
     let placeholder: String
     var progress = 0.0
-    var cancellation: (any JournalAttachmentImportCancellation)?
+    var cancellation: (any MarkdownAttachmentImportCancellation)?
     init(id: Int, url: URL, placeholder: String) {
         self.id = id; self.url = url; self.placeholder = placeholder
     }
 }
 
-private func attachmentKind(_ url: URL) -> JournalAttachmentKind {
+private func attachmentKind(_ url: URL) -> MarkdownAttachmentKind {
     guard let type = UTType(filenameExtension: url.pathExtension) else { return .file }
     if type.conforms(to: .image) { return .image }
     if type.conforms(to: .movie) { return .video }
@@ -184,11 +203,18 @@ private func cleanAttachmentAlt(_ url: URL) -> String {
 }
 
 private func attachmentMarkdown(
-    kind: JournalAttachmentKind, alt: String, reference: String
+    kind: MarkdownAttachmentKind, alt: String, reference: String
 ) -> String {
     let prefix = kind == .image ? "" : "\(kind.rawValue): "
     return "![\(prefix)\(alt.replacingOccurrences(of: "]", with: "\\]"))](\(reference))"
 }
+
+// Source-compatible journal names now point at the generic attachment pipeline.
+public typealias JournalAttachmentKind = MarkdownAttachmentKind
+public typealias JournalAttachmentImportResult = MarkdownAttachmentImportResult
+public typealias JournalAttachmentImportCancellation = MarkdownAttachmentImportCancellation
+public typealias JournalAttachmentImporting = MarkdownAttachmentImporting
+public typealias JournalAttachments = MarkdownAttachments
 
 #if os(macOS)
 private final class NativeAttachmentProgressView: NSStackView {

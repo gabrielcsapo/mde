@@ -1,5 +1,6 @@
 import Foundation
 import MDEditorUI
+import MDEPluginKit
 
 #if os(macOS)
 import AppKit
@@ -46,7 +47,10 @@ public struct MarkdownSuggestionRequest {
     public let match: MarkdownSuggestionMatch
     public let markdown: String
     public let cancellation: MarkdownSuggestionCancellation
-    public weak var editor: MarkdownTextView?
+    public let document: MarkdownPluginDocument
+    public let selection: MarkdownPluginSelection
+    public let commands: [MarkdownPluginCommandDescriptor]
+    public let executeCommand: (String) -> Bool
 }
 
 public struct MarkdownSuggestionItem {
@@ -105,6 +109,8 @@ public final class MarkdownSuggestionPlugin: MarkdownPlugin {
     private var activeItems: [MarkdownSuggestionItem] = []
     private var activeRequest: MarkdownSuggestionRequest?
     private var activeIndex = 0
+    private var activeView: MarkdownSuggestionListView?
+    private var presentation: MarkdownPluginPresentationHandle?
 
     public init(
         name: String,
@@ -142,12 +148,12 @@ public final class MarkdownSuggestionPlugin: MarkdownPlugin {
     public func selectionDidChange() { update() }
 
     private func update() {
-        guard let context, let editor = context.editor, !editorHasMarkedText(editor) else {
+        guard let context, !context.hasMarkedText else {
             close(); return
         }
-        let selection = editor.selectedRange
+        guard let selection = context.selection.range else { close(); return }
         guard selection.length == 0, selection.location != NSNotFound else { close(); return }
-        let source = editor.markdown as NSString
+        let source = context.document.markdown as NSString
         guard selection.location <= source.length,
               let match = matchSuggestion(
                 triggers: triggers,
@@ -159,7 +165,9 @@ public final class MarkdownSuggestionPlugin: MarkdownPlugin {
         if key == activeKey, cancellation?.isCancelled == false { return }
         workItem?.cancel()
         cancellation?.cancel()
-        context.dismissPresentation("suggestions", reason: .replaced)
+        presentation?.dismiss(.replaced)
+        presentation = nil
+        activeView = nil
         activeItems = []
         activeRequest = nil
         activeIndex = 0
@@ -167,7 +175,9 @@ public final class MarkdownSuggestionPlugin: MarkdownPlugin {
         let token = MarkdownSuggestionCancellation()
         cancellation = token
         let request = MarkdownSuggestionRequest(
-            match: match, markdown: editor.markdown, cancellation: token, editor: editor
+            match: match, markdown: context.document.markdown, cancellation: token,
+            document: context.document, selection: context.selection,
+            commands: context.registeredCommands, executeCommand: context.executeCommand
         )
         if let cached = cache[key] { publish(cached, request: request); return }
         let work = DispatchWorkItem { [weak self] in
@@ -199,16 +209,25 @@ public final class MarkdownSuggestionPlugin: MarkdownPlugin {
 
     private func presentActive() {
         guard let context, let request = activeRequest, !activeItems.isEmpty else { return }
+        if let activeView {
+            activeView.updateSelection(activeIndex)
+            presentation?.reposition()
+            return
+        }
         let view = MarkdownSuggestionListView(
             items: activeItems, selectedIndex: activeIndex, accessibilityLabel: accessibilityLabel
         ) { [weak self] item in self?.choose(item, request: request) }
-        context.showPresentation(
+        activeView = view
+        presentation = context.showPresentation(
             "suggestions",
             options: MarkdownPluginPresentationOptions(
                 view: view, anchor: .selection, placement: .automatic,
                 dismissOnOutsideInteraction: true,
                 onDismiss: { [weak self] reason in
-                    if reason != .replaced { self?.cancelRequest() }
+                    guard let self else { return }
+                    self.presentation = nil
+                    self.activeView = nil
+                    if reason != .replaced { self.cancelRequest() }
                 }
             )
         )
@@ -217,7 +236,8 @@ public final class MarkdownSuggestionPlugin: MarkdownPlugin {
     private func moveSelection(_ delta: Int) {
         guard !activeItems.isEmpty else { return }
         activeIndex = (activeIndex + delta + activeItems.count) % activeItems.count
-        presentActive()
+        activeView?.updateSelection(activeIndex)
+        presentation?.reposition()
     }
 
     private func acceptSelection() {
@@ -226,18 +246,17 @@ public final class MarkdownSuggestionPlugin: MarkdownPlugin {
     }
 
     private func choose(_ item: MarkdownSuggestionItem, request: MarkdownSuggestionRequest) {
-        guard item.isEnabled, let context, let editor = context.editor else { return }
+        guard item.isEnabled, let context else { return }
         if let select = item.select { select(request) }
         else {
             let replacement = (item.replacement ?? item.label) + item.suffix
-            _ = editor.replaceMarkdown(
-                in: request.match.range,
-                with: replacement,
+            _ = try? context.document.transact(MarkdownPluginTransaction(
+                edits: [MarkdownPluginTextEdit(range: request.match.range, text: replacement)],
                 selection: NSRange(
                     location: request.match.range.location + replacement.utf16.count,
                     length: 0
-                )
-            )
+                ), label: "Accept suggestion", origin: context.name
+            ))
         }
         context.dismissPresentation("suggestions")
     }
@@ -256,6 +275,8 @@ public final class MarkdownSuggestionPlugin: MarkdownPlugin {
         activeItems = []
         activeRequest = nil
         activeIndex = 0
+        activeView = nil
+        presentation = nil
     }
 
     private func close() {
@@ -327,14 +348,6 @@ public func matchSuggestion(
     return best
 }
 
-private func editorHasMarkedText(_ editor: MarkdownTextView) -> Bool {
-#if os(macOS)
-    editor.hasMarkedText()
-#else
-    editor.markedTextRange != nil
-#endif
-}
-
 private var suggestionUpKey: String {
 #if os(macOS)
     "\u{F700}"
@@ -387,6 +400,13 @@ private final class MarkdownSuggestionListView: NSStackView {
         updateColors()
     }
     @objc private func chosen(_ sender: NSButton) { choose(items[sender.tag]) }
+    func updateSelection(_ selectedIndex: Int) {
+        for (index, button) in buttons.enumerated() {
+            let selected = index == selectedIndex
+            button.state = selected ? .on : .off
+            button.setAccessibilitySelected(selected)
+        }
+    }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); updateColors() }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance(); updateColors()
@@ -411,6 +431,7 @@ private final class MarkdownSuggestionListView: NSStackView {
 }
 #else
 private final class MarkdownSuggestionListView: UIStackView {
+    private var buttons: [UIButton] = []
     init(
         items: [MarkdownSuggestionItem], selectedIndex: Int, accessibilityLabel: String,
         choose: @escaping (MarkdownSuggestionItem) -> Void
@@ -435,6 +456,13 @@ private final class MarkdownSuggestionListView: UIStackView {
             button.isSelected = index == selectedIndex
             if button.isSelected { button.backgroundColor = .tertiarySystemFill }
             addArrangedSubview(button)
+            buttons.append(button)
+        }
+    }
+    func updateSelection(_ selectedIndex: Int) {
+        for (index, button) in buttons.enumerated() {
+            button.isSelected = index == selectedIndex
+            button.backgroundColor = button.isSelected ? .tertiarySystemFill : .clear
         }
     }
     @available(*, unavailable) required init(coder: NSCoder) { fatalError("not supported") }
@@ -472,16 +500,18 @@ public enum MarkdownSuggestionPlugins {
             triggers: [MarkdownSuggestionTrigger("/", lineLeading: true)],
             maximumResults: 12, accessibilityLabel: "Editor commands"
         ) { request, complete in
-            guard let editor = request.editor else { complete([]); return }
-            complete(editor.registeredPluginCommands.filter(\.isEnabled).map { command in
+            complete(request.commands.filter(\.isEnabled).map { command in
                 MarkdownSuggestionItem(
                     id: command.id, label: command.title,
                     detail: command.category ?? command.plugin,
                     group: command.category ?? "Commands", keywords: command.keywords,
                     select: { request in
-                        guard let editor = request.editor else { return }
-                        _ = editor.replaceMarkdown(in: request.match.range, with: "")
-                        _ = editor.executePluginCommand(id: command.id)
+                        _ = try? request.document.transact(MarkdownPluginTransaction(
+                            edits: [MarkdownPluginTextEdit(range: request.match.range, text: "")],
+                            selection: NSRange(location: request.match.range.location, length: 0),
+                            label: "Run slash command"
+                        ))
+                        _ = request.executeCommand(command.id)
                     }
                 )
             })

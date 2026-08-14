@@ -15,15 +15,16 @@ export default function Install() {
       <H2 id="get-the-code">Get the code</H2>
       <Lede>
         The packages are currently consumed from the repository rather than a registry. The web
-        renderer builds as <code>@mde/web</code>, React stays in the optional{' '}
-        <code>@mde/react</code> adapter, and the Apple side remains a local Swift package. One
+        renderer builds as <code>@mde/web</code>, stable contracts live in{' '}
+        <code>@mde/plugin-sdk</code>, optional experiences live in <code>@mde/plugins</code>, React
+        stays in the optional <code>@mde/react</code> adapter, and Apple remains a local Swift package. One
         checkout serves all three.
       </Lede>
       <Defs
         items={[
           [
             'For the web',
-            '@mde/web: about 46 KB of ESM, a separate ~360 KB wasm asset, CSS, declarations, and optional extension entry points',
+            '@mde/web: the renderer; @mde/plugin-sdk: data-only contracts; @mde/plugins: independently imported features',
           ],
           [
             'For iOS and macOS',
@@ -106,8 +107,9 @@ export default function Install() {
 
       <H2 id="apple">Embed it on iOS and macOS</H2>
       <Lede>
-        Add <code>apple/</code> as a Swift package. It builds three products; a host app usually
-        wants the first two and can read the third as an example.
+        Add <code>apple/</code> as a Swift package. <code>MDECore</code> and{' '}
+        <code>MDEditorUI</code> are the renderer, <code>MDEPluginKit</code> is the stable contract,
+        and <code>MDEHost</code> contains optional features and examples.
       </Lede>
       <SourceFigure path="Package.swift" lang="swift" code={packageSwift} />
       <SourceFigure className="mt-5" path="EditorViewController.swift" lang="swift" code={mountSwift} />

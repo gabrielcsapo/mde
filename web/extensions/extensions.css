@@ -143,3 +143,32 @@
 }
 .mde-upload-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; gap: 8px; align-items: center; }
 .mde-upload-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mde-media-gallery {
+  display: grid;
+  gap: 14px;
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 32px));
+  overflow: auto;
+  padding: 20px;
+  color: CanvasText;
+  background: Canvas;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 16px;
+  box-shadow: 0 20px 64px rgb(0 0 0 / 24%);
+}
+.mde-media-gallery h2 { margin: 0; font-size: 1.1rem; }
+.mde-media-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.mde-media-gallery-grid button {
+  min-height: 96px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  border-radius: 10px;
+  color: inherit;
+  background: color-mix(in srgb, CanvasText 4%, Canvas);
+  text-overflow: ellipsis;
+}

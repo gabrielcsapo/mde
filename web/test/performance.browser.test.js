@@ -326,6 +326,26 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   const editMatrixHeapGrowth = matrixHeapBefore === null || matrixHeapAfter === null
     ? null
     : Math.max(0, matrixHeapAfter - matrixHeapBefore);
+  const pluginScale = [0, 1, 10, 50].map((count) => {
+    const editor = makeEditor();
+    editor.setMarkdown(documentOfAtLeast(10 * 1024));
+    const install = timed(() => {
+      for (let index = 0; index < count; index++) editor.installPlugin(definePlugin({
+        name: `performance.noop-${count}-${index}`,
+        requires: { apiVersion: 1, capabilities: ['document', 'selection'] },
+        setup(context) {
+          context.on('change', () => { void context.document.length; });
+          context.on('selectionchange', () => { void context.selection.range; });
+        },
+      }));
+    });
+    const samples = [];
+    for (let index = 0; index < 25; index++) {
+      const at = editor.markdown.length - 4;
+      samples.push(timed(() => editor.replaceRange(at, at, 'x')));
+    }
+    return { count, install, editP95: percentile(samples, 0.95) };
+  });
   const source100KB = documentOfAtLeast(100 * 1024);
   const source1MB = documentOfAtLeast(1024 * 1024);
   const load100KB = coldLoad(source100KB, 5);
@@ -474,6 +494,7 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
     giantParagraphEdit, warmSwitchP95, warmSessionNodes,
     usedHeap1MB, reactMount100KB, editMatrix, reactControlledMatrix,
     reactAcknowledgementP95, editMatrixHeapGrowth,
+    pluginScale,
     mediaJournal: {
       ready: mediaReady,
       edit: mediaEdit,
@@ -581,4 +602,10 @@ test.skipIf(!__MDE_PERF__)('large-document browser budgets', async () => {
   expect(mediaBottomCounts.audio).toBeGreaterThan(0);
   expect(mediaEditor.root.querySelectorAll('.mde-chunk-virtual').length).toBeGreaterThan(20);
   expect(mediaEditor.markdown).toBe(mediaSource.replace('Closing reflection', 'xClosing reflection'));
+  expect(pluginScale.at(-1).editP95, '50-plugin edit p95').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.pluginScale50EditP95,
+  );
+  expect(pluginScale.at(-1).install, '50-plugin install').toBeLessThanOrEqual(
+    __MDE_PERF_BUDGETS__.pluginScale50Install,
+  );
 }, 120_000);

@@ -45,6 +45,7 @@ build_module() {
 }
 
 build_module MDECore    library "$ROOT"/apple/Sources/MDECore/*.swift
+build_module MDEPluginKit library "$ROOT"/apple/Sources/MDEPluginKit/*.swift
 build_module MDEditorUI library "$ROOT"/apple/Sources/MDEditorUI/*.swift
 build_module MDEHost    library "$ROOT"/apple/Sources/MDEHost/*.swift
 # The app module carries main.swift, so it must NOT be parse-as-library.
@@ -54,7 +55,7 @@ xcrun -sdk macosx swiftc \
     -target "$TARGET" -sdk "$SDK" \
     -L "$ROOT/target/$RUST_TARGET/release" -lmde \
     -o "$APP/Contents/MacOS/$APP_NAME" \
-    "$OBJ"/MDECore.o "$OBJ"/MDEditorUI.o "$OBJ"/MDEHost.o "$OBJ"/MDEAppMac.o
+    "$OBJ"/MDECore.o "$OBJ"/MDEPluginKit.o "$OBJ"/MDEditorUI.o "$OBJ"/MDEHost.o "$OBJ"/MDEAppMac.o
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

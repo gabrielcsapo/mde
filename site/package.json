@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@mde/react": "workspace:*",
+    "@mde/plugin-sdk": "workspace:*",
+    "@mde/plugins": "workspace:*",
     "@mde/web": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

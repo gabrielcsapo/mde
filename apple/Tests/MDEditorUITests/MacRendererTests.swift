@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 @testable import MDECore
+import MDEPluginKit
 @testable import MDEHost
 import XCTest
 @testable import MDEditorUI
@@ -1931,6 +1932,100 @@ extension MacRendererTests {
         XCTAssertNil(plugin.second.superview)
         XCTAssertTrue(plugin.final.superview === editor)
     }
+
+    func testPluginCapabilitiesProvideAtomicTransactionsSemanticsAndTransfers() throws {
+        editor.setMarkdown("one ![photo](journal/a.jpg) three")
+        let stateStore = RecordingPluginStateStore()
+        editor.pluginStateStore = stateStore
+        let plugin = CapabilityPlugin()
+        try editor.installPlugin(plugin)
+        XCTAssertEqual(editor.markdown, "ONE ![photo](journal/a.jpg) THREE")
+        XCTAssertEqual(plugin.images.map(\.payload), ["journal/a.jpg"])
+        XCTAssertTrue(editor.routePluginTransfer(MarkdownTransfer(kind: .host, value: [
+            URL(fileURLWithPath: "/tmp/photo.jpg")
+        ])))
+        XCTAssertEqual(plugin.transfers, 1)
+        XCTAssertEqual(stateStore.value(plugin: plugin.name, key: "images") as? Int, 1)
+        XCTAssertTrue(editor.performUndo(), "one capability transaction should be one undo step")
+        XCTAssertEqual(editor.markdown, "one ![photo](journal/a.jpg) three")
+    }
+
+    func testPluginRequirementsFailBeforeInstallation() {
+        XCTAssertThrowsError(try editor.installPlugin(IncompatiblePlugin()))
+        XCTAssertFalse(editor.installedPluginNames.contains("test.incompatible"))
+    }
+
+    func testPluginInputRulesAndResourceContributionsAreScoped() throws {
+        let resolver = RecordingResolver()
+        let plugin = InputAndResourcePlugin(resolver: resolver)
+        try editor.installPlugin(plugin)
+        editor.setMarkdown("")
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+        XCTAssertFalse(editor.textView(
+            editor, shouldChangeTextIn: NSRange(location: 0, length: 0),
+            replacementString: "--"
+        ))
+        XCTAssertEqual(editor.markdown, "—")
+
+        editor.setMarkdown("![asset](plugin://photo)")
+        editor.layoutManager?.ensureLayout(for: editor.textContainer!)
+        XCTAssertTrue(resolver.requested.contains("plugin://photo"))
+        XCTAssertTrue(editor.removePlugin(named: plugin.name))
+    }
+}
+
+private final class RecordingPluginStateStore: MarkdownPluginStateStore {
+    private var values: [String: Any] = [:]
+    func value(plugin: String, key: String) -> Any? { values["\(plugin):\(key)"] }
+    func setValue(_ value: Any?, plugin: String, key: String) {
+        values["\(plugin):\(key)"] = value
+    }
+}
+
+private final class CapabilityPlugin: MarkdownPlugin {
+    let name = "test.capabilities"
+    let requirement = MarkdownPluginRequirement(
+        capabilities: [.document, .selection, .semantics, .state, .transfers]
+    )
+    var images: [MarkdownSemanticNode] = []
+    var transfers = 0
+    func install(in context: MarkdownPluginContext) throws {
+        images = context.semantics.query(MarkdownSemanticQuery(roles: ["image"]))
+        context.state.setValue(images.count, for: "images")
+        let length = context.document.length
+        _ = try context.document.transact(MarkdownPluginTransaction(edits: [
+            MarkdownPluginTextEdit(range: NSRange(location: 0, length: 3), text: "ONE"),
+            MarkdownPluginTextEdit(range: NSRange(location: length - 5, length: 5), text: "THREE"),
+        ], label: "Two edits", origin: name))
+        context.registerTransferHandler(MarkdownPluginTransferHandler(
+            accepts: { $0.value is [URL] },
+            handle: { [weak self] _ in self?.transfers += 1; return true }
+        ))
+    }
+}
+
+private final class IncompatiblePlugin: MarkdownPlugin {
+    let name = "test.incompatible"
+    let requirement = MarkdownPluginRequirement(apiVersion: 99)
+    func install(in _: MarkdownPluginContext) throws {}
+}
+
+private final class InputAndResourcePlugin: MarkdownPlugin {
+    let name = "test.input-resource"
+    let resolver: RecordingResolver
+    init(resolver: RecordingResolver) { self.resolver = resolver }
+    func install(in context: MarkdownPluginContext) throws {
+        context.registerInputRule(MarkdownPluginInputRule(
+            match: { $0.text == "--" },
+            apply: { request in MarkdownPluginTransaction(
+                edits: [MarkdownPluginTextEdit(range: request.selection, text: "—")],
+                selection: NSRange(location: request.selection.location + 1, length: 0)
+            ) }
+        ))
+        context.registerResourceResolver("assets", contribution: MarkdownPluginResourceContribution(
+            resolver: resolver, accepts: { $0.reference.hasPrefix("plugin://") }
+        ))
+    }
 }
 
 private final class ReentrantPresentationPlugin: MarkdownPlugin {
@@ -2052,7 +2147,7 @@ private final class CountingPlugin: MarkdownPlugin {
 
     func markdownDidChange() {
         markdownChanges += 1
-        guard let length = context?.editor?.markdown.utf16.count, length > 0 else { return }
+        guard let length = context?.document.markdown.utf16.count, length > 0 else { return }
         context?.setLayer("marks", [
             LayerSpan(range: NSRange(location: 0, length: min(5, length)), role: role),
         ])

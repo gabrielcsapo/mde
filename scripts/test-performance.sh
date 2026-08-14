@@ -50,6 +50,7 @@ fi
         testBenchmarkSharedEditMatrix \
         testBenchmarkPluginLayerUpdate \
         testBenchmarkPluginPresentationUpdate \
+        testBenchmarkPluginScale \
         testBenchmarkPositionAndTailLatency \
         testBenchmarkRepaintScopeAndDirtyRange \
         testBenchmarkResourceReferenceLookup

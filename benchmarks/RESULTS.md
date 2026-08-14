@@ -187,6 +187,9 @@ allocation growth are the controllable costs the library can enforce in CI.
 Web, UIKit, and AppKit expose explicit presentation suspension. Backgrounding cancels
 queued decodes/fetches and prevents new speculative paint or layout; foregrounding
 reuses the live engine and exact Markdown source, then restarts only demanded media.
+After removing an unnecessary full-document repaint, the 320-resource UIKit journal
+restored its visible overlays synchronously in 10.95 ms (previous runs were 55–61 ms),
+below the 50 ms foreground-transition budget.
 
 Web viewport scheduling now finds its overscanned chunk range with two binary searches
 instead of reading every chunk's geometry on every scroll. A 512-chunk correctness test
@@ -210,3 +213,18 @@ Forty selection-panel show/layout/dismiss cycles measured 0.7 ms p95 in Chromium
 0.034 ms best-of-40 in AppKit. Both have dedicated regression budgets, while browser,
 React, Swift lifecycle tests verify exact source preservation and cleanup after plugin
 removal.
+
+## Capability plugin scale — 2026-08-14
+
+The versioned capability runtime is measured with 0, 1, 10, and 50 installed no-op
+plugins. Each plugin observes changes and selection through scoped document/selection
+capabilities, so the workload prices real lifecycle dispatch rather than empty objects.
+
+| Host | 50-plugin install | 50-plugin edit p95 | Gate |
+| --- | ---: | ---: | ---: |
+| Chromium | 0.20 ms | 0.10 ms | 20 ms edit / 35 ms install |
+| AppKit | 0.059 ms | 0.114 ms | 25 ms edit / 35 ms install |
+
+The near-flat curve from 0 through 50 means optional packages do not create a practical
+steady-state tax when idle. Capability transactions, resource routing, input rules, and
+transfer ownership remain separately covered by renderer tests.

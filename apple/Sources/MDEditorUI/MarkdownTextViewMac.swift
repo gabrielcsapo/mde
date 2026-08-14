@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import MDECore
+import MDEPluginKit
 
 /// AppKit callbacks a host can observe without taking the `NSTextViewDelegate` slot.
 public protocol MarkdownTextViewDelegate: AnyObject {
@@ -39,6 +40,8 @@ private final class AppKitPluginPresentationRecord {
 public final class MarkdownTextView: NSTextView {
     public var engine: MarkdownEngine { applier.engine }
     public weak var markdownDelegate: (any MarkdownTextViewDelegate)?
+    /// Optional host-backed persistence for namespaced plugin state.
+    public var pluginStateStore: (any MarkdownPluginStateStore)?
 
     public var widgetProvider: (any WidgetProvider)? {
         get { applier.widgetProvider }
@@ -48,8 +51,8 @@ public final class MarkdownTextView: NSTextView {
     /// Resolves references (`![a](photo.jpg)`) to views. See `ResourceResolver` — the
     /// document holds the reference, never the content.
     public var resourceResolver: (any ResourceResolver)? {
-        get { applier.resources.resolver }
-        set { applier.resources.resolver = newValue }
+        get { pluginResourceBaseResolver }
+        set { pluginResourceBaseResolver = newValue; refreshPluginResourceResolver() }
     }
 
     /// Sizes of resources that have already resolved, keyed by reference.
@@ -110,6 +113,8 @@ public final class MarkdownTextView: NSTextView {
     private var widgetLayoutScheduled = false
     private var presentationSuspended = false
     var pluginInstallations: [MarkdownPluginInstallation] = []
+    var pluginResourceBaseResolver: (any ResourceResolver)?
+    var pluginResourceContributions: [String: MarkdownPluginResourceRegistration] = [:]
     private var pluginCommands: [String: MarkdownPluginCommandRegistration] = [:]
     private var pluginCommandOrder: [String] = []
     private var pluginPresentations: [String: AppKitPluginPresentationRecord] = [:]
@@ -118,6 +123,12 @@ public final class MarkdownTextView: NSTextView {
     deinit {
         if let clipBoundsObserver { NotificationCenter.default.removeObserver(clipBoundsObserver) }
         uninstallAllPlugins()
+    }
+
+    func applyPluginResourceResolver(_ resolver: (any ResourceResolver)?) {
+        applier.resources.reset()
+        applier.resources.resolver = resolver
+        refreshPainting()
     }
 
     // MARK: - Init
@@ -461,7 +472,10 @@ public final class MarkdownTextView: NSTextView {
         guard presentationSuspended else { return }
         presentationSuspended = false
         applier.resources.resume()
-        refreshPainting()
+        // The attributed source survives suspension. Resume only viewport work so a
+        // media-heavy document does not pay a full paint on every foreground event.
+        scheduleViewportPaint()
+        layoutWidgetOverlays()
     }
 
     /// Every decoration currently in effect, reveal already applied. Useful for hosts
@@ -1164,6 +1178,19 @@ extension MarkdownTextView: NSTextStorageDelegate {
 // MARK: - NSTextViewDelegate
 
 extension MarkdownTextView: NSTextViewDelegate {
+    public func textView(
+        _ textView: NSTextView,
+        shouldChangeTextIn affectedCharRange: NSRange,
+        replacementString: String?
+    ) -> Bool {
+        setSelectedRange(affectedCharRange)
+        let text = replacementString
+        return !applyPluginInputRules(
+            inputType: text?.contains("\n") == true ? "insertLineBreak" : "insertText",
+            text: text
+        )
+    }
+
     public func textViewDidChangeSelection(_ notification: Notification) {
         reportSelection()
     }

@@ -1,6 +1,8 @@
 packages:
   - site
   - web
+  - web/plugin-sdk
+  - web/plugins
   - web/react
   - web/react/example
 

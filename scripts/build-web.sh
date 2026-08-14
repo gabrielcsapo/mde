@@ -13,8 +13,14 @@ echo "==> $ROOT/web/mde.wasm"
 
 [ -d "$ROOT/node_modules/.pnpm" ] || pnpm --dir "$ROOT" install --frozen-lockfile
 
+echo "==> @mde/plugin-sdk"
+pnpm --dir "$ROOT/web/plugin-sdk" run build
+
 echo "==> @mde/web"
 pnpm --dir "$ROOT/web" run build
+
+echo "==> @mde/plugins"
+pnpm --dir "$ROOT/web/plugins" run build
 
 echo "==> @mde/react"
 pnpm --dir "$ROOT/web/react" run build

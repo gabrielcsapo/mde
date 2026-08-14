@@ -223,8 +223,10 @@ private final class RendererPluginProbe: MarkdownPlugin {
     }
 
     func markdownDidChange() {
-        guard let length = context?.editor?.markdown.utf16.count, length > 0 else { return }
-        context?.setLayer("probe", [
+        guard let context else { return }
+        let length = context.document.length
+        guard length > 0 else { return }
+        context.setLayer("probe", [
             LayerSpan(range: NSRange(location: 0, length: min(5, length)), role: role),
         ])
     }

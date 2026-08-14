@@ -10,6 +10,12 @@ importers:
 
   site:
     dependencies:
+      '@mde/plugin-sdk':
+        specifier: workspace:*
+        version: link:../web/plugin-sdk
+      '@mde/plugins':
+        specifier: workspace:*
+        version: link:../web/plugins
       '@mde/react':
         specifier: workspace:*
         version: link:../web/react
@@ -38,6 +44,9 @@ importers:
 
   web:
     devDependencies:
+      '@mde/plugin-sdk':
+        specifier: workspace:*
+        version: link:plugin-sdk
       '@vitest/browser-playwright':
         specifier: ^4.1.10
         version: 4.1.10(playwright@1.62.1)(vite@8.2.1(jiti@2.7.0))(vitest@4.1.10)
@@ -59,6 +68,28 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@vitest/browser-playwright@4.1.10)(vite@8.2.1(jiti@2.7.0))
+
+  web/plugin-sdk:
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  web/plugins:
+    dependencies:
+      '@mde/plugin-sdk':
+        specifier: workspace:*
+        version: link:../plugin-sdk
+      '@mde/web':
+        specifier: workspace:*
+        version: link:..
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^8.2.1
+        version: 8.2.1(jiti@2.7.0)
 
   web/react:
     dependencies:

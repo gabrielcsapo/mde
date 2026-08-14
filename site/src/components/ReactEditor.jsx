@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import { MarkdownEditor, useEditorHistory, useMarkdownEditorRef } from '@mde/react';
-import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/web/extensions/composer';
-import { linkEditor } from '@mde/web/extensions/productivity';
+import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/plugins/composer';
+import { linkEditor } from '@mde/plugins/productivity';
 import wasmUrl from '@mde/web/mde.wasm?url';
 
 import {

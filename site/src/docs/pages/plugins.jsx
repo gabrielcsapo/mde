@@ -1,12 +1,34 @@
 import { Aside, Clause, Clauses, H2, H3, Lede, Note, SeeAlso, TableFrame } from '../../components/Doc.jsx';
 import SourceFigure from '../../components/SourceFigure.jsx';
 
-const webExample = `import { slashCommandMenu } from '@mde/web/extensions/composer';
-import { linkEditor, templatePicker } from '@mde/web/extensions/productivity';
+const webExample = `import { slashCommandMenu } from '@mde/plugins/composer';
+import { linkEditor, templatePicker } from '@mde/plugins/productivity';
 
 editor.installPlugin(linkEditor());
 editor.installPlugin(templatePicker(templates));
 editor.installPlugin(slashCommandMenu()); // discovers both commands`;
+
+const sdkExample = `import { definePlugin } from '@mde/web';
+
+export const wordCount = definePlugin({
+  name: 'acme.word-count',
+  requires: { apiVersion: 1, capabilities: ['document', 'state'] },
+  setup(context) {
+    context.on('change', () => {
+      const words = context.document.markdown.trim().split(/\\s+/u).length;
+      context.state.set('last-count', words);
+    });
+  },
+});`;
+
+const CAPABILITIES = [
+  ['document', 'Read source and apply validated, atomic multi-edit transactions.'],
+  ['selection + semantics', 'Query the current range or parsed roles without scanning rendered UI.'],
+  ['commands + presentations', 'Contribute discoverable actions and editor-owned floating views.'],
+  ['input rules + transfers', 'Claim typed patterns, paste, drop, and host payloads by priority.'],
+  ['state + resources', 'Keep namespaced state and contribute host-resolved content.'],
+  ['decorations + tasks', 'Publish visual ranges and run cancellable latest-wins analysis.'],
+];
 
 const suggestionExample = `suggestionPlugin({
   name: 'journal.people',
@@ -62,6 +84,26 @@ export default function Plugins() {
         </Clause>
       </Clauses>
 
+      <H2 id="sdk">A small, versioned capability API</H2>
+      <Lede>
+        <code>@mde/plugin-sdk</code> contains data contracts only. Plugins declare the API version and
+        capabilities they need; installation fails before setup when a host cannot provide them.
+        The web runtime and <code>MDEPluginKit</code> expose the same document, selection, semantic,
+        state, input, and transfer model.
+      </Lede>
+      <SourceFigure path="word-count.ts" lang="typescript" code={sdkExample} />
+      <TableFrame className="mt-6">
+        <thead><tr><th>Capability</th><th className="desc">Contract</th></tr></thead>
+        <tbody>{CAPABILITIES.map(([name, detail]) => (
+          <tr key={name}><td><code>{name}</code></td><td className="desc">{detail}</td></tr>
+        ))}</tbody>
+      </TableFrame>
+      <Note>
+        A transaction may contain several non-overlapping edits, but it enters history as one undo
+        step. Semantic queries return parser roles and payloads, keeping plugins independent of DOM,
+        TextKit, and regular-expression scans over an entire document.
+      </Note>
+
       <H2 id="commands">Build menus from commands</H2>
       <SourceFigure path="editor-plugins.ts" lang="typescript" code={webExample} />
       <p className="mt-5">
@@ -97,6 +139,11 @@ export default function Plugins() {
           <tr key={name}><td>{name}</td><td className="desc">{detail}</td></tr>
         ))}</tbody>
       </TableFrame>
+      <p className="mt-5">
+        Optional features ship from <code>@mde/plugins</code>, not the core renderer. Backlinks and
+        the media-gallery recipe are intentionally implemented as ordinary capability-only plugins;
+        they double as compatibility fixtures for third-party authors.
+      </p>
 
       <Aside tone="note" title="The document remains boring">
         A tag is still <code>#travel</code>, a wiki link is still <code>[[Day One]]</code>, and an

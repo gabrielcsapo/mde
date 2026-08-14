@@ -51,6 +51,7 @@ build_module() {
 }
 
 build_module MDECore     "$ROOT"/apple/Sources/MDECore/*.swift
+build_module MDEPluginKit "$ROOT"/apple/Sources/MDEPluginKit/*.swift
 build_module MDEditorUI  "$ROOT"/apple/Sources/MDEditorUI/*.swift
 build_module MDEHost     "$ROOT"/apple/Sources/MDEHost/*.swift
 build_module MDEApp      "$ROOT"/apple/Sources/MDEApp/*.swift
@@ -59,7 +60,7 @@ xcrun -sdk iphonesimulator swiftc \
     -target "$TARGET" -sdk "$SDK" \
     -L "$ROOT/target/$RUST_TARGET/release" -lmde \
     -o "$APP/$APP_NAME" \
-    "$OBJ"/MDECore.o "$OBJ"/MDEditorUI.o "$OBJ"/MDEHost.o "$OBJ"/MDEApp.o
+    "$OBJ"/MDECore.o "$OBJ"/MDEPluginKit.o "$OBJ"/MDEditorUI.o "$OBJ"/MDEHost.o "$OBJ"/MDEApp.o
 
 cat > "$APP/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

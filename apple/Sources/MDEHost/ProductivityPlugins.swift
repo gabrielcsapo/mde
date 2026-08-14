@@ -1,11 +1,56 @@
 import Foundation
 import MDEditorUI
+import MDEPluginKit
 
 #if os(macOS)
 import AppKit
 #else
 import UIKit
 #endif
+
+public struct MarkdownTextTransform: Sendable {
+    public let name: String
+    public let title: String
+    public let before: String
+    public let after: String
+    public let key: String?
+    public init(name: String, title: String, before: String, after: String? = nil,
+                key: String? = nil) {
+        self.name = name; self.title = title; self.before = before
+        self.after = after ?? before; self.key = key
+    }
+}
+
+/// Data-driven formatting commands that use only document and selection capabilities.
+public final class MarkdownTextTransformPlugin: MarkdownPlugin {
+    public let name: String
+    public let requirement = MarkdownPluginRequirement(
+        capabilities: [.document, .selection, .commands]
+    )
+    private let transforms: [MarkdownTextTransform]
+    public init(name: String, transforms: [MarkdownTextTransform]) {
+        self.name = name; self.transforms = transforms
+    }
+    public func install(in context: MarkdownPluginContext) throws {
+        for transform in transforms {
+            context.registerCommand(transform.name, command: MarkdownPluginCommand(
+                title: transform.title, key: transform.key,
+                modifiers: transform.key == nil ? [] : .primary,
+                category: "Formatting"
+            ) {
+                guard let range = context.selection.range,
+                      let selected = context.document.substring(in: range) else { return }
+                let replacement = transform.before + selected + transform.after
+                _ = try? context.document.transact(MarkdownPluginTransaction(
+                    edits: [MarkdownPluginTextEdit(range: range, text: replacement)],
+                    selection: NSRange(location: range.location + transform.before.utf16.count,
+                                       length: selected.utf16.count),
+                    label: transform.title, origin: context.name
+                ))
+            })
+        }
+    }
+}
 
 public struct MarkdownTemplate: Sendable, Equatable {
     public let id: String
@@ -26,18 +71,17 @@ public final class FloatingSelectionToolbar: MarkdownPlugin {
     public func markdownDidChange() { update() }
     public func selectionDidChange() { update() }
     private func update() {
-        guard let context, let editor = context.editor else { return }
-        let selection = editor.selectedRange
+        guard let context, let selection = context.selection.range else { return }
         guard selection.length > 0 else { context.dismissPresentation("toolbar"); return }
-        let toolbar = MarkdownFormattingToolbar { [weak editor] before, after in
-            guard let editor else { return }
-            let selected = (editor.markdown as NSString).substring(with: selection)
+        let toolbar = MarkdownFormattingToolbar { [weak context] before, after in
+            guard let context, let selected = context.document.substring(in: selection) else { return }
             let replacement = before + selected + after
-            _ = editor.replaceMarkdown(
-                in: selection, with: replacement,
+            _ = try? context.document.transact(MarkdownPluginTransaction(
+                edits: [MarkdownPluginTextEdit(range: selection, text: replacement)],
                 selection: NSRange(location: selection.location + before.utf16.count,
-                                   length: selected.utf16.count)
-            )
+                                   length: selected.utf16.count),
+                label: "Format selection", origin: context.name
+            ))
         }
         context.showPresentation(
             "toolbar",
@@ -100,21 +144,25 @@ public final class LinkEditor: MarkdownPlugin {
     }
     public func uninstall() { context = nil }
     public func open() {
-        guard let context, let editor = context.editor else { return }
-        let currentRange = editor.selectedRange
-        let existing = markdownInlineLink(in: editor.markdown, containing: currentRange)
+        guard let context else { return }
+        let currentRange = context.selection.range
+            ?? NSRange(location: context.document.length, length: 0)
+        let existing = markdownInlineLink(in: context.document.markdown, containing: currentRange)
         let range = existing?.range ?? currentRange
         let selected = existing?.label ?? (range.location != NSNotFound
-            ? (editor.markdown as NSString).substring(with: range) : "")
+            ? context.document.substring(in: range) ?? "" : "")
         let view = MarkdownTwoFieldDialog(
             title: existing == nil ? "Add a link" : "Edit link",
             firstLabel: "Link text", firstValue: selected.isEmpty ? "link" : selected,
             secondLabel: "URL", secondValue: existing?.destination ?? "https://",
             actionTitle: existing == nil ? "Insert" : "Update",
-            submit: { [weak editor] label, destination in
-                guard let editor else { return }
+            submit: { [weak context] label, destination in
+                guard let context else { return }
                 let markdown = "[\(label.replacingOccurrences(of: "]", with: "\\]"))](\(destination))"
-                _ = editor.replaceMarkdown(in: range, with: markdown)
+                _ = try? context.document.transact(MarkdownPluginTransaction(
+                    edits: [MarkdownPluginTextEdit(range: range, text: markdown)],
+                    label: existing == nil ? "Add link" : "Edit link", origin: context.name
+                ))
                 context.dismissPresentation("link")
             }, cancel: { context.dismissPresentation("link") }
         )
@@ -137,22 +185,27 @@ public final class TemplatePicker: MarkdownPlugin {
     }
     public func uninstall() { context = nil }
     public func open() {
-        guard let context, let editor = context.editor else { return }
-        let range = editor.selectedRange
+        guard let context else { return }
+        let range = context.selection.range ?? NSRange(location: context.document.length, length: 0)
         let items = templates.map { template in
             MarkdownSuggestionItem(
                 id: template.id, label: template.title, detail: template.detail,
-                select: { [weak editor] _ in
-                    guard let editor else { return }
-                    _ = editor.replaceMarkdown(in: range, with: template.markdown)
+                select: { [weak context] _ in
+                    guard let context else { return }
+                    _ = try? context.document.transact(MarkdownPluginTransaction(
+                        edits: [MarkdownPluginTextEdit(range: range, text: template.markdown)],
+                        label: "Insert template", origin: context.name
+                    ))
                 }
             )
         }
         let view = MarkdownActionList(items: items) { item in
             item.select?(MarkdownSuggestionRequest(
                 match: MarkdownSuggestionMatch(trigger: "", query: "", range: range),
-                markdown: editor.markdown,
-                cancellation: MarkdownSuggestionCancellation(), editor: editor
+                markdown: context.document.markdown,
+                cancellation: MarkdownSuggestionCancellation(),
+                document: context.document, selection: context.selection,
+                commands: context.registeredCommands, executeCommand: context.executeCommand
             ))
             context.dismissPresentation("templates")
         }
@@ -173,17 +226,19 @@ public final class FindAndReplace: MarkdownPlugin {
     }
     public func uninstall() { context = nil }
     public func open() {
-        guard let context, let editor = context.editor else { return }
+        guard let context else { return }
         let view = MarkdownTwoFieldDialog(
             title: "Find and replace", firstLabel: "Find", firstValue: "",
             secondLabel: "Replace with", secondValue: "", actionTitle: "Replace all",
-            submit: { [weak editor] needle, replacement in
-                guard let editor, !needle.isEmpty else { return }
-                let source = editor.markdown
-                _ = editor.replaceMarkdown(
-                    in: NSRange(location: 0, length: source.utf16.count),
-                    with: source.replacingOccurrences(of: needle, with: replacement)
-                )
+            submit: { [weak context] needle, replacement in
+                guard let context, !needle.isEmpty else { return }
+                let source = context.document.markdown
+                _ = try? context.document.transact(MarkdownPluginTransaction(
+                    edits: [MarkdownPluginTextEdit(
+                        range: NSRange(location: 0, length: source.utf16.count),
+                        text: source.replacingOccurrences(of: needle, with: replacement)
+                    )], label: "Replace all", origin: context.name
+                ))
             }, cancel: { context.dismissPresentation("find-replace") }
         )
         context.showPresentation("find-replace", view: view, anchor: .viewport, modal: true)
@@ -205,28 +260,29 @@ public final class ImageDescriptionEditor: MarkdownPlugin {
     }
     public func uninstall() { context = nil }
     private func imageAtCaret() -> (NSRange, String, String)? {
-        guard let editor = context?.editor else { return nil }
-        let caret = editor.selectedRange.location
-        let source = editor.markdown as NSString
-        let expression = try! NSRegularExpression(pattern: "!\\[([^]]*)\\]\\(([^)]+)\\)")
-        for match in expression.matches(in: source as String, range: NSRange(location: 0, length: source.length)) {
-            if NSLocationInRange(caret, NSRange(location: match.range.location, length: match.range.length + 1)) {
-                return (match.range, source.substring(with: match.range(at: 1)),
-                        source.substring(with: match.range(at: 2)))
-            }
-        }
-        return nil
+        guard let context, let caret = context.selection.range?.location,
+              let node = context.semantics.nodes(at: caret, roles: ["image"]).first else { return nil }
+        let source = node.source as NSString
+        let expression = try! NSRegularExpression(pattern: "^!\\[([^]]*)\\]\\(([^)]+)\\)$")
+        guard let match = expression.firstMatch(
+            in: node.source, range: NSRange(location: 0, length: source.length)
+        ) else { return nil }
+        return (node.range, source.substring(with: match.range(at: 1)),
+                source.substring(with: match.range(at: 2)))
     }
     public func open() {
-        guard let context, let editor = context.editor, let image = imageAtCaret() else { return }
+        guard let context, let image = imageAtCaret() else { return }
         let view = MarkdownTwoFieldDialog(
             title: "Image description", firstLabel: "Alt text", firstValue: image.1,
             secondLabel: "Destination", secondValue: image.2, actionTitle: "Save",
-            submit: { [weak editor] alt, destination in
-                _ = editor?.replaceMarkdown(
-                    in: image.0,
-                    with: "![\(alt.replacingOccurrences(of: "]", with: "\\]"))](\(destination))"
-                )
+            submit: { [weak context] alt, destination in
+                guard let context else { return }
+                _ = try? context.document.transact(MarkdownPluginTransaction(
+                    edits: [MarkdownPluginTextEdit(
+                        range: image.0,
+                        text: "![\(alt.replacingOccurrences(of: "]", with: "\\]"))](\(destination))"
+                    )], label: "Edit image description", origin: context.name
+                ))
                 context.dismissPresentation("image-alt")
             }, cancel: { context.dismissPresentation("image-alt") }
         )

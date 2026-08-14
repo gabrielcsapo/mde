@@ -1,5 +1,6 @@
 import Foundation
 import MDECore
+import MDEPluginKit
 
 /// A runtime editor extension with an automatically managed lifecycle.
 public protocol MarkdownPlugin: AnyObject {
@@ -7,6 +8,7 @@ public protocol MarkdownPlugin: AnyObject {
     var name: String { get }
     /// Optional TOML syntax contributed before the editor's engine is created.
     var manifest: String? { get }
+    var requirement: MarkdownPluginRequirement { get }
     func install(in context: MarkdownPluginContext) throws
     func uninstall()
     func markdownDidChange()
@@ -15,6 +17,7 @@ public protocol MarkdownPlugin: AnyObject {
 
 public extension MarkdownPlugin {
     var manifest: String? { nil }
+    var requirement: MarkdownPluginRequirement { MarkdownPluginRequirement() }
     func uninstall() {}
     func markdownDidChange() {}
     func selectionDidChange() {}
@@ -24,6 +27,8 @@ public enum MarkdownPluginError: Error, Equatable {
     case emptyName
     case duplicateName(String)
     case invalidManifest
+    case unsupportedAPIVersion(Int)
+    case missingCapabilities(MarkdownPluginCapability)
 }
 
 public struct MarkdownPluginCommandModifiers: OptionSet, Sendable {
@@ -195,6 +200,70 @@ struct MarkdownPluginPresentation {
     var options: MarkdownPluginPresentationOptions
 }
 
+public struct MarkdownPluginInputRequest {
+    public let inputType: String
+    public let text: String?
+    public let selection: NSRange
+    public let markdown: String
+}
+
+public struct MarkdownPluginInputRule {
+    public var priority: Int
+    public var match: (MarkdownPluginInputRequest) -> Bool
+    public var apply: (MarkdownPluginInputRequest) -> MarkdownPluginTransaction?
+    public init(priority: Int = 0,
+                match: @escaping (MarkdownPluginInputRequest) -> Bool,
+                apply: @escaping (MarkdownPluginInputRequest) -> MarkdownPluginTransaction?) {
+        self.priority = priority; self.match = match; self.apply = apply
+    }
+}
+
+public struct MarkdownPluginTransferHandler {
+    public var priority: Int
+    public var accepts: (MarkdownTransfer) -> Bool
+    public var handle: (MarkdownTransfer) -> Bool
+    public init(priority: Int = 0, accepts: @escaping (MarkdownTransfer) -> Bool,
+                handle: @escaping (MarkdownTransfer) -> Bool) {
+        self.priority = priority; self.accepts = accepts; self.handle = handle
+    }
+}
+
+public struct MarkdownPluginResourceContribution {
+    public let resolver: any ResourceResolver
+    public let priority: Int
+    public let accepts: (ResourceRequest) -> Bool
+    public init(resolver: any ResourceResolver, priority: Int = 0,
+                accepts: @escaping (ResourceRequest) -> Bool = { _ in true }) {
+        self.resolver = resolver; self.priority = priority; self.accepts = accepts
+    }
+}
+
+struct MarkdownPluginResourceRegistration {
+    let order: Int
+    let contribution: MarkdownPluginResourceContribution
+}
+
+private final class CompositePluginResourceResolver: ResourceResolver {
+    let registrations: [MarkdownPluginResourceRegistration]
+    let fallback: (any ResourceResolver)?
+    init(registrations: [MarkdownPluginResourceRegistration], fallback: (any ResourceResolver)?) {
+        self.registrations = registrations; self.fallback = fallback
+    }
+    private func resolver(_ request: ResourceRequest) -> (any ResourceResolver)? {
+        registrations.sorted {
+            $0.contribution.priority == $1.contribution.priority
+                ? $0.order < $1.order : $0.contribution.priority > $1.contribution.priority
+        }.first(where: { $0.contribution.accepts(request) })?.contribution.resolver ?? fallback
+    }
+    func resolve(_ request: ResourceRequest,
+                 deliver: @escaping (ResourceState) -> Void) -> ResourceState {
+        resolver(request)?.resolve(request, deliver: deliver) ?? .failed("no resolver")
+    }
+    func reservedSize(_ request: ResourceRequest) -> CGSize {
+        resolver(request)?.reservedSize(request) ?? CGSize(width: 320, height: 180)
+    }
+}
+
 public struct MarkdownPluginAnalysisDiagnostic: Sendable {
     public let plugin: String
     public let task: String
@@ -267,6 +336,136 @@ public struct MarkdownPluginCompatibilityReport: Equatable {
     public let cleanupRemovedLayers: Bool
 }
 
+public final class MarkdownPluginDocument {
+    private weak var editor: MarkdownTextView?
+    fileprivate let plugin: String
+    fileprivate init(editor: MarkdownTextView, plugin: String) {
+        self.editor = editor; self.plugin = plugin
+    }
+    public var markdown: String { editor?.markdown ?? "" }
+    public var length: Int { (markdown as NSString).length }
+    public func substring(in range: NSRange) -> String? {
+        let source = markdown as NSString
+        guard range.location != NSNotFound, range.location <= source.length,
+              range.length <= source.length - range.location else { return nil }
+        return source.substring(with: range)
+    }
+    @discardableResult
+    public func transact(_ transaction: MarkdownPluginTransaction) throws
+        -> MarkdownPluginTransactionResult {
+        guard let editor else { throw MarkdownPluginKitError.invalidTransaction }
+        let before = editor.markdown as NSString
+        let edits = transaction.edits.sorted {
+            $0.range.location == $1.range.location
+                ? $0.range.length < $1.range.length : $0.range.location < $1.range.location
+        }
+        var previousEnd = 0
+        for (index, edit) in edits.enumerated() {
+            let range = edit.range
+            guard range.location != NSNotFound, range.location <= before.length,
+                  range.length <= before.length - range.location else {
+                throw MarkdownPluginKitError.invalidTransaction
+            }
+            if index > 0, range.location < previousEnd {
+                throw MarkdownPluginKitError.overlappingEdits
+            }
+            previousEnd = NSMaxRange(range)
+        }
+        let next = NSMutableString(string: before)
+        for edit in edits.reversed() { next.replaceCharacters(in: edit.range, with: edit.text) }
+        if let selection = transaction.selection,
+           selection.location == NSNotFound || selection.location > next.length
+            || selection.length > next.length - selection.location {
+            throw MarkdownPluginKitError.invalidTransaction
+        }
+        var start = 0
+        while start < min(before.length, next.length),
+              before.character(at: start) == next.character(at: start) { start += 1 }
+        var beforeEnd = before.length
+        var afterEnd = next.length
+        while beforeEnd > start, afterEnd > start,
+              before.character(at: beforeEnd - 1) == next.character(at: afterEnd - 1) {
+            beforeEnd -= 1; afterEnd -= 1
+        }
+        let changed: NSRange? = beforeEnd == start && afterEnd == start
+            ? nil : NSRange(location: start, length: afterEnd - start)
+        if changed != nil {
+            let replacement = next.substring(with: NSRange(location: start, length: afterEnd - start))
+            guard editor.replaceMarkdown(
+                in: NSRange(location: start, length: beforeEnd - start),
+                with: replacement, selection: transaction.selection
+            ) else { throw MarkdownPluginKitError.invalidTransaction }
+        } else if let selection = transaction.selection {
+            editor.selectedRange = selection
+        }
+        return MarkdownPluginTransactionResult(
+            beforeLength: before.length, afterLength: next.length, changedRange: changed
+        )
+    }
+}
+
+public final class MarkdownPluginSelection {
+    private weak var editor: MarkdownTextView?
+    fileprivate init(editor: MarkdownTextView) { self.editor = editor }
+    public var range: NSRange? {
+        get { editor?.selectedRange }
+        set { if let newValue { editor?.selectedRange = newValue } }
+    }
+}
+
+public final class MarkdownPluginSemantics {
+    private weak var editor: MarkdownTextView?
+    fileprivate init(editor: MarkdownTextView) { self.editor = editor }
+    public func query(_ query: MarkdownSemanticQuery = MarkdownSemanticQuery())
+        -> [MarkdownSemanticNode] {
+        guard let editor else { return [] }
+        let source = editor.markdown as NSString
+        return editor.decorations.compactMap { decoration in
+            guard let role = editor.engine.roleName(decoration.role),
+                  query.roles?.contains(role) ?? true else { return nil }
+            if let position = query.position,
+               position < decoration.range.location || position > NSMaxRange(decoration.range) {
+                return nil
+            }
+            if let range = query.range {
+                let matches = query.intersects
+                    ? NSIntersectionRange(range, decoration.range).length > 0
+                    : decoration.range.location <= range.location
+                        && NSMaxRange(decoration.range) >= NSMaxRange(range)
+                if !matches { return nil }
+            }
+            guard NSMaxRange(decoration.range) <= source.length else { return nil }
+            let payload = editor.engine.payload(for: decoration.key)
+            let nodeSource = source.substring(with: decoration.range)
+            return MarkdownSemanticNode(
+                range: decoration.range, role: role,
+                payload: payload, source: nodeSource, layer: decoration.layer
+            )
+        }.sorted {
+            $0.range.length == $1.range.length
+                ? $0.range.location < $1.range.location : $0.range.length < $1.range.length
+        }
+    }
+    public func nodes(at position: Int, roles: Set<String>? = nil) -> [MarkdownSemanticNode] {
+        query(MarkdownSemanticQuery(roles: roles, position: position))
+    }
+}
+
+public final class MarkdownPluginState {
+    private let plugin: String
+    private weak var store: (any MarkdownPluginStateStore)?
+    private var values: [String: Any] = [:]
+    fileprivate init(plugin: String, store: (any MarkdownPluginStateStore)?) {
+        self.plugin = plugin; self.store = store
+    }
+    public func value<Value>(for key: String, default fallback: Value) -> Value {
+        (values[key] ?? store?.value(plugin: plugin, key: key)) as? Value ?? fallback
+    }
+    public func setValue(_ value: Any?, for key: String) {
+        values[key] = value; store?.setValue(value, plugin: plugin, key: key)
+    }
+}
+
 /// Framework-neutral lifecycle check for plugin package test suites.
 public enum MarkdownPluginCompatibility {
     public static func check(
@@ -306,31 +505,47 @@ public final class MarkdownPluginContext {
         attributes: .concurrent
     )
 
-    public private(set) weak var editor: MarkdownTextView?
+    private weak var editorStorage: MarkdownTextView?
+    @available(*, deprecated, message: "Use document, selection, semantics, and scoped capabilities")
+    public var editor: MarkdownTextView? { editorStorage }
     public let name: String
+    public let apiVersion = MarkdownPluginAPI.version
+    public let capabilities = MarkdownPluginCapability.all
+    public let document: MarkdownPluginDocument
+    public let selection: MarkdownPluginSelection
+    public let semantics: MarkdownPluginSemantics
+    public let state: MarkdownPluginState
     private var layers: Set<String> = []
     private var commands: Set<String> = []
     private var presentations: Set<String> = []
     private var analyses: [String: MarkdownPluginAnalysisRun] = [:]
+    private var inputRules: [(order: Int, rule: MarkdownPluginInputRule)] = []
+    private var transfers: [(order: Int, handler: MarkdownPluginTransferHandler)] = []
+    private var registrationOrder = 0
+    private var resources: Set<String> = []
     private var active = true
 
     fileprivate init(editor: MarkdownTextView, name: String) {
-        self.editor = editor
+        editorStorage = editor
         self.name = name
+        document = MarkdownPluginDocument(editor: editor, plugin: name)
+        selection = MarkdownPluginSelection(editor: editor)
+        semantics = MarkdownPluginSemantics(editor: editor)
+        state = MarkdownPluginState(plugin: name, store: editor.pluginStateStore)
     }
 
     public func internRole(_ name: String) -> UInt32 {
-        active ? (editor?.internRole(name) ?? UInt32.max) : UInt32.max
+        active ? (editorStorage?.internRole(name) ?? UInt32.max) : UInt32.max
     }
 
     public func setLayer(_ name: String, _ spans: [LayerSpan]) {
-        guard active, let editor, let qualified = layerName(name) else { return }
+        guard active, let editor = editorStorage, let qualified = layerName(name) else { return }
         layers.insert(qualified)
         editor.setLayer(qualified, spans)
     }
 
     public func clearLayer(_ name: String) {
-        guard active, let editor, let qualified = layerName(name) else { return }
+        guard active, let editor = editorStorage, let qualified = layerName(name) else { return }
         layers.remove(qualified)
         editor.clearLayer(qualified)
     }
@@ -341,7 +556,7 @@ public final class MarkdownPluginContext {
         _ name: String,
         command: MarkdownPluginCommand
     ) -> MarkdownPluginCommandHandle? {
-        guard active, let editor, let qualified = qualified("command", name) else { return nil }
+        guard active, let editor = editorStorage, let qualified = qualified("command", name) else { return nil }
         let canonical = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let generation = UUID()
         commands.insert(qualified)
@@ -391,7 +606,7 @@ public final class MarkdownPluginContext {
         _ name: String,
         options: MarkdownPluginPresentationOptions
     ) -> MarkdownPluginPresentationHandle? {
-        guard active, let editor, let qualified = qualified("presentation", name) else {
+        guard active, let editor = editorStorage, let qualified = qualified("presentation", name) else {
             return nil
         }
         let generation = UUID()
@@ -444,9 +659,78 @@ public final class MarkdownPluginContext {
         _ name: String,
         reason: MarkdownPluginPresentationDismissReason = .programmatic
     ) {
-        guard active, let editor, let qualified = qualified("presentation", name) else { return }
+        guard active, let editor = editorStorage, let qualified = qualified("presentation", name) else { return }
         presentations.remove(qualified)
         editor.removePluginPresentation(qualified, reason: reason)
+    }
+
+    public var registeredCommands: [MarkdownPluginCommandDescriptor] {
+        editorStorage?.registeredPluginCommands ?? []
+    }
+
+    @discardableResult
+    public func executeCommand(_ id: String) -> Bool {
+        editorStorage?.executePluginCommand(id: id) ?? false
+    }
+
+    public var hasMarkedText: Bool {
+        guard let editor = editorStorage else { return false }
+        #if os(macOS)
+        return editor.hasMarkedText()
+        #else
+        return editor.markedTextRange != nil
+        #endif
+    }
+
+    @discardableResult
+    public func focusEditor() -> Bool { editorStorage?.becomeFirstResponder() ?? false }
+
+    public func registerInputRule(_ rule: MarkdownPluginInputRule) {
+        guard active else { return }
+        registrationOrder += 1
+        inputRules.append((registrationOrder, rule))
+    }
+
+    public func registerTransferHandler(_ handler: MarkdownPluginTransferHandler) {
+        guard active else { return }
+        registrationOrder += 1
+        transfers.append((registrationOrder, handler))
+    }
+
+    public func registerResourceResolver(
+        _ name: String,
+        contribution: MarkdownPluginResourceContribution
+    ) {
+        guard active, let editor = editorStorage, let qualified = qualified("resource", name) else { return }
+        registrationOrder += 1
+        resources.insert(qualified)
+        editor.pluginResourceContributions[qualified] = MarkdownPluginResourceRegistration(
+            order: registrationOrder, contribution: contribution
+        )
+        editor.refreshPluginResourceResolver()
+    }
+
+    fileprivate func applyInputRule(_ request: MarkdownPluginInputRequest) -> Bool {
+        let ordered = inputRules.sorted {
+            $0.rule.priority == $1.rule.priority
+                ? $0.order < $1.order : $0.rule.priority > $1.rule.priority
+        }
+        for entry in ordered where entry.rule.match(request) {
+            guard let transaction = entry.rule.apply(request) else { continue }
+            return (try? document.transact(transaction)) != nil
+        }
+        return false
+    }
+
+    fileprivate func routeTransfer(_ transfer: MarkdownTransfer) -> Bool {
+        let ordered = transfers.sorted {
+            $0.handler.priority == $1.handler.priority
+                ? $0.order < $1.order : $0.handler.priority > $1.handler.priority
+        }
+        for entry in ordered where entry.handler.accepts(transfer) {
+            if entry.handler.handle(transfer) { return true }
+        }
+        return false
     }
 
     /// Schedule latest-wins work against an immutable markdown snapshot.
@@ -463,7 +747,7 @@ public final class MarkdownPluginContext {
         apply: @escaping (Result, MarkdownPluginContext) -> Void
     ) -> Bool {
         let canonical = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard active, !canonical.isEmpty, let markdown = editor?.markdown else { return false }
+        guard active, !canonical.isEmpty, let markdown = editorStorage?.markdown else { return false }
         cancelAnalysis(canonical)
 
         let run = MarkdownPluginAnalysisRun()
@@ -518,7 +802,7 @@ public final class MarkdownPluginContext {
             overBudget: !cancelled && duration > budget,
             cancelled: cancelled
         )
-        DispatchQueue.main.async { [weak editor] in
+        DispatchQueue.main.async { [weak editor = editorStorage] in
             guard let editor else { return }
             NotificationCenter.default.post(
                 name: .markdownPluginAnalysisDiagnostic,
@@ -541,10 +825,13 @@ public final class MarkdownPluginContext {
     fileprivate func removeAllOwnedState() {
         defer { active = false }
         for name in Array(analyses.keys) { cancelAnalysis(name) }
-        guard let editor else {
+        guard let editor = editorStorage else {
             layers.removeAll()
             commands.removeAll()
             presentations.removeAll()
+            inputRules.removeAll()
+            transfers.removeAll()
+            resources.removeAll()
             return
         }
         for layer in layers { editor.clearLayer(layer) }
@@ -555,6 +842,11 @@ public final class MarkdownPluginContext {
         layers.removeAll()
         commands.removeAll()
         presentations.removeAll()
+        inputRules.removeAll()
+        transfers.removeAll()
+        for resource in resources { editor.pluginResourceContributions.removeValue(forKey: resource) }
+        resources.removeAll()
+        editor.refreshPluginResourceResolver()
     }
 }
 
@@ -590,6 +882,11 @@ public extension MarkdownTextView {
         guard !pluginInstallations.contains(where: { $0.context.name == name }) else {
             throw MarkdownPluginError.duplicateName(name)
         }
+        guard plugin.requirement.apiVersion == MarkdownPluginAPI.version else {
+            throw MarkdownPluginError.unsupportedAPIVersion(plugin.requirement.apiVersion)
+        }
+        let missing = plugin.requirement.capabilities.subtracting(.all)
+        guard missing.isEmpty else { throw MarkdownPluginError.missingCapabilities(missing) }
 
         let context = MarkdownPluginContext(editor: self, name: name)
         let installation = MarkdownPluginInstallation(plugin: plugin, context: context)
@@ -622,6 +919,36 @@ public extension MarkdownTextView {
 
     var installedPluginNames: [String] {
         pluginInstallations.map(\.context.name)
+    }
+
+    /// Route host paste/drop/share-sheet data without coupling plugins to a view class.
+    @discardableResult
+    func routePluginTransfer(_ transfer: MarkdownTransfer) -> Bool {
+        for installation in pluginInstallations {
+            if installation.context.routeTransfer(transfer) { return true }
+        }
+        return false
+    }
+
+    @discardableResult
+    internal func applyPluginInputRules(inputType: String, text: String?) -> Bool {
+        let request = MarkdownPluginInputRequest(
+            inputType: inputType, text: text, selection: selectedRange, markdown: markdown
+        )
+        for installation in pluginInstallations {
+            if installation.context.applyInputRule(request) { return true }
+        }
+        return false
+    }
+
+    internal func refreshPluginResourceResolver() {
+        let resolver: (any ResourceResolver)? = pluginResourceContributions.isEmpty
+            ? pluginResourceBaseResolver
+            : CompositePluginResourceResolver(
+                registrations: Array(pluginResourceContributions.values),
+                fallback: pluginResourceBaseResolver
+            )
+        applyPluginResourceResolver(resolver)
     }
 
     internal func pluginsDidChangeMarkdown() {

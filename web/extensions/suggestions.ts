@@ -5,6 +5,8 @@ import type {
   PluginPresentationHandle,
 } from '../src/plugins.js';
 import type { SelectionRange } from '../src/core.js';
+import type { PluginDocumentCapability, PluginSelectionCapability } from '@mde/plugin-sdk';
+import type { PluginCommandsCapability } from '../src/plugins.js';
 
 export interface SuggestionMatch {
   trigger: string;
@@ -15,7 +17,9 @@ export interface SuggestionMatch {
 export interface SuggestionRequest extends SuggestionMatch {
   markdown: string;
   signal: AbortSignal;
-  editor: EditorPluginContext['editor'];
+  document: PluginDocumentCapability;
+  selection: PluginSelectionCapability;
+  commands: PluginCommandsCapability;
 }
 
 export interface SuggestionItem {
@@ -127,13 +131,13 @@ export function suggestionPlugin(options: SuggestionPluginOptions): EditorPlugin
       let sequence = 0;
       let composing = false;
       const cache = new Map<string, SuggestionItem[]>();
-      const previousActiveDescendant = context.editor.root.getAttribute('aria-activedescendant');
+      const previousActiveDescendant = context.view.getActiveDescendant();
 
       const restoreActiveDescendant = () => {
         if (previousActiveDescendant === null) {
-          context.editor.root.removeAttribute('aria-activedescendant');
+          context.view.setActiveDescendant(null);
         } else {
-          context.editor.root.setAttribute('aria-activedescendant', previousActiveDescendant);
+          context.view.setActiveDescendant(previousActiveDescendant);
         }
       };
 
@@ -195,20 +199,20 @@ export function suggestionPlugin(options: SuggestionPluginOptions): EditorPlugin
         // keep the request signal alive until that callback finishes.
         active = null;
         try {
-          context.editor.root.focus();
+          context.view.focus();
           if (item.select) {
             await item.select(request);
           } else {
             const replacement = `${item.insertText ?? item.label}${item.suffix ?? ' '}`;
-            context.editor.replaceRange(request.range.start, request.range.end, replacement);
             const caret = request.range.start + replacement.length;
-            context.editor.setSelectionRange({ start: caret, end: caret });
+            context.document.transact({
+              edits: [{ ...request.range, text: replacement }],
+              selection: { start: caret, end: caret },
+              metadata: { label: 'Accept suggestion', origin: context.name },
+            });
           }
         } catch (error) {
-          context.editor.dispatchEvent(new CustomEvent('pluginerror', {
-            cancelable: true,
-            detail: { plugin: options.name, task: 'suggestion-selection', error },
-          }));
+          context.view.reportError('suggestion-selection', error);
         } finally {
           close();
         }
@@ -265,7 +269,7 @@ export function suggestionPlugin(options: SuggestionPluginOptions): EditorPlugin
           root.appendChild(option);
         });
         const selected = root.querySelector<HTMLElement>('[aria-selected="true"]');
-        if (selected) context.editor.root.setAttribute('aria-activedescendant', selected.id);
+        if (selected) context.view.setActiveDescendant(selected.id);
         presentation?.reposition();
       };
 
@@ -283,12 +287,12 @@ export function suggestionPlugin(options: SuggestionPluginOptions): EditorPlugin
 
       const update = () => {
         if (composing) return;
-        const selection = context.editor.selectionRange();
+        const selection = context.selection.range;
         if (!selection || selection.start !== selection.end) {
           close();
           return;
         }
-        const before = context.editor.markdown.slice(0, selection.start);
+        const before = context.document.markdown.slice(0, selection.start);
         const match = matchSuggestion(options.triggers, before, selection.start);
         if (!match) {
           suppressedKey = null;
@@ -309,9 +313,11 @@ export function suggestionPlugin(options: SuggestionPluginOptions): EditorPlugin
         requestKey = key;
         const request: SuggestionRequest = {
           ...match,
-          markdown: context.editor.markdown,
+          markdown: context.document.markdown,
           signal: controller.signal,
-          editor: context.editor,
+          document: context.document,
+          selection: context.selection,
+          commands: context.commands,
         };
         const cached = options.cache === false ? undefined : cache.get(key);
         if (cached) {
@@ -336,10 +342,7 @@ export function suggestionPlugin(options: SuggestionPluginOptions): EditorPlugin
             publish(request, value);
           } catch (error) {
             if (!controller.signal.aborted) {
-              context.editor.dispatchEvent(new CustomEvent('pluginerror', {
-                cancelable: true,
-                detail: { plugin: options.name, task: 'suggestions', error },
-              }));
+              context.view.reportError('suggestions', error);
               close();
             }
           }
@@ -364,7 +367,16 @@ export function suggestionPlugin(options: SuggestionPluginOptions): EditorPlugin
           active.index = (
             active.index + direction + active.results.length
           ) % active.results.length;
-          render();
+          if (options.renderItem) {
+            render();
+          } else if (menu) {
+            const buttons = [...menu.querySelectorAll<HTMLElement>('[role="option"]')];
+            buttons.forEach((option, index) => option.setAttribute(
+              'aria-selected', String(index === active!.index),
+            ));
+            const selected = buttons[active.index];
+            if (selected) context.view.setActiveDescendant(selected.id);
+          }
         } else if (event.key === 'Enter' || event.key === 'Tab') {
           event.preventDefault();
           void choose(active.results[active.index]);

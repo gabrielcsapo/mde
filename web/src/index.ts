@@ -5,6 +5,7 @@ export { Core, Engine, EngineError, Kind, Reveal, Role, DEFAULT_WASM_URL, loadCo
 export { MarkdownEditor, diffText } from './editor.js';
 export { composeManifests, encodeManifest } from './manifest.js';
 export { composePluginManifests, definePlugin, pluginLayerName } from './plugins.js';
+export { MDE_PLUGIN_API_VERSION, PluginCompatibilityError } from '@mde/plugin-sdk';
 export { ResourceCache } from './resources.js';
 export { MediaPreviewCache } from './media-previews.js';
 export { MarkdownSession } from './session.js';
@@ -49,6 +50,7 @@ export type {
   PluginPresentationOptions,
   PluginPresentationPlacement,
 } from './plugins.js';
+export type * from '@mde/plugin-sdk';
 export type { ResourceRequest, ResourceResolver, ResourceState } from './resources.js';
 export type {
   MediaPreviewCacheOptions,

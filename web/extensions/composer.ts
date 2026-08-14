@@ -119,8 +119,8 @@ export function slashCommandMenu(): EditorPlugin {
     maximumResults: 12,
     ariaLabel: 'Editor commands',
     emptyLabel: 'No matching commands',
-    provider: ({ query, editor, range }) => filterSuggestions(
-      editor.listCommands()
+    provider: ({ query, commands, document, selection, range }) => filterSuggestions(
+      commands.list()
         .filter((command) => command.enabled && command.plugin !== 'mde.examples.slash-menu')
         .map((command) => ({
           id: command.id,
@@ -129,9 +129,9 @@ export function slashCommandMenu(): EditorPlugin {
           group: command.category ?? 'Commands',
           keywords: command.keywords,
           select: () => {
-            editor.replaceRange(range.start, range.end, '');
-            editor.setSelectionRange({ start: range.start, end: range.start });
-            editor.executeCommand(command.id);
+            document.transact({ edits: [{ ...range, text: '' }], selection: { start: range.start, end: range.start } });
+            selection.set({ start: range.start, end: range.start });
+            commands.execute(command.id);
           },
         })),
       query,
@@ -152,9 +152,9 @@ export function attachmentComposer(options: AttachmentComposerOptions = {}): Edi
     setup(context) {
       let insertion: SelectionRange = { start: 0, end: 0 };
       const open = () => {
-        insertion = context.editor.selectionRange() ?? {
-          start: context.editor.markdown.length,
-          end: context.editor.markdown.length,
+        insertion = context.selection.range ?? {
+          start: context.document.length,
+          end: context.document.length,
         };
         const panel = attachmentPanel(context, insertion, options);
         context.showPresentation('composer', {
@@ -164,9 +164,9 @@ export function attachmentComposer(options: AttachmentComposerOptions = {}): Edi
           onDismiss: () => {
             // Escape/Cancel returns to the captured insertion point. A successful
             // submit focuses the editor and places its own post-insert caret first.
-            if (document.activeElement !== context.editor.root) {
-              context.editor.root.focus();
-              context.editor.setSelectionRange(insertion);
+            if (document.activeElement !== context.view.root) {
+              context.view.focus();
+              context.selection.set(insertion);
             }
           },
         });
@@ -230,10 +230,13 @@ function attachmentPanel(
     const markdown = type === 'link'
       ? `[${text}](${destination})`
       : `![${text}](${destination})`;
-    context.editor.root.focus();
-    context.editor.replaceRange(insertion.start, insertion.end, markdown);
+    context.view.focus();
     const caret = insertion.start + markdown.length;
-    context.editor.setSelectionRange({ start: caret, end: caret });
+    context.document.transact({
+      edits: [{ ...insertion, text: markdown }],
+      selection: { start: caret, end: caret },
+      metadata: { label: 'Insert attachment', origin: context.name },
+    });
     options.onInsert?.(type, destination);
     context.dismissPresentation('composer');
   });

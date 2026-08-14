@@ -140,7 +140,7 @@ const plugins = useMemo(() => [commentsPlugin], []);
 Plugins retain the full framework-free presentation surface. A plugin may show a
 selection-anchored autocomplete menu or viewport modal and register keyboard commands;
 those views live outside React's editor subtree and are removed automatically with the
-plugin. The ready-made `@mde/web/extensions/composer` plugin is used unchanged by the
+plugin. The ready-made `@mde/plugins/composer` plugin is used unchanged by the
 React example.
 
 ### History

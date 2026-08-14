@@ -56,10 +56,10 @@ session.switchTo('today');
 ```
 
 React is deliberately not a dependency or bundled entry point. Use `@mde/react` for the
-React adapter. Optional extensions are separate imports:
+React adapter. Ready-made features live in the optional `@mde/plugins` package:
 
 ```ts
-import { TypewriterMode } from '@mde/web/extensions/typewriter';
+import { TypewriterMode } from '@mde/plugins/typewriter';
 ```
 
 ## Plugins
@@ -131,8 +131,8 @@ Command-O image/video/link composer; the same plugin object works through `@mde/
 import {
   attachmentComposer,
   mentionAutocomplete,
-} from '@mde/web/extensions/composer';
-import '@mde/web/extensions.css';
+} from '@mde/plugins/composer';
+import '@mde/plugins/extensions.css';
 
 editor.installPlugin(mentionAutocomplete({
   candidates: [{ handle: 'gabe', label: 'Gabriel' }],
@@ -143,10 +143,10 @@ editor.installPlugin(attachmentComposer());
 For richer editor UI, import the optional extension entry points:
 
 ```js
-import { suggestionPlugin } from '@mde/web/extensions/suggestions';
-import { tagAutocomplete, wikilinkAutocomplete, slashCommandMenu } from '@mde/web/extensions/composer';
-import { floatingSelectionToolbar, linkEditor, templatePicker, findAndReplace, imageAltEditor } from '@mde/web/extensions/productivity';
-import { journalAttachments } from '@mde/web/extensions/journal-attachments';
+import { suggestionPlugin } from '@mde/plugins/suggestions';
+import { tagAutocomplete, wikilinkAutocomplete, slashCommandMenu } from '@mde/plugins/composer';
+import { floatingSelectionToolbar, linkEditor, templatePicker, findAndReplace, imageAltEditor } from '@mde/plugins/productivity';
+import { journalAttachments } from '@mde/plugins/attachments';
 ```
 
 Commands are centrally discoverable with `editor.listCommands()` and executable by id with

@@ -27,6 +27,24 @@ import type {
   PluginPresentationOptions,
 } from './plugins.js';
 import type { PreparedDocument } from './preparation.js';
+import {
+  MDE_PLUGIN_API_VERSION,
+  assertPluginRequirements,
+} from '@mde/plugin-sdk';
+import type {
+  PluginCapabilityName,
+  PluginInputRule,
+  PluginStateStore,
+  PluginTransaction,
+  PluginTransactionResult,
+  PluginTransferHandler,
+  PluginTransferPayload,
+} from '@mde/plugin-sdk';
+
+const PLUGIN_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set([
+  'document', 'selection', 'semantics', 'state', 'commands', 'presentations',
+  'decorations', 'tasks', 'input-rules', 'transfers', 'resources',
+]);
 
 /**
  * Walk the document text, skipping presentation-only subtrees.
@@ -137,6 +155,17 @@ export class MarkdownEditor extends EventTarget {
     previousFocus: HTMLElement | null;
     position: () => void;
   }>;
+  private pluginInputRules: Map<string, { plugin: string; rule: PluginInputRule; order: number }>;
+  private pluginTransfers: Map<string, { plugin: string; handler: PluginTransferHandler; order: number }>;
+  private pluginRegistrationOrder: number;
+  private pluginState: Map<string, Map<string, unknown>>;
+  private pluginStateStore: PluginStateStore | null;
+  private baseResourceResolver: ResourceResolver | null;
+  private pluginResources: Map<string, {
+    plugin: string;
+    contribution: import('./plugins.js').PluginResourceContribution;
+    order: number;
+  }>;
   private resourcePriorityFrame: number | null;
   private virtualizationFrame: number | null;
   private virtualizesDocument: boolean;
@@ -152,12 +181,17 @@ export class MarkdownEditor extends EventTarget {
    * @param {HTMLElement} host
    * @param {import('./core.js').Engine} engine
    * @param {{widgetProvider?: import('./widgets.js').WidgetProvider,
-   *          resourceResolver?: import('./resources.js').ResourceResolver}} [options]
+   *          resourceResolver?: import('./resources.js').ResourceResolver,
+   *          pluginStateStore?: import('@mde/plugin-sdk').PluginStateStore}} [options]
    */
   constructor(
     host: HTMLElement,
     engine: Engine,
-    options: { widgetProvider?: WidgetProvider; resourceResolver?: ResourceResolver } = {},
+    options: {
+      widgetProvider?: WidgetProvider;
+      resourceResolver?: ResourceResolver;
+      pluginStateStore?: PluginStateStore;
+    } = {},
   ) {
     super();
     this.engine = engine;
@@ -166,6 +200,7 @@ export class MarkdownEditor extends EventTarget {
     this.applier.resources = new ResourceCache(options.resourceResolver ?? null, (ref) =>
       this.repaintReferencing(ref)
     );
+    this.baseResourceResolver = options.resourceResolver ?? null;
 
     this.root = host;
     this.rootHadEditorClass = this.root.classList.contains('mde-editor');
@@ -224,6 +259,11 @@ export class MarkdownEditor extends EventTarget {
     // Before the browser gets to place a caret — see `onMouseDown`.
     this.root.addEventListener('mousedown', (e) => this.onMouseDown(e), listener);
     this.root.addEventListener('keydown', (e) => this.handlePluginKeyDown(e), listener);
+    this.root.addEventListener('paste', (e) => this.routeNativeTransfer('paste', e), listener);
+    this.root.addEventListener('drop', (e) => this.routeNativeTransfer('drop', e), listener);
+    this.root.addEventListener('dragover', (e) => {
+      if (this.pluginTransfers.size > 0 && e.dataTransfer) e.preventDefault();
+    }, listener);
     this.resourcePriorityFrame = null;
     this.virtualizationFrame = null;
     this.virtualizesDocument = false;
@@ -247,6 +287,12 @@ export class MarkdownEditor extends EventTarget {
     this.plugins = new Map();
     this.pluginCommands = new Map();
     this.pluginPresentations = new Map();
+    this.pluginInputRules = new Map();
+    this.pluginTransfers = new Map();
+    this.pluginRegistrationOrder = 0;
+    this.pluginState = new Map();
+    this.pluginStateStore = options.pluginStateStore ?? null;
+    this.pluginResources = new Map();
     this.destroyed = false;
   }
 
@@ -445,6 +491,7 @@ export class MarkdownEditor extends EventTarget {
     const name = plugin.name.trim();
     if (!name) throw new Error('A plugin name must not be empty');
     if (this.plugins.has(name)) throw new Error(`Plugin "${name}" is already installed`);
+    assertPluginRequirements(name, plugin.requires, PLUGIN_CAPABILITIES);
 
     const controller = new AbortController();
     const installed: InstalledPlugin = {
@@ -454,6 +501,10 @@ export class MarkdownEditor extends EventTarget {
       analyses: new Map(),
       commands: new Set(),
       presentations: new Set(),
+      inputRules: new Set(),
+      transfers: new Set(),
+      resources: new Set(),
+      legacyEditorAccessed: false,
       analysisSequence: 0,
     };
     const cancelAnalysis = (task: string) => {
@@ -476,8 +527,127 @@ export class MarkdownEditor extends EventTarget {
         },
       }));
     };
+    const editor = this;
+    const localState = this.pluginState.get(name) ?? new Map<string, unknown>();
+    this.pluginState.set(name, localState);
     const context: EditorPluginContext = {
-      editor: this,
+      get editor() {
+        installed.legacyEditorAccessed = true;
+        return editor;
+      },
+      apiVersion: MDE_PLUGIN_API_VERSION,
+      capabilities: PLUGIN_CAPABILITIES,
+      document: {
+        get markdown() { return editor.markdown; },
+        get length() { return editor.markdown.length; },
+        slice: (range) => this.text.slice(range.start, range.end),
+        transact: (transaction) => this.applyPluginTransaction(name, transaction),
+      },
+      selection: {
+        get range() { return editor.selectionRange(); },
+        set: (range) => {
+          if (range) this.setSelectionRange(range);
+          else document.getSelection()?.removeAllRanges();
+        },
+      },
+      semantics: {
+        query: (query = {}) => {
+          const roles = query.roles ? new Set(query.roles) : null;
+          const range = query.range;
+          return this.decorations.filter((decoration) => {
+            const role = this.engine.roleName(decoration.role);
+            if (!role || (roles && !roles.has(role))) return false;
+            if (query.at != null && !(decoration.start <= query.at && query.at <= decoration.end)) {
+              return false;
+            }
+            if (range) {
+              const intersects = decoration.start < range.end && decoration.end > range.start;
+              const contains = decoration.start <= range.start && decoration.end >= range.end;
+              if (query.intersects === false ? !contains : !intersects) return false;
+            }
+            return true;
+          }).map((decoration) => ({
+            start: decoration.start,
+            end: decoration.end,
+            role: this.engine.roleName(decoration.role)!,
+            payload: this.engine.payload(decoration.key),
+            source: this.text.slice(decoration.start, decoration.end),
+            layer: decoration.layer,
+          })).sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.start - b.start);
+        },
+        at: (position, roles) => context.semantics.query({ at: position, roles }),
+      },
+      state: {
+        get: <T>(key: string, fallback: T): T => localState.has(key)
+          ? localState.get(key) as T
+          : fallback,
+        load: async <T>(key: string, fallback: T): Promise<T> => {
+          if (localState.has(key)) return localState.get(key) as T;
+          const stored = await this.pluginStateStore?.read(name, key);
+          if (stored === undefined) return fallback;
+          localState.set(key, stored);
+          return stored as T;
+        },
+        set: async <T>(key: string, value: T) => {
+          localState.set(key, value);
+          await this.pluginStateStore?.write(name, key, value);
+        },
+        delete: async (key: string) => {
+          localState.delete(key);
+          await this.pluginStateStore?.delete(name, key);
+        },
+      },
+      inputRules: {
+        register: (local, rule) => this.registerPluginInputRule(name, local, rule, installed),
+      },
+      transfers: {
+        register: (local, handler) => this.registerPluginTransfer(name, local, handler, installed),
+        route: (payload) => this.routeTransfer(payload),
+      },
+      commands: {
+        register: (local, command) => {
+          if (controller.signal.aborted) throw new Error(`Plugin "${name}" is no longer active`);
+          const canonical = local.trim();
+          if (!canonical) throw new Error(`Plugin "${name}" used an empty command name`);
+          const qualified = pluginLayerName(name, `command:${canonical}`);
+          installed.commands.add(qualified);
+          return this.registerPluginCommand(qualified, name, canonical, command, () => {
+            installed.commands.delete(qualified);
+          });
+        },
+        list: () => this.listCommands(),
+        execute: (id, event) => this.executeCommand(id, event),
+      },
+      view: {
+        root: this.root,
+        focus: () => this.root.focus(),
+        getActiveDescendant: () => this.root.getAttribute('aria-activedescendant'),
+        setActiveDescendant: (id) => {
+          if (id === null) this.root.removeAttribute('aria-activedescendant');
+          else this.root.setAttribute('aria-activedescendant', id);
+        },
+        reportError: (task, error) => this.dispatchEvent(new CustomEvent('pluginerror', {
+          cancelable: true, detail: { plugin: name, task, error },
+        })),
+      },
+      resources: {
+        register: (local, contribution) => {
+          const canonical = local.trim();
+          if (!canonical) throw new Error(`Plugin "${name}" used an empty resource name`);
+          const id = pluginLayerName(name, `resource:${canonical}`);
+          const registration = {
+            plugin: name, contribution, order: ++this.pluginRegistrationOrder,
+          };
+          this.pluginResources.set(id, registration);
+          installed.resources.add(id);
+          this.refreshPluginResourceResolver();
+          return { unregister: () => {
+            if (this.pluginResources.get(id) === registration) this.pluginResources.delete(id);
+            installed.resources.delete(id);
+            this.refreshPluginResourceResolver();
+          } };
+        },
+      },
       signal: controller.signal,
       name,
       internRole: (role) => controller.signal.aborted ? -1 : this.internRole(role),
@@ -493,16 +663,7 @@ export class MarkdownEditor extends EventTarget {
         installed.layers.delete(layer);
         this.clearLayer(layer);
       },
-      registerCommand: (local, command) => {
-        if (controller.signal.aborted) throw new Error(`Plugin "${name}" is no longer active`);
-        const canonical = local.trim();
-        if (!canonical) throw new Error(`Plugin "${name}" used an empty command name`);
-        const qualified = pluginLayerName(name, `command:${canonical}`);
-        installed.commands.add(qualified);
-        return this.registerPluginCommand(qualified, name, canonical, command, () => {
-          installed.commands.delete(qualified);
-        });
-      },
+      registerCommand: (local, command) => context.commands.register(local, command),
       showPresentation: (local, options) => {
         if (controller.signal.aborted) throw new Error(`Plugin "${name}" is no longer active`);
         const canonical = local.trim();
@@ -594,7 +755,6 @@ export class MarkdownEditor extends EventTarget {
         { signal: controller.signal },
       ),
     };
-
     // Reserve the name before setup, so a re-entrant install cannot create two owners.
     this.plugins.set(name, installed);
     try {
@@ -608,6 +768,10 @@ export class MarkdownEditor extends EventTarget {
       controller.abort();
       for (const task of [...installed.analyses.keys()]) cancelAnalysis(task);
       for (const command of installed.commands) this.unregisterPluginCommand(command);
+      for (const rule of installed.inputRules) this.pluginInputRules.delete(rule);
+      for (const transfer of installed.transfers) this.pluginTransfers.delete(transfer);
+      for (const resource of installed.resources) this.pluginResources.delete(resource);
+      this.refreshPluginResourceResolver();
       installed.commands.clear();
       for (const layer of installed.layers) this.clearLayer(layer);
       for (const presentation of installed.presentations) {
@@ -626,6 +790,13 @@ export class MarkdownEditor extends EventTarget {
     installed.controller.abort();
     for (const command of installed.commands) this.unregisterPluginCommand(command);
     installed.commands.clear();
+    for (const rule of installed.inputRules) this.pluginInputRules.delete(rule);
+    installed.inputRules.clear();
+    for (const transfer of installed.transfers) this.pluginTransfers.delete(transfer);
+    installed.transfers.clear();
+    for (const resource of installed.resources) this.pluginResources.delete(resource);
+    installed.resources.clear();
+    this.refreshPluginResourceResolver();
     for (const task of [...installed.analyses.keys()]) {
       const run = installed.analyses.get(task);
       installed.analyses.delete(task);
@@ -653,6 +824,172 @@ export class MarkdownEditor extends EventTarget {
   /** Installed plugin names, in installation order. */
   get installedPlugins(): string[] {
     return [...this.plugins.keys()];
+  }
+
+  /** Compatibility diagnostics for hosts preparing to enforce capability-only plugins. */
+  get pluginCompatibility(): Array<{ name: string; usedLegacyEditor: boolean }> {
+    return [...this.plugins.entries()].map(([name, plugin]) => ({
+      name,
+      usedLegacyEditor: plugin.legacyEditorAccessed,
+    }));
+  }
+
+  private applyPluginTransaction(
+    plugin: string,
+    transaction: PluginTransaction,
+  ): PluginTransactionResult {
+    const edits = [...transaction.edits].sort((a, b) => a.start - b.start || a.end - b.end);
+    let previousEnd = -1;
+    for (const edit of edits) {
+      if (!Number.isSafeInteger(edit.start) || !Number.isSafeInteger(edit.end)
+        || edit.start < 0 || edit.end < edit.start || edit.end > this.text.length) {
+        throw new RangeError(`Plugin "${plugin}" supplied invalid edit ${edit.start}..${edit.end}`);
+      }
+      if (splitsSurrogatePair(this.text, edit.start) || splitsSurrogatePair(this.text, edit.end)) {
+        throw new RangeError(`Plugin "${plugin}" supplied an edit that splits Unicode`);
+      }
+      if (edit.start < previousEnd) {
+        throw new RangeError(`Plugin "${plugin}" supplied overlapping transaction edits`);
+      }
+      previousEnd = edit.end;
+    }
+    const before = this.text;
+    let after = before;
+    for (const edit of edits.reverse()) {
+      after = after.slice(0, edit.start) + edit.text + after.slice(edit.end);
+    }
+    if (transaction.selection && (
+      !Number.isSafeInteger(transaction.selection.start)
+      || !Number.isSafeInteger(transaction.selection.end)
+      || transaction.selection.start < 0
+      || transaction.selection.end < transaction.selection.start
+      || transaction.selection.end > after.length
+    )) throw new RangeError(`Plugin "${plugin}" supplied an invalid final selection`);
+    const change = diffText(before, after);
+    const changed = change.start === change.end && change.text.length === 0
+      ? null
+      : { start: change.start, end: change.start + change.text.length };
+    if (changed) {
+      this.closeUndoGroup();
+      this.replaceRange(change.start, change.end, change.text);
+      this.closeUndoGroup();
+    }
+    if (transaction.selection) this.setSelectionRange(transaction.selection);
+    const result: PluginTransactionResult = {
+      beforeLength: before.length,
+      afterLength: after.length,
+      changedRange: changed,
+    };
+    this.dispatchEvent(new CustomEvent('plugintransaction', {
+      detail: { plugin, transaction, result },
+    }));
+    return result;
+  }
+
+  private registerPluginInputRule(
+    plugin: string,
+    local: string,
+    rule: PluginInputRule,
+    installed: InstalledPlugin,
+  ) {
+    const canonical = local.trim();
+    if (!canonical) throw new Error(`Plugin "${plugin}" used an empty input rule name`);
+    const id = pluginLayerName(plugin, `input-rule:${canonical}`);
+    const registration = { plugin, rule, order: ++this.pluginRegistrationOrder };
+    this.pluginInputRules.set(id, registration);
+    installed.inputRules.add(id);
+    return { unregister: () => {
+      if (this.pluginInputRules.get(id) === registration) this.pluginInputRules.delete(id);
+      installed.inputRules.delete(id);
+    } };
+  }
+
+  private registerPluginTransfer<T>(
+    plugin: string,
+    local: string,
+    handler: PluginTransferHandler<T>,
+    installed: InstalledPlugin,
+  ) {
+    const canonical = local.trim();
+    if (!canonical) throw new Error(`Plugin "${plugin}" used an empty transfer name`);
+    const id = pluginLayerName(plugin, `transfer:${canonical}`);
+    const registration = {
+      plugin,
+      handler: handler as PluginTransferHandler,
+      order: ++this.pluginRegistrationOrder,
+    };
+    this.pluginTransfers.set(id, registration);
+    installed.transfers.add(id);
+    return { unregister: () => {
+      if (this.pluginTransfers.get(id) === registration) this.pluginTransfers.delete(id);
+      installed.transfers.delete(id);
+    } };
+  }
+
+  /** Route a host, paste, or drop payload through the first accepting plugin. */
+  async routeTransfer(payload: PluginTransferPayload): Promise<boolean> {
+    const candidates = [...this.pluginTransfers.values()].sort((a, b) =>
+      (b.handler.priority ?? 0) - (a.handler.priority ?? 0) || a.order - b.order
+    );
+    for (const candidate of candidates) {
+      if (!candidate.handler.accepts(payload)) continue;
+      if (await candidate.handler.handle(payload)) return true;
+    }
+    return false;
+  }
+
+  private routeNativeTransfer(kind: 'paste' | 'drop', event: ClipboardEvent | DragEvent): void {
+    const transfer = kind === 'paste'
+      ? (event as ClipboardEvent).clipboardData
+      : (event as DragEvent).dataTransfer;
+    if (!transfer) return;
+    const payload: PluginTransferPayload = {
+      kind,
+      value: {
+        dataTransfer: transfer,
+        files: [...transfer.files],
+        text: transfer.getData('text/plain'),
+      },
+      nativeEvent: event,
+    };
+    const accepted = [...this.pluginTransfers.values()].some(({ handler }) => handler.accepts(payload));
+    if (!accepted) return;
+    event.preventDefault();
+    void this.routeTransfer(payload).catch((error) => {
+      this.dispatchEvent(new CustomEvent('pluginerror', {
+        detail: { plugin: 'transfer-router', task: kind, error },
+      }));
+    });
+  }
+
+  private refreshPluginResourceResolver(): void {
+    const cache = this.applier.resources;
+    if (!cache) return;
+    const editor = this;
+    const choose = (request: import('./resources.js').ResourceRequest): ResourceResolver | null => {
+      const match = [...editor.pluginResources.values()].sort((a, b) =>
+        (b.contribution.priority ?? 0) - (a.contribution.priority ?? 0) || a.order - b.order
+      ).find(({ contribution }) => contribution.accepts?.(request) ?? true);
+      return match?.contribution.resolver ?? editor.baseResourceResolver;
+    };
+    cache.reset();
+    cache.resolver = this.pluginResources.size === 0
+      ? this.baseResourceResolver
+      : {
+          resolve(request) {
+            const resolver = choose(request);
+            return resolver
+              ? resolver.resolve(request)
+              : Promise.resolve({ state: 'failed' as const, message: 'no resolver' });
+          },
+          reservedSize(request) {
+            return choose(request)?.reservedSize(request) ?? { width: 320, height: 180 };
+          },
+          estimatedMemoryCostBytes(request) {
+            return choose(request)?.estimatedMemoryCostBytes?.(request) ?? 0;
+          },
+        };
+    if (this.text) this.renderAll(true);
   }
 
   /** Discover every plugin command in deterministic registration order. */
@@ -1100,6 +1437,24 @@ export class MarkdownEditor extends EventTarget {
    * @param {InputEvent} e
    */
   onBeforeInput(e) {
+    const ruleSelection = this.selectionRange();
+    const request = {
+      inputType: e.inputType,
+      data: e.data,
+      selection: ruleSelection,
+      markdown: this.text,
+    };
+    const rules = [...this.pluginInputRules.values()].sort((a, b) =>
+      (b.rule.priority ?? 0) - (a.rule.priority ?? 0) || a.order - b.order
+    );
+    for (const registration of rules) {
+      if (!registration.rule.match(request)) continue;
+      const transaction = registration.rule.apply(request);
+      if (!transaction) continue;
+      e.preventDefault();
+      this.applyPluginTransaction(registration.plugin, transaction);
+      return;
+    }
     let text = null;
     let selection = null;
     switch (e.inputType) {

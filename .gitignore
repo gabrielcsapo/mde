@@ -28,6 +28,8 @@ DerivedData/
 **/node_modules/
 /site/dist/
 /web/dist/
+/web/plugin-sdk/dist/
+/web/plugins/dist/
 /web/react/dist/
 /web/react/example/dist/
 /web/examples/*/dist/

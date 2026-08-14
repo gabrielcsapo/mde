@@ -15,6 +15,7 @@ for the costs most likely to regress:
   320-resource journal in the iPhone simulator;
 - end-to-end AppKit keystroke latency at 100 KB and 1 MB;
 - end-to-end AppKit one-span plugin-layer latency at 1 MB;
+- install and steady-state edit latency with 0, 1, 10, and 50 plugins on web and AppKit;
 - 1 MB AppKit cold load, viewport paint, and combined load-through-first-paint latency;
 - a 100×10 native table projection;
 - AppKit positional and sustained edit p95;
