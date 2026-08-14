@@ -129,6 +129,7 @@ final class WidgetAttachment: NSTextAttachment {
         }
         guard let request, let resources else { return PlatformView() }
         switch resources.state(for: request) {
+        case .preview(let view): return view
         case .ready(let view): return view
         case .loading: return ResourcePlaceholderView(text: shortName(payload ?? ""), failed: false)
         case .failed(let message): return ResourcePlaceholderView(text: message, failed: true)

@@ -45,6 +45,11 @@ It creates and decodes a 4K JPEG in Chromium, simulates a fast viewport jump wit
 delayed media, fills the persistent preview cache, and exercises nearby resize
 requests. Its report is written to `target/performance/web-media-metrics.json`.
 
+The native `MacMediaRendererBenchmarks` process additionally covers real image
+downsampling, viewport cancellation, and cold/warm video-poster and audio-waveform
+generation. These tests use real files while the 320-resource renderer benchmark keeps
+projection and editing costs deterministic.
+
 Run the opt-in 5 MB Rust, browser, AppKit, iOS Swift/core bridge, and repeated lifecycle
 profiles with:
 

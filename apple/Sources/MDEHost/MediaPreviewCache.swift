@@ -11,14 +11,20 @@ enum MediaPreviewKind: String { case videoPoster, audioWaveform }
 /// journal does not reopen every media decoder merely to draw its timeline.
 final class MediaPreviewCache {
     private let directory: URL
+    private let maximumBytes: Int64
     private let lock = NSLock()
+    private struct Entry { let bytes: Int64; var lastAccess: Date }
+    private var inventoryLoaded = false
+    private var entries = [URL: Entry]()
+    private var storedBytes: Int64 = 0
     private(set) var hits = 0
     private(set) var generations = 0
 
-    init(directory: URL? = nil) {
+    init(directory: URL? = nil, maximumBytes: Int64 = 128 * 1024 * 1024) {
         self.directory = directory ?? FileManager.default.urls(
             for: .cachesDirectory, in: .userDomainMask
         )[0].appendingPathComponent("MDEMediaPreviews", isDirectory: true)
+        self.maximumBytes = max(1, maximumBytes)
         try? FileManager.default.createDirectory(
             at: self.directory, withIntermediateDirectories: true
         )
@@ -32,12 +38,14 @@ final class MediaPreviewCache {
     ) -> CGImage? {
         let target = fileURL(for: source, kind: kind, maximumPixels: maximumPixels)
         if let image = Self.read(target) {
+            touch(target)
             lock.withLock { hits += 1 }
             return image
         }
         guard let image = generate() else { return nil }
         lock.withLock { generations += 1 }
         Self.write(image, to: target)
+        recordAndTrim(target)
         return image
     }
 
@@ -81,6 +89,57 @@ final class MediaPreviewCache {
         ) else { return }
         CGImageDestinationAddImage(destination, image, nil)
         _ = CGImageDestinationFinalize(destination)
+    }
+
+    private func loadInventoryLocked() {
+        guard !inventoryLoaded else { return }
+        inventoryLoaded = true
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for url in files {
+            guard let values = try? url.resourceValues(forKeys: keys) else { continue }
+            let entry = Entry(
+                bytes: Int64(values.fileSize ?? 0),
+                lastAccess: values.contentModificationDate ?? .distantPast
+            )
+            entries[url] = entry
+            storedBytes += entry.bytes
+        }
+    }
+
+    private func touch(_ url: URL) {
+        let now = Date()
+        try? FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: url.path)
+        lock.withLock {
+            loadInventoryLocked()
+            if var entry = entries[url] {
+                entry.lastAccess = now
+                entries[url] = entry
+            }
+        }
+    }
+
+    private func recordAndTrim(_ url: URL) {
+        let removals: [URL] = lock.withLock {
+            loadInventoryLocked()
+            if let previous = entries[url] { storedBytes -= previous.bytes }
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+            let entry = Entry(bytes: Int64(values?.fileSize ?? 0), lastAccess: Date())
+            entries[url] = entry
+            storedBytes += entry.bytes
+            var removed = [URL]()
+            while storedBytes > maximumBytes,
+                  let oldest = entries.min(by: { $0.value.lastAccess < $1.value.lastAccess }) {
+                entries.removeValue(forKey: oldest.key)
+                storedBytes -= oldest.value.bytes
+                removed.append(oldest.key)
+            }
+            return removed
+        }
+        removals.forEach { try? FileManager.default.removeItem(at: $0) }
     }
 }
 

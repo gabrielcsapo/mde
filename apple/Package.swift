@@ -20,6 +20,10 @@ let package = Package(
         .testTarget(name: "MDECoreTests", dependencies: ["MDECore"]),
         // Drives the real AppKit NSTextView and asserts on what it renders — the
         // macOS half of verifying the renderer, without needing a screenshot.
-        .testTarget(name: "MDEditorUITests", dependencies: ["MDEditorUI", "MDEHost"]),
+        .testTarget(
+            name: "MDEditorUITests",
+            dependencies: ["MDEditorUI", "MDEHost"],
+            resources: [.copy("Fixtures")]
+        ),
     ]
 )

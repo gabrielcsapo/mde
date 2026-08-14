@@ -39,6 +39,7 @@ MDE_DEVICE="$DEVICE" "$ROOT/scripts/build-ios-app.sh" >/dev/null
 xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" >/dev/null 2>&1 || true
 CONTAINER=$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)
 RESULT="$CONTAINER/Documents/mde-performance-tests.json"
+REGULAR_RESULT="$CONTAINER/Documents/mde-performance-regular.json"
 rm -f "$RESULT"
 xcrun simctl launch "$DEVICE" "$BUNDLE_ID" --mde-performance-tests >/dev/null
 
@@ -52,11 +53,28 @@ if [ ! -s "$RESULT" ]; then
     echo "UIKit performance tests: app produced no result" >&2
     exit 1
 fi
+cp "$RESULT" "$REGULAR_RESULT"
+rm -f "$RESULT"
+xcrun simctl launch "$DEVICE" "$BUNDLE_ID" --mde-performance-real-media >/dev/null
+for _ in $(seq 1 240); do
+    [ -s "$RESULT" ] && break
+    /bin/sleep 0.5
+done
+xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" >/dev/null 2>&1 || true
+if [ ! -s "$RESULT" ]; then
+    echo "UIKit real-media performance tests: app produced no result" >&2
+    exit 1
+fi
 
-python3 - "$RESULT" <<'PY'
+python3 - "$REGULAR_RESULT" "$RESULT" <<'PY'
 import json, os, sys
 with open(sys.argv[1]) as f:
     result = json.load(f)
+with open(sys.argv[2]) as f:
+    media_result = json.load(f)
+result["checks"].update(media_result.get("checks", {}))
+result["metrics"].update(media_result.get("metrics", {}))
+result["ok"] = result.get("ok", False) and media_result.get("ok", False)
 failed = [name for name, passed in result.get("checks", {}).items() if not passed]
 metrics = result.get("metrics", {})
 budgets = {
@@ -76,6 +94,8 @@ budgets = {
     "mediaEditMs": float(os.environ["MDE_IOS_MEDIA_JOURNAL_EDIT_BUDGET_MS"]),
     "mediaScrollMs": float(os.environ["MDE_IOS_MEDIA_JOURNAL_SCROLL_BUDGET_MS"]),
     "backgroundTransitionMs": float(os.environ["MDE_IOS_BACKGROUND_TRANSITION_BUDGET_MS"]),
+    "realMediaFirstPreviewMs": float(os.environ["MDE_IOS_REAL_MEDIA_FIRST_PREVIEW_BUDGET_MS"]),
+    "realMediaAllFinalMs": float(os.environ["MDE_IOS_REAL_MEDIA_ALL_FINAL_BUDGET_MS"]),
 }
 over = [f"{name} {metrics.get(name, float('inf')):.2f}>{budget:.2f}ms"
         for name, budget in budgets.items() if metrics.get(name, float('inf')) > budget]
@@ -97,4 +117,9 @@ print("UIKit media journal: "
       f"scroll {metrics['mediaScrollMs']:.2f} ms, "
       f"background {metrics['backgroundTransitionMs']:.2f} ms, "
       f"views {int(metrics['mediaViewCount'])}")
+print("UIKit real media: "
+      f"first preview {metrics['realMediaFirstPreviewMs']:.2f} ms, "
+      f"first final {metrics['realMediaFirstFinalMs']:.2f} ms, "
+      f"12 final images {metrics['realMediaAllFinalMs']:.2f} ms, "
+      f"fixture {metrics['realMediaFixtureBytes'] / 1024:.0f} KiB")
 PY

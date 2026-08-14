@@ -56,5 +56,17 @@ fi
         MDE_BENCH=1 MDE_BENCH_ENFORCE=1 swift test -c release \
             --filter "MacRendererBenchmarks/$benchmark"
     done
-    MDE_BENCH=1 MDE_BENCH_ENFORCE=1 swift test -c release --filter MacMediaRendererBenchmarks
+    # AVFoundation preview generation can terminate a shared XCTest process after a
+    # full AppKit layout has torn down. Keep each media metric in a fresh process, just
+    # like the large-document gates above, so allocator/decoder lifetime cannot make
+    # test order part of the benchmark.
+    for benchmark in \
+        testBenchmarkMediaJournalProjection \
+        testBenchmarkRealImagePipeline \
+        testBenchmarkVideoPosterAndAudioWaveform \
+        testBenchmarkViewportMediaCancellation
+    do
+        MDE_BENCH=1 MDE_BENCH_ENFORCE=1 swift test -c release \
+            --filter "MacMediaRendererBenchmarks/$benchmark"
+    done
 ) 2>&1 | tee "$ROOT/target/performance/apple.txt"

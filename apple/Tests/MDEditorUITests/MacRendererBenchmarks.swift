@@ -919,6 +919,129 @@ final class MacMediaRendererBenchmarks: XCTestCase {
         return (window, editor)
     }
 
+    func testBenchmarkRealImagePipeline() throws {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
+            throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("site/assets/capture-core-ios.png")
+        let sourceImage = try Data(contentsOf: fixture)
+        for index in 0 ..< 24 {
+            try sourceImage.write(to: root.appendingPathComponent("photo-\(index).jpg"))
+        }
+
+        let resolver = DiskResourceResolver(root: root, maxConcurrentLoads: 4)
+        let lock = NSLock()
+        let delivered = DispatchGroup()
+        var firstDelivery: Double?
+        let start = DispatchTime.now().uptimeNanoseconds
+        for index in 0 ..< 24 {
+            delivered.enter()
+            let request = ResourceRequest(
+                reference: "photo-\(index).jpg", roleName: "image", source: "",
+                fittingWidth: 640
+            )
+            _ = resolver.resolve(request) { _ in
+                lock.lock()
+                if firstDelivery == nil {
+                    firstDelivery = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+                }
+                lock.unlock()
+                delivered.leave()
+            }
+        }
+        while delivered.wait(timeout: .now()) == .timedOut {
+            _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        let all = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+
+        print(String(
+            format: "real native media first %8.2f all24 %8.2f ms jpeg %d bytes",
+            firstDelivery ?? -1, all, sourceImage.count
+        ))
+    }
+
+    func testBenchmarkViewportMediaCancellation() throws {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
+            throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
+        }
+        let cache = ResourceCache()
+        cache.maxConcurrent = 6
+        let resolver = DelayedViewportResolver(delay: 0.045)
+        cache.resolver = resolver
+        for index in 0 ..< 48 {
+            _ = cache.state(for: ResourceRequest(
+                reference: "photo-\(index).jpg", roleName: "image", source: "",
+                fittingWidth: 640
+            ))
+        }
+        let wanted = Set((42 ..< 48).map { "photo-\($0).jpg" })
+        let start = DispatchTime.now().uptimeNanoseconds
+        cache.prioritize(wanted)
+        while !wanted.isSubset(of: resolver.completed) {
+            _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        let stale = resolver.completed.subtracting(wanted).count
+        print(String(
+            format: "native stale-scroll ready %8.2f ms stale %d cancelled %d",
+            elapsed, stale, resolver.cancelled.count
+        ))
+        cache.reset()
+    }
+
+    func testBenchmarkVideoPosterAndAudioWaveform() throws {
+        guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
+            throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = root.appendingPathComponent("previews", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let video = repository.appendingPathComponent("site/assets/ios-demo.mp4")
+        try FileManager.default.copyItem(at: video, to: root.appendingPathComponent("clip.mp4"))
+        let audio = try XCTUnwrap(Bundle.module.url(
+            forResource: "voice", withExtension: "m4a", subdirectory: "Fixtures"
+        ))
+        try FileManager.default.copyItem(at: audio, to: root.appendingPathComponent("voice.m4a"))
+
+        let cold = DiskResourceResolver(
+            root: root, previewCacheDirectory: cache
+        )
+        func resolved(_ reference: String, with resolver: DiskResourceResolver) -> Double {
+            let start = DispatchTime.now().uptimeNanoseconds
+            var done = false
+            _ = resolver.resolve(ResourceRequest(
+                reference: reference, roleName: "image", source: "", fittingWidth: 640
+            )) { _ in done = true }
+            while !done {
+                _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+            }
+            return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        }
+        let coldVideo = resolved("clip.mp4", with: cold)
+        let coldAudio = resolved("voice.m4a", with: cold)
+        let warm = DiskResourceResolver(
+            root: root, previewCacheDirectory: cache
+        )
+        let warmVideo = resolved("clip.mp4", with: warm)
+        let warmAudio = resolved("voice.m4a", with: warm)
+        print(String(
+            format: "native previews cold video %8.2f audio %8.2f warm video %8.2f audio %8.2f ms",
+            coldVideo, coldAudio, warmVideo, warmAudio
+        ))
+    }
+
     func testBenchmarkMediaJournalProjection() throws {
         guard ProcessInfo.processInfo.environment["MDE_BENCH"] != nil else {
             throw XCTSkip("set MDE_BENCH=1 to run the renderer benchmarks")
@@ -1007,6 +1130,47 @@ final class MacMediaRendererBenchmarks: XCTestCase {
         append("Audio", count: 48, extension: "m4a")
         return "# Media journal\n\n" + entries.joined(separator: "\n\n")
             + "\n\nClosing reflection.\n"
+    }
+}
+
+private final class DelayedViewportResolver: CancellableResourceResolver {
+    let delay: TimeInterval
+    private let lock = NSLock()
+    private var work = [String: DispatchWorkItem]()
+    private var completedStorage = Set<String>()
+    private var cancelledStorage = Set<String>()
+
+    init(delay: TimeInterval) { self.delay = delay }
+
+    var completed: Set<String> { lock.withLock { completedStorage } }
+    var cancelled: Set<String> { lock.withLock { cancelledStorage } }
+
+    func resolve(
+        _ request: ResourceRequest,
+        deliver: @escaping (ResourceState) -> Void
+    ) -> ResourceState {
+        let reference = request.reference
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.lock.withLock {
+                self.completedStorage.insert(reference)
+                self.work.removeValue(forKey: reference)
+            }
+            DispatchQueue.main.async { deliver(.failed("expected")) }
+        }
+        lock.withLock { work[reference] = item }
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay, execute: item)
+        return .loading
+    }
+
+    func reservedSize(_: ResourceRequest) -> CGSize { CGSize(width: 640, height: 360) }
+
+    func cancel(_ references: Set<String>) {
+        let items = lock.withLock { () -> [DispatchWorkItem] in
+            cancelledStorage.formUnion(references)
+            return references.compactMap { work.removeValue(forKey: $0) }
+        }
+        items.forEach { $0.cancel() }
     }
 }
 

@@ -253,12 +253,12 @@ enum TableCellRenderer {
         // phone layout. Image-only cells use the larger TableImageCellView.
         let width: CGFloat = 40
         if let reference, let resources,
-           case .ready(let view) = resources.state(for: ResourceRequest(
+           case let state = resources.state(for: ResourceRequest(
             reference: reference,
             roleName: "image",
             source: source,
             fittingWidth: width
-           )), let image = view.snapshotImage() {
+           )), let view = state.resourceView, let image = view.snapshotImage() {
             attachment.image = image
             attachment.bounds = CGRect(x: 0, y: -3, width: width, height: width * 9 / 16)
         } else {
@@ -450,7 +450,7 @@ final class TableImageCellView: PlatformView {
             source: spec.source,
             fittingWidth: width
         )
-        if let resources, case .ready(let resolved) = resources.state(for: request),
+        if let resources, let resolved = resources.state(for: request).resourceView,
            let image = resolved.snapshotImage() {
             content = Self.imageView(image)
         } else {

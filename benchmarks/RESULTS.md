@@ -12,8 +12,27 @@ that left the viewport reduced delivery time for a fast jump from 96.4 ms to a r
 51–57 ms range and eliminated six stale completions. Incremental byte-bounded preview
 cache bookkeeping reduced a 128-entry cold fill from 87.1 ms to a repeated 33–63 ms
 range. Bucketing nearby requested sizes generated two reusable previews for 120 widths
-instead of 120 separate previews. The codec-owned eight-image 4K decode varied from
-177–270 ms and was not claimed as an editor improvement.
+instead of 120 separate previews. The shared resolver contract now also supports
+progressive publication and estimated in-flight byte admission; the real-media probe
+painted its first low-cost preview in 10.2 ms while remaining under the 48 MiB peak
+decode budget. The codec-owned eight-image 4K decode varied from 177–270 ms and was
+not claimed as an editor improvement.
+
+## Heavy-media Apple pipeline — 2026-08-13
+
+The native resolver now cancels decodes that leave the overscanned viewport, admits
+new work under an estimated 48 MiB peak-decode budget, publishes a 192-point progressive
+image before the final display-sized representation, and bounds persistent generated
+previews to 128 MiB. The rapid-jump workload improved from 94.8 ms with six stale
+completions to a repeated 46–47 ms with none. With a real 1206×2622 PNG, progressive
+delivery reduced first-preview time from 148.6 ms to a repeated 63–101 ms and all 24
+requested downsamples from 309.8 ms to 150–201 ms. In the UIKit simulator, an isolated
+12-image 2.7 MiB-per-image run painted its first preview in 383 ms versus 567 ms for the
+first final representation, with every final ready in 1.26 seconds. Separating that
+codec probe from the interaction suite kept the 320-item journal at 327 ms ready,
+28 ms edit, and 16 ms scroll. Real cold video-poster/audio-waveform work measured
+174/113 ms in the final run, while reopening from the persistent cache measured
+6.4/0.7 ms.
 
 | Workload | Before | After | Change |
 | --- | ---: | ---: | ---: |

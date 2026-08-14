@@ -827,7 +827,7 @@ final class MacRendererTests: XCTestCase {
         )
         _ = cache.size(for: real)
         XCTAssertEqual(resolver.requested, ["chart.png"])
-        XCTAssertEqual(resolver.widths, [370], "resolved against the real column width")
+        XCTAssertEqual(resolver.widths, [384], "resolved once against the real column width bucket")
     }
 
     /// Asking for a size is what layout does first, so it has to start the load too —
@@ -987,10 +987,10 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(editor.markdown, source)
     }
 
-    func testResourceSchedulerIsBoundedAndDrainsPromotedWorkFirst() {
+    func testResourceSchedulerCancelsStaleWorkAndStartsPromotedViewportFirst() {
         let cache = ResourceCache()
         cache.maxConcurrent = 2
-        let resolver = OrderedDeferredResolver()
+        let resolver = CancellableOrderedDeferredResolver()
         cache.resolver = resolver
         for index in 0 ..< 5 {
             _ = cache.state(for: ResourceRequest(
@@ -1001,12 +1001,16 @@ final class MacRendererTests: XCTestCase {
             ))
         }
         cache.prioritize(["asset-4.jpg"])
-        XCTAssertEqual(resolver.requested, ["asset-0.jpg", "asset-1.jpg"])
+        XCTAssertEqual(resolver.cancelled, ["asset-0.jpg", "asset-1.jpg"])
+        XCTAssertEqual(resolver.requested, ["asset-0.jpg", "asset-1.jpg", "asset-4.jpg", "asset-2.jpg"])
         XCTAssertEqual(cache.peakConcurrent, 2)
 
-        resolver.finish("asset-0.jpg")
-        XCTAssertEqual(resolver.requested, ["asset-0.jpg", "asset-1.jpg", "asset-4.jpg"])
-        for reference in ["asset-1.jpg", "asset-4.jpg", "asset-2.jpg", "asset-3.jpg"] {
+        resolver.finish("asset-4.jpg")
+        XCTAssertEqual(
+            resolver.requested,
+            ["asset-0.jpg", "asset-1.jpg", "asset-4.jpg", "asset-2.jpg", "asset-3.jpg"]
+        )
+        for reference in ["asset-2.jpg", "asset-3.jpg"] {
             resolver.finish(reference)
         }
         XCTAssertEqual(resolver.requested.count, 5)
@@ -1037,6 +1041,25 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(cache.readyViewCount, 12)
     }
 
+    func testNativeResourcesUpgradeOnlyWhenCrossingARepresentationBucket() {
+        let cache = ResourceCache()
+        let resolver = WidthResolvingResolver()
+        cache.resolver = resolver
+        func request(_ width: CGFloat) {
+            _ = cache.state(for: ResourceRequest(
+                reference: "photo.jpg", roleName: "image", source: "",
+                fittingWidth: width
+            ))
+        }
+        request(601)
+        request(620)
+        request(640)
+        XCTAssertEqual(resolver.widths, [640])
+        request(641)
+        request(700)
+        XCTAssertEqual(resolver.widths, [640, 704])
+    }
+
     func testDecodedPixelMemoryEvictsOffscreenViewsBeforeCrossingTheBudget() {
         let cache = ResourceCache()
         cache.maxReadyViews = 100
@@ -1057,6 +1080,39 @@ final class MacRendererTests: XCTestCase {
         XCTAssertLessThanOrEqual(cache.readyViewMemoryBytes, 3 * 1024 * 1024)
         XCTAssertEqual(resolver.requests.filter { $0 == "visible.jpg" }.count, 1)
         XCTAssertEqual(cache.known.count, 4)
+    }
+
+    func testEstimatedDecodeMemoryBoundsConcurrentNativeWork() {
+        let cache = ResourceCache()
+        cache.maxConcurrent = 6
+        cache.maxInFlightMemoryBytes = 9 * 1024 * 1024
+        let resolver = CostedDeferredResolver(bytesPerRequest: 4 * 1024 * 1024)
+        cache.resolver = resolver
+        for index in 0 ..< 6 {
+            _ = cache.state(for: ResourceRequest(
+                reference: "large-\(index).jpg", roleName: "image", source: "",
+                fittingWidth: 640
+            ))
+        }
+        XCTAssertEqual(resolver.requested.count, 2)
+        XCTAssertEqual(cache.peakInFlightMemoryBytes, 8 * 1024 * 1024)
+        resolver.finish("large-0.jpg")
+        XCTAssertEqual(resolver.requested.count, 3)
+        XCTAssertLessThanOrEqual(cache.peakInFlightMemoryBytes, 9 * 1024 * 1024)
+    }
+
+    func testNativeResourceDisposalRunsWhenReadyViewIsEvicted() {
+        let disposed = DisposalCounter()
+        let cache = ResourceCache()
+        cache.maxReadyViews = 1
+        cache.resolver = DisposingResolver(counter: disposed)
+        for index in 0 ..< 2 {
+            _ = cache.state(for: ResourceRequest(
+                reference: "clip-\(index).mov", roleName: "image", source: "",
+                fittingWidth: 320
+            ))
+        }
+        XCTAssertEqual(disposed.count, 1)
     }
 
     func testResourceReferenceIndexFollowsAnEditedDestination() throws {
@@ -1125,8 +1181,25 @@ final class MacRendererTests: XCTestCase {
 
         let image = try XCTUnwrap(view)
         let displayScale = NSScreen.main?.backingScaleFactor ?? 2
-        XCTAssertLessThanOrEqual(image.decodedPixelSize.width, ceil(100 * displayScale))
-        XCTAssertLessThanOrEqual(image.intrinsicContentSize.width, 100)
+        XCTAssertLessThanOrEqual(image.decodedPixelSize.width, ceil(128 * displayScale))
+        XCTAssertLessThanOrEqual(image.intrinsicContentSize.width, 128)
+    }
+
+    func testDiskImagesPublishAProgressivePreviewBeforeTheFinalView() throws {
+        let resolver = DiskResourceResolver(root: SampleAssets.install())
+        let request = ResourceRequest(
+            reference: "photo.png", roleName: "image", source: "![photo](photo.png)",
+            fittingWidth: 640
+        )
+        let terminal = expectation(description: "final image delivered")
+        var states = [ResourceState]()
+        _ = resolver.resolve(request) { state in
+            states.append(state)
+            if case .ready = state { terminal.fulfill() }
+        }
+        wait(for: [terminal], timeout: 2)
+        XCTAssertTrue(states.contains { if case .preview = $0 { return true }; return false })
+        XCTAssertTrue(states.contains { if case .ready = $0 { return true }; return false })
     }
 
     func testDiskVideoPosterIsPersistedAndReusedWithoutReopeningTheDecoder() throws {
@@ -1179,6 +1252,32 @@ final class MacRendererTests: XCTestCase {
 
         XCTAssertTrue(try resolve(request, with: resolver) is ImageResourceView)
         XCTAssertEqual(generator.audioCalls, 1)
+    }
+
+    func testNativePreviewCacheIsBoundedByEncodedBytes() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cacheDirectory = root.appendingPathComponent("previews", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = MediaPreviewCache(directory: cacheDirectory, maximumBytes: 2_000)
+        let image = try XCTUnwrap(StubMediaPreviewGenerator().videoPoster(
+            url: root, maximumPixels: 96
+        ))
+        for index in 0 ..< 12 {
+            let source = root.appendingPathComponent("clip-\(index).mov")
+            try Data(repeating: UInt8(index), count: 16).write(to: source)
+            XCTAssertNotNil(cache.preview(
+                for: source, kind: .videoPoster, maximumPixels: 96,
+                generate: { image }
+            ))
+        }
+        let bytes = try FileManager.default.contentsOfDirectory(
+            at: cacheDirectory, includingPropertiesForKeys: [.fileSizeKey]
+        ).reduce(Int64(0)) { total, url in
+            total + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        XCTAssertLessThanOrEqual(bytes, 2_000)
     }
 
     private func resolve(
@@ -1930,8 +2029,9 @@ private final class CancellableDeferredResolver: CancellableResourceResolver {
     }
 }
 
-private final class OrderedDeferredResolver: ResourceResolver {
+private final class CancellableOrderedDeferredResolver: CancellableResourceResolver {
     private(set) var requested = [String]()
+    private(set) var cancelled = Set<String>()
     private var deliveries = [String: (ResourceState) -> Void]()
 
     func resolve(
@@ -1945,9 +2045,70 @@ private final class OrderedDeferredResolver: ResourceResolver {
 
     func reservedSize(_: ResourceRequest) -> CGSize { CGSize(width: 160, height: 90) }
 
+    func cancel(_ references: Set<String>) {
+        cancelled.formUnion(references)
+        for reference in references { deliveries.removeValue(forKey: reference) }
+    }
+
     func finish(_ reference: String) {
         deliveries.removeValue(forKey: reference)?(.failed("expected"))
     }
+}
+
+private final class CostedDeferredResolver: ResourceDecodeCostEstimating {
+    let bytesPerRequest: Int
+    private(set) var requested = [String]()
+    private var deliveries = [String: (ResourceState) -> Void]()
+
+    init(bytesPerRequest: Int) { self.bytesPerRequest = bytesPerRequest }
+    func estimatedDecodeMemoryBytes(_: ResourceRequest) -> Int { bytesPerRequest }
+    func reservedSize(_: ResourceRequest) -> CGSize { CGSize(width: 320, height: 180) }
+    func resolve(
+        _ request: ResourceRequest, deliver: @escaping (ResourceState) -> Void
+    ) -> ResourceState {
+        requested.append(request.reference)
+        deliveries[request.reference] = deliver
+        return .loading
+    }
+    func finish(_ reference: String) {
+        deliveries.removeValue(forKey: reference)?(.failed("expected"))
+    }
+}
+
+private final class WidthResolvingResolver: ResourceResolver {
+    private(set) var widths = [CGFloat]()
+    func reservedSize(_ request: ResourceRequest) -> CGSize {
+        CGSize(width: request.fittingWidth, height: request.fittingWidth * 9 / 16)
+    }
+    func resolve(
+        _ request: ResourceRequest, deliver _: @escaping (ResourceState) -> Void
+    ) -> ResourceState {
+        widths.append(request.fittingWidth)
+        return .ready(FixedSizeView(size: reservedSize(request)))
+    }
+}
+
+private final class DisposalCounter { var count = 0 }
+
+private final class DisposableView: NSView, ResourceDisposing {
+    let counter: DisposalCounter
+    init(counter: DisposalCounter) {
+        self.counter = counter
+        super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
+    override var intrinsicContentSize: CGSize { CGSize(width: 320, height: 180) }
+    func disposeResource() { counter.count += 1 }
+}
+
+private final class DisposingResolver: ResourceResolver {
+    let counter: DisposalCounter
+    init(counter: DisposalCounter) { self.counter = counter }
+    func reservedSize(_: ResourceRequest) -> CGSize { CGSize(width: 320, height: 180) }
+    func resolve(
+        _: ResourceRequest, deliver _: @escaping (ResourceState) -> Void
+    ) -> ResourceState { .ready(DisposableView(counter: counter)) }
 }
 
 /// Sizes itself by frame and `intrinsicContentSize`, with no constraints at all — the

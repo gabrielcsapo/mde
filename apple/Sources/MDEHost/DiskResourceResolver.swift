@@ -14,7 +14,7 @@ import UIKit
 /// `![a chart](chart.png)` — twenty-six characters — and the megabytes live wherever
 /// the host keeps them. The same shape works for a remote URL, a video, a
 /// content-addressed blob store, or a document previewer; only this class changes.
-public final class DiskResourceResolver: CancellableResourceResolver {
+public final class DiskResourceResolver: CancellableResourceResolver, ResourceDecodeCostEstimating {
     private let root: URL
     private let queue: OperationQueue
     private let previewCache: MediaPreviewCache
@@ -30,6 +30,20 @@ public final class DiskResourceResolver: CancellableResourceResolver {
         queue.name = "dev.mde.resources"
         queue.qualityOfService = .userInitiated
         queue.maxConcurrentOperationCount = max(1, maxConcurrentLoads)
+    }
+
+    /// Uses an explicit preview directory so a journal host can place generated
+    /// posters/waveforms beside its own cache policy and measure cold versus warm open.
+    public convenience init(
+        root: URL,
+        maxConcurrentLoads: Int = 4,
+        previewCacheDirectory: URL
+    ) {
+        self.init(
+            root: root, maxConcurrentLoads: maxConcurrentLoads,
+            previewCacheDirectory: previewCacheDirectory,
+            previewGenerator: MediaPreviewGenerator()
+        )
     }
 
     init(
@@ -52,7 +66,11 @@ public final class DiskResourceResolver: CancellableResourceResolver {
         deliver: @escaping (ResourceState) -> Void
     ) -> ResourceState {
         let url = root.appendingPathComponent(request.reference)
+        // Stable buckets prevent a continuously resized window from decoding the same
+        // source at every intermediate point width. Round upward so a cached preview
+        // is never smaller than the requested presentation.
         let width = request.fittingWidth
+        let decodeWidth = Self.bucketedWidth(width)
         #if os(macOS)
         let displayScale = NSScreen.main?.backingScaleFactor ?? 2
         #else
@@ -62,10 +80,21 @@ public final class DiskResourceResolver: CancellableResourceResolver {
         let operation = BlockOperation()
         operation.addExecutionBlock { [weak operation, weak self] in
             guard let self, operation?.isCancelled == false else { return }
+            if Self.isImage(request.reference), width > 256,
+               let preview = self.loadImage(
+                   url: url, decodeWidth: min(decodeWidth, 192), displayWidth: width,
+                   displayScale: displayScale, allowsUpscaling: true
+               ) {
+                DispatchQueue.main.async { [weak operation] in
+                    guard operation?.isCancelled == false else { return }
+                    deliver(.preview(preview))
+                }
+            }
             let state = self.load(
                 url: url,
                 reference: request.reference,
                 width: width,
+                decodeWidth: decodeWidth,
                 displayScale: displayScale
             )
             guard operation?.isCancelled == false else { return }
@@ -99,8 +128,27 @@ public final class DiskResourceResolver: CancellableResourceResolver {
         return CGSize(width: width, height: 56)
     }
 
+    public func estimatedDecodeMemoryBytes(_ request: ResourceRequest) -> Int {
+        #if os(macOS)
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        #else
+        let scale = UIScreen.main.scale
+        #endif
+        let pixels = max(1, Int(ceil(Self.bucketedWidth(request.fittingWidth) * scale)))
+        if Self.isAudio(request.reference) { return pixels * 96 * 4 }
+        if Self.isImage(request.reference) || Self.isVideo(request.reference) {
+            return pixels * max(1, pixels * 9 / 16) * 4
+        }
+        return 0
+    }
+
     private static func isImage(_ reference: String) -> Bool {
         ["png", "jpg", "jpeg", "gif", "heic"].contains((reference as NSString).pathExtension.lowercased())
+    }
+
+    private static func bucketedWidth(_ width: CGFloat) -> CGFloat {
+        let step: CGFloat = 64
+        return max(step, ceil(max(width, 1) / step) * step)
     }
 
     private static func isVideo(_ reference: String) -> Bool {
@@ -115,6 +163,7 @@ public final class DiskResourceResolver: CancellableResourceResolver {
         url: URL,
         reference: String,
         width: CGFloat,
+        decodeWidth: CGFloat,
         displayScale: CGFloat
     ) -> ResourceState {
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -122,34 +171,14 @@ public final class DiskResourceResolver: CancellableResourceResolver {
         }
 
         if Self.isImage(reference),
-           let source = CGImageSourceCreateWithURL(
-               url as CFURL,
-               [kCGImageSourceShouldCache: false] as CFDictionary
+           let view = loadImage(
+               url: url, decodeWidth: decodeWidth, displayWidth: width,
+               displayScale: displayScale
            ) {
-            let maximumPixels = max(1, width * displayScale)
-            let options = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: maximumPixels,
-                kCGImageSourceShouldCacheImmediately: true,
-            ] as CFDictionary
-            if let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options) {
-                #if os(macOS)
-                let image = NSImage(
-                    cgImage: thumbnail,
-                    size: NSSize(
-                        width: CGFloat(thumbnail.width) / displayScale,
-                        height: CGFloat(thumbnail.height) / displayScale
-                    )
-                )
-                #else
-                let image = UIImage(cgImage: thumbnail, scale: displayScale, orientation: .up)
-                #endif
-                return .ready(ImageResourceView(image: image, maxWidth: width))
-            }
+            return .ready(view)
         }
 
-        let maximumPixels = max(1, Int(ceil(width * displayScale)))
+        let maximumPixels = max(1, Int(ceil(decodeWidth * displayScale)))
         if Self.isVideo(reference),
            let preview = previewCache.preview(
                for: url, kind: .videoPoster, maximumPixels: maximumPixels,
@@ -176,6 +205,42 @@ public final class DiskResourceResolver: CancellableResourceResolver {
         let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
         return .ready(CardView(text: "📄 \(name) · \(size)", tone: .info))
+    }
+
+    private func loadImage(
+        url: URL,
+        decodeWidth: CGFloat,
+        displayWidth: CGFloat,
+        displayScale: CGFloat,
+        allowsUpscaling: Bool = false
+    ) -> ImageResourceView? {
+        guard let source = CGImageSourceCreateWithURL(
+            url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary
+        ) else { return nil }
+        let maximumPixels = max(1, decodeWidth * displayScale)
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumPixels,
+            kCGImageSourceShouldCacheImmediately: true,
+        ] as CFDictionary
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+            return nil
+        }
+        #if os(macOS)
+        let image = NSImage(
+            cgImage: thumbnail,
+            size: NSSize(
+                width: CGFloat(thumbnail.width) / displayScale,
+                height: CGFloat(thumbnail.height) / displayScale
+            )
+        )
+        #else
+        let image = UIImage(cgImage: thumbnail, scale: displayScale, orientation: .up)
+        #endif
+        return ImageResourceView(
+            image: image, maxWidth: displayWidth, allowsUpscaling: allowsUpscaling
+        )
     }
 
     private static func platformImage(_ image: CGImage, displayScale: CGFloat) -> PlatformImage {
@@ -206,7 +271,7 @@ final class ImageResourceView: PlatformView, ResourceMemoryCostProviding {
         max(0, Int(decodedPixelSize.width) * Int(decodedPixelSize.height) * 4)
     }
 
-    init(image: PlatformImage, maxWidth: CGFloat) {
+    init(image: PlatformImage, maxWidth: CGFloat, allowsUpscaling: Bool = false) {
         #if os(macOS)
         let representation = image.representations.first
         decodedPixelSize = CGSize(
@@ -220,7 +285,9 @@ final class ImageResourceView: PlatformView, ResourceMemoryCostProviding {
         )
         #endif
         let cap = maxWidth > 0 ? maxWidth : 320
-        let scale = min(1, cap / max(image.size.width, 1))
+        let scale = allowsUpscaling
+            ? cap / max(image.size.width, 1)
+            : min(1, cap / max(image.size.width, 1))
         target = CGSize(
             width: floor(image.size.width * scale),
             height: floor(image.size.height * scale)

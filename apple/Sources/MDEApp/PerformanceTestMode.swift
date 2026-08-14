@@ -1,5 +1,6 @@
 import MDEditorUI
 import MDECore
+import MDEHost
 import UIKit
 import Darwin.Mach
 
@@ -16,11 +17,18 @@ enum PerformanceTestMode {
     static var isEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("--mde-performance-tests")
             || ProcessInfo.processInfo.arguments.contains("--mde-performance-extended")
+            || ProcessInfo.processInfo.arguments.contains("--mde-performance-real-media")
     }
 
     static func run(_ editor: MarkdownTextView) {
         guard isEnabled else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            if ProcessInfo.processInfo.arguments.contains("--mde-performance-real-media") {
+                runRealImagePipeline { metrics, checks in
+                    finish(metrics: metrics, checks: checks)
+                }
+                return
+            }
             if ProcessInfo.processInfo.arguments.contains("--mde-performance-extended") {
                 runExtended(editor)
                 return
@@ -456,6 +464,89 @@ enum PerformanceTestMode {
                 )
             }
         }
+    }
+
+    private static func runRealImagePipeline(
+        completion: @escaping ([String: Double], [String: Bool]) -> Void
+    ) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        guard let data = makeLargeImagePNG() else {
+            completion([:], ["realMediaFixtureCreated": false])
+            return
+        }
+        for index in 0 ..< 12 {
+            try? data.write(to: root.appendingPathComponent("photo-\(index).png"))
+        }
+        let resolver = DiskResourceResolver(root: root, maxConcurrentLoads: 4)
+        let start = DispatchTime.now().uptimeNanoseconds
+        var firstPreview: Double?
+        var firstFinal: Double?
+        var finalCount = 0
+        var previewCount = 0
+        for index in 0 ..< 12 {
+            _ = resolver.resolve(ResourceRequest(
+                reference: "photo-\(index).png", roleName: "image", source: "",
+                fittingWidth: 640
+            )) { state in
+                _ = resolver
+                switch state {
+                case .preview:
+                    previewCount += 1
+                    firstPreview = firstPreview ?? elapsed(since: start)
+                case .ready:
+                    finalCount += 1
+                    firstFinal = firstFinal ?? elapsed(since: start)
+                    if finalCount == 12 {
+                        let allFinal = elapsed(since: start)
+                        try? FileManager.default.removeItem(at: root)
+                        completion(
+                            [
+                                "realMediaFirstPreviewMs": firstPreview ?? allFinal,
+                                "realMediaFirstFinalMs": firstFinal ?? allFinal,
+                                "realMediaAllFinalMs": allFinal,
+                                "realMediaFixtureBytes": Double(data.count),
+                            ],
+                            [
+                                "realMediaFixtureCreated": true,
+                                "realMediaPublishedPreviews": previewCount == 12,
+                                "realMediaResolvedFinals": finalCount == 12,
+                                "realMediaPreviewPrecededFinal": firstPreview != nil,
+                                "realMediaPreviewIsMeaningfullyEarlier": (firstPreview ?? allFinal)
+                                    <= (firstFinal ?? allFinal) * 0.9,
+                            ]
+                        )
+                    }
+                case .loading, .failed: break
+                }
+            }
+        }
+    }
+
+    private static func makeLargeImagePNG() -> Data? {
+        let size = CGSize(width: 1_206, height: 2_622)
+        guard let context = CGContext(
+            data: nil, width: Int(size.width), height: Int(size.height),
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        let colors = [
+            CGColor(red: 0.07, green: 0.15, blue: 0.25, alpha: 1),
+            CGColor(red: 0.86, green: 0.42, blue: 0.27, alpha: 1),
+            CGColor(red: 0.96, green: 0.84, blue: 0.48, alpha: 1),
+        ] as CFArray
+        if let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors,
+            locations: [0, 0.5, 1]
+        ) {
+            context.drawLinearGradient(
+                gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: []
+            )
+        }
+        guard let image = context.makeImage() else { return nil }
+        return UIImage(cgImage: image).pngData()
     }
 
     private static func elapsed(since start: UInt64) -> Double {

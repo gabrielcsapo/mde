@@ -14,12 +14,35 @@ public struct ResourceRequest {
     public let source: String
     /// Width available in the text container.
     public let fittingWidth: CGFloat
+
+    public init(
+        reference: String,
+        roleName: String,
+        source: String,
+        fittingWidth: CGFloat
+    ) {
+        self.reference = reference
+        self.roleName = roleName
+        self.source = source
+        self.fittingWidth = fittingWidth
+    }
 }
 
 public enum ResourceState {
     case loading
+    /// A usable low-cost representation while final resolution continues.
+    case preview(PlatformView)
     case ready(PlatformView)
     case failed(String)
+}
+
+extension ResourceState {
+    var resourceView: PlatformView? {
+        switch self {
+        case .preview(let view), .ready(let view): return view
+        case .loading, .failed: return nil
+        }
+    }
 }
 
 /// Optional memory accounting supplied by decoded-image and generated-preview views.
@@ -27,6 +50,19 @@ public enum ResourceState {
 /// count of native view objects.
 public protocol ResourceMemoryCostProviding {
     var resourceMemoryCostBytes: Int { get }
+}
+
+/// Optional estimate of peak decode memory before work starts. Retained-view limits
+/// apply after decoding; this admission estimate prevents several huge source images
+/// from expanding simultaneously before any view reaches that cache.
+public protocol ResourceDecodeCostEstimating: ResourceResolver {
+    func estimatedDecodeMemoryBytes(_ request: ResourceRequest) -> Int
+}
+
+/// Optional teardown for resource views that own players, object stores, or other
+/// state not released merely by removing the view from the hierarchy.
+public protocol ResourceDisposing {
+    func disposeResource()
 }
 
 /// Turns a reference in the document into a view.
@@ -42,7 +78,8 @@ public protocol ResourceMemoryCostProviding {
 /// editor re-lays out just that node, so nothing else on screen moves.
 public protocol ResourceResolver: AnyObject {
     /// Called on the main thread. Return the state you have now; if it is `.loading`,
-    /// invoke `deliver` later (also on the main thread) exactly once.
+    /// `deliver` may publish previews and must eventually publish one `.ready` or
+    /// `.failed` terminal state. Deliveries are made on the main thread.
     func resolve(
         _ request: ResourceRequest,
         deliver: @escaping (ResourceState) -> Void
@@ -80,6 +117,9 @@ final class ResourceCache {
     /// references must not turn one layout pass into hundreds of simultaneous tasks.
     var maxConcurrent = 6
     private(set) var peakConcurrent = 0
+    var maxInFlightMemoryBytes = 48 * 1024 * 1024
+    private(set) var inFlightMemoryBytes = 0
+    private(set) var peakInFlightMemoryBytes = 0
     /// Resolved native views are substantially heavier than their remembered geometry.
     /// Keep only a viewport-sized LRU; an evicted reference can be recreated by the
     /// resolver while `known` continues to reserve the correct box.
@@ -97,9 +137,12 @@ final class ResourceCache {
 
     private var states: [String: ResourceState] = [:]
     private var reserved: [String: CGSize] = [:]
+    private var representationWidths: [String: CGFloat] = [:]
     private var inFlight: Set<String> = []
+    private var inFlightMemoryCosts: [String: Int] = [:]
     private struct Pending {
         let request: ResourceRequest
+        let presentationWidth: CGFloat
         let generation: UInt64
         let order: UInt64
         var priority: Int
@@ -126,9 +169,13 @@ final class ResourceCache {
             (resolver as? any CancellableResourceResolver)?.cancel(inFlight)
         }
         generation &+= 1
+        dispose(states.values)
         states.removeAll()
         reserved.removeAll()
+        representationWidths.removeAll()
         inFlight.removeAll()
+        inFlightMemoryCosts.removeAll()
+        inFlightMemoryBytes = 0
         pending.removeAll()
         readyOrder.removeAll()
         readyMemoryCosts.removeAll()
@@ -146,10 +193,17 @@ final class ResourceCache {
         }
         generation &+= 1
         states = states.filter { _, state in
-            if case .loading = state { return false }
-            return true
+            switch state {
+            case .loading: return false
+            case .preview(let view):
+                (view as? any ResourceDisposing)?.disposeResource()
+                return false
+            case .ready, .failed: return true
+            }
         }
         inFlight.removeAll()
+        inFlightMemoryCosts.removeAll()
+        inFlightMemoryBytes = 0
         pending.removeAll()
     }
 
@@ -157,8 +211,31 @@ final class ResourceCache {
 
     func state(for request: ResourceRequest) -> ResourceState {
         if let cached = states[request.reference] {
-            if case .ready = cached { touchReady(request.reference) }
-            return cached
+            let requestedWidth = Self.representationWidth(request.fittingWidth)
+            let cachedWidth = representationWidths[request.reference] ?? 0
+            if requestedWidth <= cachedWidth {
+                if case .ready = cached { touchReady(request.reference) }
+                return cached
+            }
+            // The same reference may first appear as a tiny table thumbnail and later
+            // as a full-width journal image. Upgrade at stable width buckets instead
+            // of pinning the first undersized decode forever or decoding every point
+            // crossed during a live resize.
+            (resolver as? any CancellableResourceResolver)?.cancel([request.reference])
+            inFlight.remove(request.reference)
+            inFlightMemoryCosts.removeValue(forKey: request.reference)
+            pending.removeAll { $0.request.reference == request.reference }
+            if case .preview(let view) = cached {
+                (view as? any ResourceDisposing)?.disposeResource()
+            } else if case .ready(let view) = cached {
+                (view as? any ResourceDisposing)?.disposeResource()
+                readyOrder.removeAll { $0 == request.reference }
+                readyMemoryCosts.removeValue(forKey: request.reference)
+                readyViewCount = readyOrder.count
+                readyViewMemoryBytes = readyMemoryCosts.values.reduce(0, +)
+            }
+            states.removeValue(forKey: request.reference)
+            updateInFlightMemory()
         }
         guard let resolver else { return .failed("no resolver") }
         guard !suspended else {
@@ -176,9 +253,17 @@ final class ResourceCache {
         // A size we have seen before beats anything the resolver can guess.
         reserved[request.reference] = known[request.reference] ?? resolver.reservedSize(request)
 
+        let resolutionWidth = Self.representationWidth(request.fittingWidth)
+        representationWidths[request.reference] = resolutionWidth
         states[request.reference] = .loading
         pending.append(Pending(
-            request: request,
+            request: ResourceRequest(
+                reference: request.reference,
+                roleName: request.roleName,
+                source: request.source,
+                fittingWidth: resolutionWidth
+            ),
+            presentationWidth: request.fittingWidth,
             generation: generation,
             order: nextOrder,
             priority: 100
@@ -194,6 +279,25 @@ final class ResourceCache {
         for index in pending.indices where references.contains(pending[index].request.reference) {
             pending[index].priority = priority
         }
+        // A rapid scroll should spend the bounded decoder slots on the destination,
+        // not on media that has already left the overscanned viewport. Removing the
+        // loading state makes a cancelled reference demand-loadable if the user
+        // scrolls back; late resolver callbacks are ignored by the in-flight guard.
+        if !references.isEmpty {
+            let stale = inFlight.subtracting(references)
+            if !stale.isEmpty {
+                (resolver as? any CancellableResourceResolver)?.cancel(stale)
+                inFlight.subtract(stale)
+                for reference in stale {
+                    inFlightMemoryCosts.removeValue(forKey: reference)
+                    if let state = states.removeValue(forKey: reference),
+                       case .preview(let view) = state {
+                        (view as? any ResourceDisposing)?.disposeResource()
+                    }
+                }
+                updateInFlightMemory()
+            }
+        }
         evictReadyViews()
         pump()
     }
@@ -204,18 +308,25 @@ final class ResourceCache {
             lhs.priority == rhs.priority ? lhs.order < rhs.order : lhs.priority < rhs.priority
         }
         while inFlight.count < max(1, maxConcurrent), !pending.isEmpty {
+            let next = pending.first!
+            let cost = estimatedDecodeCost(next.request)
+            if !inFlight.isEmpty, inFlightMemoryBytes + cost > max(1, maxInFlightMemoryBytes) {
+                break
+            }
             let item = pending.removeFirst()
             guard item.generation == generation else { continue }
-            start(item)
+            start(item, estimatedCost: cost)
         }
     }
 
-    private func start(_ item: Pending) {
+    private func start(_ item: Pending, estimatedCost: Int) {
         guard let resolver else { return }
         let request = item.request
         let reference = request.reference
-        let fitting = request.fittingWidth
+        let fitting = item.presentationWidth
         inFlight.insert(reference)
+        inFlightMemoryCosts[reference] = estimatedCost
+        updateInFlightMemory()
         peakConcurrent = max(peakConcurrent, inFlight.count)
 
         // Guard against a resolver that delivers synchronously: `deliver` may run
@@ -233,8 +344,12 @@ final class ResourceCache {
         if !settled {
             states[reference] = immediate
             record(immediate, for: reference, fitting: fitting)
-            if case .loading = immediate {} else {
+            switch immediate {
+            case .loading, .preview: break
+            case .ready, .failed:
                 inFlight.remove(reference)
+                inFlightMemoryCosts.removeValue(forKey: reference)
+                updateInFlightMemory()
                 onResolved?(reference)
                 pump()
             }
@@ -242,7 +357,18 @@ final class ResourceCache {
     }
 
     private func finish(_ state: ResourceState, reference: String, fitting: CGFloat) {
+        if case .preview = state {
+            states[reference] = state
+            record(state, for: reference, fitting: fitting)
+            onResolved?(reference)
+            return
+        }
         inFlight.remove(reference)
+        inFlightMemoryCosts.removeValue(forKey: reference)
+        updateInFlightMemory()
+        if case .preview(let preview) = states[reference] {
+            (preview as? any ResourceDisposing)?.disposeResource()
+        }
         states[reference] = state
         record(state, for: reference, fitting: fitting)
         onResolved?(reference)
@@ -256,7 +382,12 @@ final class ResourceCache {
     /// most worth remembering, so measuring only in the `deliver` closure would miss
     /// them.
     private func record(_ state: ResourceState, for reference: String, fitting: CGFloat) {
-        guard case .ready(let view) = state else { return }
+        let view: PlatformView
+        switch state {
+        case .preview(let preview): view = preview
+        case .ready(let ready): view = ready
+        case .loading, .failed: return
+        }
         // Cap to the column, never to the previous reservation: that reservation was a
         // guess, and capping the truth to a guess would record anything wider than the
         // guess at the wrong size and keep it wrong forever.
@@ -264,11 +395,13 @@ final class ResourceCache {
         guard size.width > 0, size.height > 0 else { return }
         reserved[reference] = size
         known[reference] = size
-        readyMemoryCosts[reference] = max(
-            0, (view as? any ResourceMemoryCostProviding)?.resourceMemoryCostBytes ?? 0
-        )
-        touchReady(reference)
-        evictReadyViews()
+        if case .ready = state {
+            readyMemoryCosts[reference] = max(
+                0, (view as? any ResourceMemoryCostProviding)?.resourceMemoryCostBytes ?? 0
+            )
+            touchReady(reference)
+            evictReadyViews()
+        }
     }
 
     private func touchReady(_ reference: String) {
@@ -284,11 +417,37 @@ final class ResourceCache {
         while (readyViewCount > limit || readyViewMemoryBytes > memoryLimit), !readyOrder.isEmpty {
             let victim = readyOrder.firstIndex { !viewportReferences.contains($0) } ?? 0
             let reference = readyOrder.remove(at: victim)
-            guard case .ready = states[reference] else { continue }
+            guard case .ready(let view) = states[reference] else { continue }
+            (view as? any ResourceDisposing)?.disposeResource()
             states.removeValue(forKey: reference)
             readyMemoryCosts.removeValue(forKey: reference)
             readyViewCount = readyOrder.count
             readyViewMemoryBytes = readyMemoryCosts.values.reduce(0, +)
+        }
+    }
+
+    private func estimatedDecodeCost(_ request: ResourceRequest) -> Int {
+        max(0, (resolver as? any ResourceDecodeCostEstimating)?
+            .estimatedDecodeMemoryBytes(request) ?? 0)
+    }
+
+    private func updateInFlightMemory() {
+        inFlightMemoryBytes = inFlightMemoryCosts.values.reduce(0, +)
+        peakInFlightMemoryBytes = max(peakInFlightMemoryBytes, inFlightMemoryBytes)
+    }
+
+    private static func representationWidth(_ width: CGFloat) -> CGFloat {
+        let step: CGFloat = 64
+        return max(step, ceil(max(width, 1) / step) * step)
+    }
+
+    private func dispose(_ states: Dictionary<String, ResourceState>.Values) {
+        for state in states {
+            switch state {
+            case .preview(let view), .ready(let view):
+                (view as? any ResourceDisposing)?.disposeResource()
+            case .loading, .failed: break
+            }
         }
     }
 
@@ -298,8 +457,10 @@ final class ResourceCache {
         // sees a zero-width text container — so if only `state(for:)` could start the
         // load, a resource requested too early would sit at "loading" forever with
         // nothing ever asking again.
-        if case .ready(let view) = state(for: request) {
+        switch state(for: request) {
+        case .preview(let view), .ready(let view):
             return view.measured(cappedTo: request.fittingWidth)
+        case .loading, .failed: break
         }
         return known[request.reference]
             ?? reserved[request.reference]
