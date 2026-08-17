@@ -451,7 +451,7 @@ function makeEditor(options = {}) {
 
     assert(!e.root.querySelector('table.mde-rendered-table'), 'the table view stayed over its source');
     assertEqual(e.root.querySelectorAll('.mde-line-table').length, 3);
-    assertEqual(e.selectionRange(), { start: 0, end: 0 });
+    assertEqual(e.selectionRange(), { start: 1, end: 1 });
     assertEqual(domText(e.root), source, 'revealing the table changed its source');
 
     const after = source.indexOf('after');
@@ -520,6 +520,56 @@ function makeEditor(options = {}) {
     });
     e.onClick(new MouseEvent('click', { ctrlKey: true, cancelable: true }));
     assertEqual(opened, 'https://example.dev/docs');
+    assertEqual(e.markdown, source);
+  });
+
+  test('view mode is read-only, fully rendered, and opens links with an ordinary click', async () => {
+    const e = makeEditor({ interactionMode: 'view' });
+    const source = 'Read [the **docs**](https://example.dev/docs) and stay.';
+    e.setMarkdown(source);
+
+    assertEqual(e.interactionMode, 'view');
+    assertEqual(e.root.getAttribute('contenteditable'), 'false');
+    assertEqual(e.root.getAttribute('aria-readonly'), 'true');
+    assertEqual(e.root.dataset.mdeMode, 'view');
+
+    // A browser selection is still useful for copy, but must never enter the engine as
+    // an editing caret and reveal the Markdown markers beneath it.
+    const at = source.indexOf('docs') + 2;
+    e.setSelectionRange({ start: at, end: at });
+    e.onSelectionChange();
+    assertEqual(e.decorations.find((d) => d.start === source.indexOf('[')).kind, Kind.Conceal);
+
+    let opened = null;
+    e.addEventListener('linkopen', (event) => { opened = event.detail.destination; });
+    await userEvent.click(e.root.querySelector('.mde-link-text'));
+    assertEqual(opened, 'https://example.dev/docs');
+    assertEqual(e.markdown, source);
+  });
+
+  test('switching interaction modes preserves source and restores source-first editing', () => {
+    const e = makeEditor();
+    const source = 'hello **world**\n- [ ] task\n';
+    e.setMarkdown(source);
+    const checkbox = e.decorations.find((d) => d.role === Role.TaskCheckbox);
+
+    e.root.focus();
+    let collapsedSelections = 0;
+    e.addEventListener('selectionchange', (event) => {
+      if (event.detail.range === null) collapsedSelections++;
+    });
+    e.interactionMode = 'view';
+    assertEqual(collapsedSelections, 1, 'mode change published the same collapse twice');
+    e.toggleTask(checkbox);
+    assertEqual(e.markdown, source, 'a view-mode task click changed the document');
+
+    e.interactionMode = 'edit';
+    assertEqual(e.root.getAttribute('contenteditable'), 'plaintext-only');
+    assertEqual(e.root.hasAttribute('aria-readonly'), false);
+    e.root.focus();
+    e.setSelectionRange({ start: 10, end: 10 });
+    e.onSelectionChange();
+    assertEqual(e.decorations.find((d) => d.start === 6).kind, Kind.Style);
     assertEqual(e.markdown, source);
   });
 
@@ -650,6 +700,22 @@ function makeEditor(options = {}) {
       'an inactive editor kept revealing a stale selection',
     );
     assertEqual(domText(e.root), source);
+  });
+
+  test('view mode keeps rendered HTML mounted while its real controls stay interactive', () => {
+    const e = makeEditor({ interactionMode: 'view' });
+    const source = '<article><strong>Rendered HTML</strong>'
+      + '<button onclick="this.dataset.ran=\'yes\'">Run action</button></article>\n';
+    e.installPlugin(trustedHTMLPlugin());
+    e.setMarkdown(source);
+
+    const card = e.root.querySelector('.mde-raw-html');
+    const button = card.querySelector('button');
+    button.click();
+    assertEqual(button.dataset.ran, 'yes');
+    card.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    assert(e.root.querySelector('.mde-raw-html'), 'view-mode card background exposed source');
+    assertEqual(e.markdown, source);
   });
 
   test('custom renderers own JavaScript behavior, layout, and teardown', () => {
@@ -824,7 +890,7 @@ function makeEditor(options = {}) {
     assert(wrap.getBoundingClientRect().height > 100, 'the wrapper should cover its content');
   });
 
-  test('clicking a widget puts the caret at the start of its source', () => {
+  test('clicking a widget puts the caret inside its source', () => {
     const e = makeEditor({
       widgetProvider: {
         makeWidget: ({ roleName }) => {
@@ -859,7 +925,8 @@ function makeEditor(options = {}) {
 
     // Without this the browser maps the click to the nearest real text geometry — the
     // line *below* the widget, since the source itself is concealed to a hairline.
-    assertEqual(e.selectionRange(), { start: d.start, end: d.start });
+    const inside = Math.min(d.start + 1, d.end);
+    assertEqual(e.selectionRange(), { start: inside, end: inside });
     assertEqual(
       e.decorations.find((x) => x.start === d.start).kind,
       Kind.Style,

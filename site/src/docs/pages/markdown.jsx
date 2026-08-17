@@ -4,7 +4,7 @@ const SUPPORT = [
   ['Headings', 'Rendered inline', 'ATX and Setext levels; markers reveal at the caret.'],
   ['Emphasis and strong', 'Rendered inline', 'Nested CommonMark delimiter rules come from Rust.'],
   ['Inline and block code', 'Rendered inline', 'Fence and indentation scaffolding returns when the caret enters the block.'],
-  ['Links and autolinks', 'Rendered inline', 'Command/Ctrl-click on desktop; long press on iOS.'],
+  ['Links and autolinks', 'Rendered inline', 'Normal click/tap in View; Command/Ctrl-click or long press while editing.'],
   ['Images', 'Resolved widget', 'Inline, reference-style, table-only, and mixed table cells use the host resolver.'],
   ['Block quotes and lists', 'Native projection', 'Quote rails, bullets, counters, and nesting preserve the exact source markers.'],
   ['Task lists', 'Interactive source', 'Lowercase and uppercase checked markers toggle as one undo step.'],

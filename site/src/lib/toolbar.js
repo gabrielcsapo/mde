@@ -48,10 +48,20 @@ function extensionFor(editor, key, Kind) {
 /** @type {ToolDescriptor[]} */
 export const TOOLBAR = [
   {
+    id: 'view-mode',
+    label: 'View',
+    title: 'View mode: select and copy rendered content, open links normally, and never edit source',
+    pressed: (editor) => editor.interactionMode === 'view',
+    run: (editor) => {
+      editor.interactionMode = editor.interactionMode === 'edit' ? 'view' : 'edit';
+    },
+  },
+  {
     id: 'bold',
     label: 'Bold',
     title: 'Wrap the selection in ** — one undo step, not two marker insertions',
     enabled: (editor) => {
+      if (editor.interactionMode !== 'edit') return false;
       const sel = editor.selectionRange();
       return !!sel && sel.start !== sel.end;
     },
@@ -69,14 +79,14 @@ export const TOOLBAR = [
     id: 'undo',
     label: 'Undo',
     title: 'Undo the last revision — the core owns the history, not the browser',
-    enabled: (editor) => editor.canUndo,
+    enabled: (editor) => editor.interactionMode === 'edit' && editor.canUndo,
     run: (editor) => editor.undo(),
   },
   {
     id: 'redo',
     label: 'Redo',
     title: 'Redo the last undone revision',
-    enabled: (editor) => editor.canRedo,
+    enabled: (editor) => editor.interactionMode === 'edit' && editor.canRedo,
     run: (editor) => editor.redo(),
   },
   {
@@ -85,6 +95,7 @@ export const TOOLBAR = [
     title:
       'Focus mode: dim everything but the paragraph under the caret. An extension — '
       + 'the editor has no idea it exists.',
+    enabled: (editor) => editor.interactionMode === 'edit',
     pressed: (editor) => extensionFor(editor, 'typewriter', TypewriterMode).enabled,
     run: (editor) => {
       extensionFor(editor, 'typewriter', TypewriterMode).toggle();
@@ -99,6 +110,7 @@ export const TOOLBAR = [
     title:
       'Tint nouns, verbs, adjectives and adverbs — decoration that depends on language, '
       + 'which no markdown parser could ever find.',
+    enabled: (editor) => editor.interactionMode === 'edit',
     pressed: (editor) => extensionFor(editor, 'pos', PartsOfSpeech).enabled,
     run: (editor) => extensionFor(editor, 'pos', PartsOfSpeech).toggle(),
   },

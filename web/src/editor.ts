@@ -130,12 +130,17 @@ export function diffText(oldText: string, newText: string): { start: number; end
   return { start, end: oldEnd, text: newText.slice(start, newEnd) };
 }
 
+/** Controls whether the rendered Markdown accepts source edits or behaves as a document. */
+export type MarkdownInteractionMode = 'edit' | 'view';
+
 export class MarkdownEditor extends EventTarget {
   engine: Engine;
   applier: DomApplier;
   root: HTMLElement;
   rootHadEditorClass: boolean;
   previousContentEditable: string | null;
+  previousAriaReadonly: string | null;
+  previousModeAttribute: string | null;
   defaultAttributes: string[];
   text: string;
   lines: string[];
@@ -184,6 +189,7 @@ export class MarkdownEditor extends EventTarget {
   private hydratedChunks: Set<number>;
   private progressiveToken: number;
   private presentationSuspended: boolean;
+  private _interactionMode: MarkdownInteractionMode;
   /** Diagnostic: chunk geometry reads used by viewport scheduling. */
   viewportLayoutProbeCount: number;
   /** Diagnostic: hydrated chunks considered for offscreen eviction. */
@@ -194,7 +200,8 @@ export class MarkdownEditor extends EventTarget {
    * @param {import('./core.js').Engine} engine
    * @param {{widgetProvider?: import('./widgets.js').WidgetProvider,
    *          resourceResolver?: import('./resources.js').ResourceResolver,
-   *          pluginStateStore?: import('@mde/plugin-sdk').PluginStateStore}} [options]
+   *          pluginStateStore?: import('@mde/plugin-sdk').PluginStateStore,
+   *          interactionMode?: MarkdownInteractionMode}} [options]
    */
   constructor(
     host: HTMLElement,
@@ -203,9 +210,14 @@ export class MarkdownEditor extends EventTarget {
       widgetProvider?: WidgetProvider;
       resourceResolver?: ResourceResolver;
       pluginStateStore?: PluginStateStore;
+      interactionMode?: MarkdownInteractionMode;
     } = {},
   ) {
     super();
+    const interactionMode = options.interactionMode ?? 'edit';
+    if (interactionMode !== 'edit' && interactionMode !== 'view') {
+      throw new TypeError(`Unknown Markdown interaction mode: ${String(interactionMode)}`);
+    }
     this.engine = engine;
     this.applier = new DomApplier(engine);
     this.baseWidgetProvider = options.widgetProvider ?? null;
@@ -227,10 +239,13 @@ export class MarkdownEditor extends EventTarget {
     this.root = host;
     this.rootHadEditorClass = this.root.classList.contains('mde-editor');
     this.previousContentEditable = this.root.getAttribute('contenteditable');
+    this.previousAriaReadonly = this.root.getAttribute('aria-readonly');
+    this.previousModeAttribute = this.root.getAttribute('data-mde-mode');
+    this._interactionMode = interactionMode;
     this.root.classList.add('mde-editor');
     // `plaintext-only` keeps the browser from inventing block structure on Enter: it
     // inserts a real newline character, which is what the document actually contains.
-    this.root.setAttribute('contenteditable', 'plaintext-only');
+    this.syncInteractionAttributes();
     // These defaults make the framework-free editor usable on its own while preserving
     // any host-supplied accessible name or spellcheck preference. React applies DOM
     // props before its mount effect constructs us, so component props win here too.
@@ -305,7 +320,11 @@ export class MarkdownEditor extends EventTarget {
     // document, so it outlives the element and would keep a detached editor alive. The
     // shared abort signal removes it together with the element listeners.
     this.onDocumentSelectionChange = () => {
-      if (document.activeElement === this.root) this.onSelectionChange();
+      const selection = document.getSelection();
+      const selectionIsInside = !!selection?.anchorNode && this.root.contains(selection.anchorNode);
+      if (document.activeElement === this.root || (this._interactionMode === 'view' && selectionIsInside)) {
+        this.onSelectionChange();
+      }
     };
     document.addEventListener('selectionchange', this.onDocumentSelectionChange, listener);
     this.plugins = new Map();
@@ -348,6 +367,10 @@ export class MarkdownEditor extends EventTarget {
     this.applier.reset();
     if (this.previousContentEditable === null) this.root.removeAttribute('contenteditable');
     else this.root.setAttribute('contenteditable', this.previousContentEditable);
+    if (this.previousAriaReadonly === null) this.root.removeAttribute('aria-readonly');
+    else this.root.setAttribute('aria-readonly', this.previousAriaReadonly);
+    if (this.previousModeAttribute === null) delete this.root.dataset.mdeMode;
+    else this.root.dataset.mdeMode = this.previousModeAttribute;
     for (const name of this.defaultAttributes) this.root.removeAttribute(name);
     if (!this.rootHadEditorClass) this.root.classList.remove('mde-editor');
     this.root.replaceChildren();
@@ -374,14 +397,57 @@ export class MarkdownEditor extends EventTarget {
     this.renderAll(true);
   }
 
+  /** Current interaction contract. View mode remains selectable but never reveals source. */
+  get interactionMode(): MarkdownInteractionMode {
+    return this._interactionMode;
+  }
+
+  set interactionMode(mode: MarkdownInteractionMode) {
+    this.setInteractionMode(mode);
+  }
+
+  setInteractionMode(mode: MarkdownInteractionMode): void {
+    if (mode !== 'edit' && mode !== 'view') {
+      throw new TypeError(`Unknown Markdown interaction mode: ${String(mode)}`);
+    }
+    if (this._interactionMode === mode) return;
+    this._interactionMode = mode;
+    if (mode === 'view') {
+      const wasFocused = document.activeElement === this.root;
+      if (wasFocused) {
+        // The blur handler collapses the engine selection and publishes the matching
+        // selection event. Avoid sending plugin authors the same transition twice.
+        this.root.blur();
+      } else {
+        this.activateChunk(null);
+        this.applyPatch(this.engine.setSelection(null));
+        this.dispatchEvent(new CustomEvent('selectionchange', { detail: { range: null } }));
+      }
+      for (const name of [...this.pluginPresentations.keys()]) {
+        this.dismissPluginPresentation(name, 'programmatic');
+      }
+    }
+    this.syncInteractionAttributes();
+    this.dispatchEvent(new CustomEvent('modechange', { detail: { mode } }));
+  }
+
+  private syncInteractionAttributes(): void {
+    const preparing = this.root.dataset.mdeStatus === 'preparing';
+    const editable = this._interactionMode === 'edit' && !preparing;
+    this.root.setAttribute('contenteditable', editable ? 'plaintext-only' : 'false');
+    this.root.dataset.mdeMode = this._interactionMode;
+    if (this._interactionMode === 'view') this.root.setAttribute('aria-readonly', 'true');
+    else this.root.removeAttribute('aria-readonly');
+  }
+
   // MARK: - Document
 
   /** @param {string} text */
   setMarkdown(text: string): void {
     this.progressiveToken++;
-    this.root.setAttribute('contenteditable', 'plaintext-only');
     this.root.removeAttribute('aria-busy');
     delete this.root.dataset.mdeStatus;
+    this.syncInteractionAttributes();
     this.text = text;
     this.applier.reset();
     this.applier.ingest(this.engine.reset(text));
@@ -421,9 +487,9 @@ export class MarkdownEditor extends EventTarget {
       fragment.appendChild(projection);
     }
     this.root.replaceChildren(fragment);
-    this.root.setAttribute('contenteditable', 'false');
-    this.root.setAttribute('aria-busy', 'true');
     this.root.dataset.mdeStatus = 'preparing';
+    this.syncInteractionAttributes();
+    this.root.setAttribute('aria-busy', 'true');
     this.dispatchEvent(new CustomEvent('progress', { detail: { phase: 'source' } }));
 
     let result: PreparedDocument;
@@ -433,9 +499,9 @@ export class MarkdownEditor extends EventTarget {
       if (result.markdown !== text) throw new Error('Prepared document does not match the requested Markdown');
       this.applier.ingest(this.engine.restoreSnapshot(result.snapshot));
       this.applier.text = text;
-      this.root.setAttribute('contenteditable', 'plaintext-only');
       this.root.removeAttribute('aria-busy');
       delete this.root.dataset.mdeStatus;
+      this.syncInteractionAttributes();
       this.renderAll();
       this.dispatchEvent(new CustomEvent('progress', {
         detail: { phase: 'ready', preparationMs: result.durationMs },
@@ -444,9 +510,9 @@ export class MarkdownEditor extends EventTarget {
       return true;
     } catch (error) {
       if (token !== this.progressiveToken || this.destroyed) return false;
-      this.root.setAttribute('contenteditable', 'plaintext-only');
       this.root.removeAttribute('aria-busy');
       delete this.root.dataset.mdeStatus;
+      this.syncInteractionAttributes();
       throw error;
     }
   }
@@ -1647,6 +1713,13 @@ export class MarkdownEditor extends EventTarget {
   onSelectionChange() {
     if (this.suppressSelection) return;
     const range = this.selectionRange();
+    if (this._interactionMode === 'view') {
+      this.activateChunk(null);
+      this.applyPatch(this.engine.setSelection(null));
+      this.dispatchEvent(new CustomEvent('selectionchange', { detail: { range } }));
+      this.repositionPluginPresentations();
+      return;
+    }
     this.activateChunk(range?.start ?? null, range);
     this.applyPatch(this.engine.setSelection(range), null, range);
     // Hosts that decorate from the caret's position — a focus mode, a live outline —
@@ -1672,6 +1745,7 @@ export class MarkdownEditor extends EventTarget {
    * @param {MouseEvent} event
    */
   onMouseDown(event) {
+    if (this._interactionMode === 'view') return;
     const target = /** @type {Element|null} */ (event.target);
     const wrap = target?.closest?.('.mde-widget');
     if (!wrap || !this.root.contains(wrap)) return;
@@ -1711,10 +1785,12 @@ export class MarkdownEditor extends EventTarget {
 
   /** @param {MouseEvent} event */
   onClick(event) {
-    const range = this.selectionRange();
-    if (!range) return;
-    if (event.metaKey || event.ctrlKey) {
-      const link = this.applier.link(range.start);
+    const range = this._interactionMode === 'view'
+      ? this.offsetAtClientPoint(event.clientX, event.clientY)
+      : this.selectionRange()?.start ?? null;
+    if (range === null) return;
+    if (this._interactionMode === 'view' || event.metaKey || event.ctrlKey) {
+      const link = this.applier.link(range);
       const destination = link ? this.engine.payload(link.key) : null;
       if (link && destination) {
         event.preventDefault();
@@ -1726,7 +1802,8 @@ export class MarkdownEditor extends EventTarget {
         return;
       }
     }
-    const hit = this.applier.hit(range.start);
+    if (this._interactionMode === 'view') return;
+    const hit = this.applier.hit(range);
     if (!hit) return;
     const source = this.text.slice(hit.start, hit.end);
     this.dispatchEvent(new CustomEvent('hit', { detail: { decoration: hit, source } }));
@@ -1738,6 +1815,7 @@ export class MarkdownEditor extends EventTarget {
    * @param {import('./core.js').Decoration} decoration
    */
   toggleTask(decoration: Decoration): void {
+    if (this._interactionMode === 'view') return;
     const current = this.text.slice(decoration.start, decoration.end);
     const replacement = /x/i.test(current) ? '[ ]' : '[x]';
     this.engine.boundary();
@@ -2292,6 +2370,22 @@ export class MarkdownEditor extends EventTarget {
       }
     }
     return offset;
+  }
+
+  /** Resolve a pointer to source without changing the browser selection. */
+  private offsetAtClientPoint(clientX: number, clientY: number): number | null {
+    const doc = this.root.ownerDocument;
+    const modern = (doc as Document & {
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    }).caretPositionFromPoint?.(clientX, clientY);
+    if (modern && this.root.contains(modern.offsetNode)) {
+      return this.offsetAt(modern.offsetNode, modern.offset, textNodes(this.root));
+    }
+    const legacy = (doc as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    }).caretRangeFromPoint?.(clientX, clientY);
+    if (!legacy || !this.root.contains(legacy.startContainer)) return null;
+    return this.offsetAt(legacy.startContainer, legacy.startOffset, textNodes(this.root));
   }
 
   /** @param {{start: number, end: number}} range */

@@ -19,6 +19,7 @@ function Note() {
       <MarkdownEditor
         ref={ref}
         defaultValue="# Hello\n"
+        interactionMode="edit"
         onChange={(markdown) => save(markdown)}
         onHistoryChange={onHistoryChange}
       />
@@ -69,7 +70,9 @@ of the document.
 |---|---|---|
 | `defaultValue` | `string` | Initial markdown. Read once, at creation. |
 | `value` | `string` | Escape hatch; see above. |
+| `interactionMode` | `'edit' \| 'view'` | Live source-first editing or a selectable, fully rendered document. |
 | `onChange` | `(markdown, handle) => void` | Every edit, including undo and programmatic ones. |
+| `onModeChange` | `(mode, handle) => void` | The interaction contract changed without a remount. |
 | `onSelectionChange` | `(range \| null, handle) => void` | `{start, end}` in UTF-16 code units. |
 | `onHit` | `({decoration, source}, handle) => void` | A `Hit` decoration was clicked (DESIGN §3). |
 | `onHistoryChange` | `(state) => void` | `{canUndo, canRedo, position, count}`, only when one moves. |
@@ -104,6 +107,7 @@ and its decorations behind function calls keeps them out of the render path enti
 
 ```
 isReady()  getEditor()  getEngine()  getCore()  getElement()  focus()
+getInteractionMode()  setInteractionMode('edit' | 'view')
 
 getMarkdown()            setMarkdown(text)        replaceRange(start, end, text)
 insertText(text)         getSelection()           setSelection({start, end})

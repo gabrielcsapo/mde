@@ -15,6 +15,19 @@ const editor = new MarkdownEditor(
 editor.setMarkdown('# Hello\n');
 ```
 
+The same renderer has two interaction contracts. Edit mode is source-first: moving the
+caret into a node reveals the Markdown needed to change it. View mode is selectable but
+read-only, keeps every node rendered, and opens links with an ordinary click:
+
+```ts
+editor.interactionMode = 'view';
+editor.addEventListener('linkopen', ({ detail }) => open(detail.destination));
+editor.interactionMode = 'edit';
+```
+
+Programmatic document APIs remain available in view mode so file sync and collaboration
+do not need to remount the renderer.
+
 For multi-megabyte documents, prepare the exact Rust state in a Worker while the
 editor presents the full source immediately. The source projection remains read-only
 until activation, so input cannot race an engine describing another document:

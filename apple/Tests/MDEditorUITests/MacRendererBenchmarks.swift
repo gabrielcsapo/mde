@@ -820,6 +820,7 @@ final class MacRendererBenchmarks: XCTestCase {
         let memoryBefore = residentMemoryBytes()
         var maximum = 0.0
         var maximumBackgroundTransition = 0.0
+        var maximumModeTransition = 0.0
         for cycle in 0 ..< 30 {
             autoreleasepool {
                 let (window, editor) = makeEditor()
@@ -840,6 +841,13 @@ final class MacRendererBenchmarks: XCTestCase {
                     }
                 } / 3
                 maximumBackgroundTransition = max(maximumBackgroundTransition, transition)
+                let modeTransition = timed {
+                    for _ in 0 ..< 3 {
+                        editor.interactionMode = .view
+                        editor.interactionMode = .edit
+                    }
+                } / 6
+                maximumModeTransition = max(maximumModeTransition, modeTransition)
                 XCTAssertEqual(editor.markdown.utf16.count, source.utf16.count + 1)
                 window.contentView = nil
                 if cycle.isMultiple(of: 10) { drainMainQueue() }
@@ -847,8 +855,8 @@ final class MacRendererBenchmarks: XCTestCase {
         }
         let memoryGrowth = max(0, residentMemoryBytes() - memoryBefore)
         print(String(
-            format: "30-cycle journal lifecycle max %8.2f ms background %8.2f ms memory growth %lld bytes",
-            maximum, maximumBackgroundTransition, memoryGrowth
+            format: "30-cycle journal lifecycle max %8.2f ms background %8.2f ms mode %8.2f ms memory growth %lld bytes",
+            maximum, maximumBackgroundTransition, maximumModeTransition, memoryGrowth
         ))
         enforceBudget(
             maximum,
@@ -859,6 +867,11 @@ final class MacRendererBenchmarks: XCTestCase {
             maximumBackgroundTransition,
             environment: "MDE_APPLE_BACKGROUND_TRANSITION_BUDGET_MS",
             metric: "native journal background transition"
+        )
+        enforceBudget(
+            maximumModeTransition,
+            environment: "MDE_APPLE_MODE_TRANSITION_BUDGET_MS",
+            metric: "native edit/view transition"
         )
         if let raw = ProcessInfo.processInfo.environment["MDE_APPLE_LIFECYCLE_MEMORY_GROWTH_BUDGET_BYTES"],
            let budget = UInt64(raw) {

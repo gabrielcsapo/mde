@@ -5,6 +5,8 @@ import UIKit
 
 final class EditorViewController: UIViewController {
     private var editor: MarkdownTextView!
+    private var boldItem: UIBarButtonItem!
+    private var modeItem: UIBarButtonItem!
     private var undoItem: UIBarButtonItem!
     private var typewriterItem: UIBarButtonItem!
     private var historyItem: UIBarButtonItem!
@@ -95,11 +97,16 @@ final class EditorViewController: UIViewController {
             image: UIImage(systemName: "clock.arrow.circlepath"),
             style: .plain, target: self, action: #selector(historyTapped)
         )
+        modeItem = UIBarButtonItem(
+            image: UIImage(systemName: "eye"),
+            style: .plain, target: self, action: #selector(modeTapped)
+        )
         navigationItem.rightBarButtonItems = [redoItem, undoItem, posItem, typewriterItem, historyItem]
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
+        boldItem = UIBarButtonItem(
             image: UIImage(systemName: "bold"),
             style: .plain, target: self, action: #selector(boldTapped)
         )
+        navigationItem.leftBarButtonItems = [boldItem, modeItem]
 
         editor.setMarkdown(HostExtensions.sample)
         refreshButtons()
@@ -156,9 +163,21 @@ final class EditorViewController: UIViewController {
         refreshButtons()
     }
 
+    @objc private func modeTapped() {
+        editor.interactionMode = editor.interactionMode == .edit ? .view : .edit
+        refreshButtons()
+    }
+
     private func refreshButtons() {
-        undoItem.isEnabled = editor.canUndo
-        redoItem.isEnabled = editor.canRedo
+        let edits = editor.interactionMode == .edit
+        modeItem.image = UIImage(systemName: edits ? "eye" : "pencil")
+        modeItem.accessibilityLabel = edits ? "Enter view mode" : "Enter edit mode"
+        boldItem.isEnabled = edits
+        undoItem.isEnabled = edits && editor.canUndo
+        redoItem.isEnabled = edits && editor.canRedo
+        historyItem.isEnabled = edits
+        typewriterItem.isEnabled = edits
+        posItem.isEnabled = edits
         typewriterItem.tintColor = typewriter.isEnabled ? .systemBlue : .secondaryLabel
         posItem.tintColor = partsOfSpeech.isEnabled ? .systemBlue : .secondaryLabel
     }
@@ -176,6 +195,7 @@ final class EditorViewController: UIViewController {
     /// A formatting command: fence it with undo boundaries so it comes off in one
     /// step rather than as two stray marker insertions.
     @objc private func boldTapped() {
+        guard editor.interactionMode == .edit else { return }
         let range = editor.selectedRange
         guard range.length > 0 else { return }
         let ns = editor.textStorage.string as NSString

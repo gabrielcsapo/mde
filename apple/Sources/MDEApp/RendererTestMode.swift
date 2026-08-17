@@ -122,6 +122,22 @@ enum RendererTestMode {
                 $0.accessibilityIdentifier == "mde.rendered-table"
             }
 
+            editor.interactionMode = .view
+            let viewReadOnly = !editor.isEditable && editor.isSelectable
+            _ = editor.becomeFirstResponder()
+            editor.selectedRange = selectedRows
+            editor.layoutIfNeeded()
+            let viewKeepsRendering = editor.decorations.first { $0.role == Role.table }?.kind
+                    == .blockWidget
+                && descendants(of: editor).contains {
+                    $0.accessibilityIdentifier == "mde.rendered-table"
+                }
+            if let task = editor.decorations.first(where: { $0.role == Role.taskCheckbox }) {
+                editor.toggleTask(at: task)
+            }
+            let viewRefusesTaskEdits = editor.markdown == source
+            editor.interactionMode = .edit
+
             let plugin = RendererPluginProbe()
             let pluginInstalled = (try? editor.installPlugin(plugin)) != nil
                 && editor.installedPluginNames.contains(plugin.name)
@@ -151,6 +167,9 @@ enum RendererTestMode {
                 "tableHiddenWhileEditing": tableHiddenWhileEditing,
                 "restored": restored,
                 "tableViewRestored": tableViewRestored,
+                "viewReadOnly": viewReadOnly,
+                "viewKeepsRendering": viewKeepsRendering,
+                "viewRefusesTaskEdits": viewRefusesTaskEdits,
                 "pluginInstalled": pluginInstalled,
                 "pluginLayer": pluginLayer,
                 "pluginCleanup": pluginCleanup,

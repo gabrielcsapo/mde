@@ -360,6 +360,26 @@ final class MacRendererTests: XCTestCase {
         XCTAssertFalse(editor.requestOpenLink(at: 1))
     }
 
+    func testViewModeIsSelectableReadOnlyAndNeverRevealsMarkdownSource() {
+        let source = "hello **world** end"
+        editor.setMarkdown(source)
+        editor.interactionMode = .view
+
+        XCTAssertFalse(editor.isEditable)
+        XCTAssertTrue(editor.isSelectable)
+        focus()
+        editor.setSelectedRange(NSRange(location: 10, length: 0))
+        XCTAssertLessThan(fontSize(at: 6), 1, "a view-mode selection revealed the marker")
+        XCTAssertEqual(editor.markdown, source)
+
+        editor.interactionMode = .edit
+        XCTAssertTrue(editor.isEditable)
+        editor.setSelectedRange(NSRange(location: 9, length: 0))
+        editor.setSelectedRange(NSRange(location: 10, length: 0))
+        XCTAssertGreaterThan(fontSize(at: 6), 1, "edit mode did not restore source-first reveal")
+        XCTAssertEqual(editor.markdown, source)
+    }
+
     func testASetextHeadingUsesLevelTwoAndConcealsItsUnderline() {
         editor.setMarkdown("Heading\n-------\n\nbody")
         let headingSize = fontSize(at: 1)
@@ -1671,6 +1691,18 @@ final class MacRendererTests: XCTestCase {
         )
         editor.toggleTask(at: uppercase)
         XCTAssertEqual(editor.markdown, "- [ ] already checked\n")
+    }
+
+    func testViewModeRefusesTaskEdits() throws {
+        let source = "- [ ] a task\n"
+        editor.setMarkdown(source)
+        let checkbox = try XCTUnwrap(
+            editor.decorations.first { $0.role == Role.taskCheckbox }
+        )
+        editor.interactionMode = .view
+        editor.toggleTask(at: checkbox)
+        XCTAssertEqual(editor.markdown, source)
+        XCTAssertFalse(editor.canUndo)
     }
 
     func testListsProjectNativeBulletsAndCheckboxesWithoutChangingMarkdown() throws {

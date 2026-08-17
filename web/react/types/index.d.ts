@@ -13,6 +13,7 @@ import type {
   Engine,
   LayerSpan as CoreLayerSpan,
   ManifestSpec,
+  MarkdownInteractionMode,
   MarkdownEditor as CoreMarkdownEditor,
   PluginCommandDescriptor,
   PluginPresentationDismissReason,
@@ -38,6 +39,7 @@ export type {
   EditorPlugin,
   EditorPluginContext,
   ManifestSpec,
+  MarkdownInteractionMode,
   ResourceRequest,
   ResourceResolver,
   ResourceState,
@@ -86,6 +88,8 @@ export interface MarkdownEditorHandle {
   getCore(): Core | null;
   getElement(): HTMLDivElement | null;
   focus(): void;
+  getInteractionMode(): MarkdownInteractionMode;
+  setInteractionMode(mode: MarkdownInteractionMode): void;
 
   getMarkdown(): string;
   /** Replaces the document wholesale. Clears the undo history (DESIGN §9). */
@@ -150,13 +154,16 @@ export interface MarkdownEditorProps
    * README.
    */
   value?: string;
+  /** Edit reveals Markdown at the caret; view is selectable, read-only, and fully rendered. */
+  interactionMode?: MarkdownInteractionMode;
   onChange?(markdown: string, editor: MarkdownEditorHandle): void;
+  onModeChange?(mode: MarkdownInteractionMode, editor: MarkdownEditorHandle): void;
   onSelectionChange?(range: SelectionRange | null, editor: MarkdownEditorHandle): void;
   onHit?(
     hit: { decoration: Decoration; source: string },
     editor: MarkdownEditorHandle
   ): void;
-  /** Command/Ctrl-click on a rendered link label requested navigation. */
+  /** A normal click in view mode, or Command/Ctrl-click in edit mode, requested navigation. */
   onLinkOpen?(
     link: { decoration: Decoration; destination: string },
     editor: MarkdownEditorHandle

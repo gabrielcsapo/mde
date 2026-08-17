@@ -74,11 +74,16 @@ export default function Try() {
 
       <H2 id="toolbar">The toolbar is a list, not markup</H2>
       <p>
-        Six buttons, six objects in <code>site/src/lib/toolbar.js</code>. Each carries an id, a
+        Five capabilities, five objects in <code>site/src/lib/toolbar.js</code>. Each carries an id, a
         label, a <code>run</code>, and optionally an <code>enabled</code> or a <code>pressed</code>{' '}
         predicate; the component renders whatever the array holds and re-evaluates those predicates
         whenever the document or the selection changes. Nothing in the component knows any of the
         ids.
+      </p>
+      <p>
+        <strong>View</strong> switches the same live renderer into a selectable, non-editable
+        document: syntax stays rendered, links use a normal click, and embedded controls keep
+        working. Switch it off to return to the source-first editing behavior.
       </p>
       <p>
         That matters for the last two buttons. <strong>Typewriter</strong> and{' '}

@@ -42,7 +42,7 @@ export default function ReactEditor({ historyInitiallyOpen, descriptionId }) {
   const updateStatus = useCallback(() => {
     const editor = getEditor();
     if (!editor) return;
-    setStatus(`${editor.markdown.length} chars · ${editor.decorations.length} decorations`);
+    setStatus(`${editor.interactionMode} · ${editor.markdown.length} chars · ${editor.decorations.length} decorations`);
     refresh();
   }, [getEditor]);
 
@@ -101,6 +101,7 @@ export default function ReactEditor({ historyInitiallyOpen, descriptionId }) {
           resourceResolver={resourceResolver}
           plugins={COMPOSER_PLUGINS}
           onChange={updateStatus}
+          onModeChange={updateStatus}
           onSelectionChange={refresh}
           onLinkOpen={({ destination }) => {
             window.open(destination, '_blank', 'noopener,noreferrer');
@@ -112,7 +113,7 @@ export default function ReactEditor({ historyInitiallyOpen, descriptionId }) {
           onReady={(handle) => {
             setReady(true);
             setStatus(
-              `${handle.getMarkdown().length} chars · ${handle.getDecorations().length} decorations`,
+              `${handle.getInteractionMode()} · ${handle.getMarkdown().length} chars · ${handle.getDecorations().length} decorations`,
             );
             window.__mde = {
               editor: handle.getEditor(),

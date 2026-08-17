@@ -3,6 +3,7 @@
 
 export { Core, Engine, EngineError, Kind, Reveal, Role, DEFAULT_WASM_URL, loadCore } from './core.js';
 export { MarkdownEditor, diffText } from './editor.js';
+export type { MarkdownInteractionMode } from './editor.js';
 export { composeManifests, encodeManifest } from './manifest.js';
 export { composePluginManifests, definePlugin, pluginLayerName } from './plugins.js';
 export { MDE_PLUGIN_API_VERSION, PluginCompatibilityError } from '@mde/plugin-sdk';

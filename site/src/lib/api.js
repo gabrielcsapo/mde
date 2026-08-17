@@ -233,10 +233,17 @@ export const WEB_API = [
         name: 'new MarkdownEditor',
         kind: 'class',
         signature:
-          'new MarkdownEditor(host: HTMLElement, engine: Engine, options?: {widgetProvider?: WidgetProvider, resourceResolver?: ResourceResolver})',
+          "new MarkdownEditor(host: HTMLElement, engine: Engine, options?: {widgetProvider?: WidgetProvider, resourceResolver?: ResourceResolver, interactionMode?: 'edit' | 'view'})",
         summary:
           'Take over `host`: it gains `contenteditable="plaintext-only"`, the `mde-editor` class, and the editor owns its contents from that moment.',
         note: 'The engine is not owned — the caller constructed it and may hand it to another view.',
+      },
+      {
+        name: 'MarkdownEditor.interactionMode',
+        kind: 'property',
+        signature: "get/set interactionMode: 'edit' | 'view' · setInteractionMode(mode): void",
+        summary:
+          'Edit is source-first. View is selectable and read-only, keeps syntax rendered, opens links normally, and leaves programmatic sync APIs available.',
       },
       {
         name: 'MarkdownEditor.setMarkdown',
@@ -363,6 +370,12 @@ export const WEB_API = [
           'The caret or selection moved. Where a host that decorates from the caret recomputes its layer.',
       },
       {
+        name: 'modechange',
+        kind: 'event',
+        signature: "addEventListener('modechange', (e) => e.detail.mode)",
+        summary: 'The interaction mode changed without rebuilding the engine or clearing history.',
+      },
+      {
         name: 'hit',
         kind: 'event',
         signature:
@@ -376,7 +389,7 @@ export const WEB_API = [
         signature:
           "addEventListener('linkopen', (e) => e.detail.destination)",
         summary:
-          'Command/Ctrl-click requested navigation to a parser-resolved link destination.',
+          'A normal click in view mode, or Command/Ctrl-click in edit mode, requested navigation to a parser-resolved destination.',
       },
       {
         name: 'diffText',
@@ -518,10 +531,23 @@ export const REACT_API = [
         note: 'A value equal to what the editor already contains is ignored, so your own onChange echoing back through state is free. A value that differs is reduced to a single minimal replacement and applied through the ordinary edit path. Applying one moves the caret to the end of the replacement whether or not the editor is focused, so do not drive it from a keystroke.',
       },
       {
+        name: 'interactionMode',
+        kind: 'property',
+        signature: "interactionMode?: 'edit' | 'view'",
+        summary:
+          'Switches the live editor between source-first editing and a selectable, fully rendered document without remounting it.',
+      },
+      {
         name: 'onChange',
         kind: 'property',
         signature: 'onChange?(markdown: string, handle: MarkdownEditorHandle): void',
         summary: 'Every edit, including undo and programmatic ones.',
+      },
+      {
+        name: 'onModeChange',
+        kind: 'property',
+        signature: "onModeChange?(mode: 'edit' | 'view', handle: MarkdownEditorHandle): void",
+        summary: 'The live interaction contract changed.',
       },
       {
         name: 'onSelectionChange',
@@ -542,7 +568,7 @@ export const REACT_API = [
         kind: 'property',
         signature:
           'onLinkOpen?(link: {decoration: Decoration, destination: string}, handle: MarkdownEditorHandle): void',
-        summary: 'Command/Ctrl-click requested navigation without changing the Markdown source.',
+        summary: 'Normal click in view, or Command/Ctrl-click in edit, requested navigation without changing source.',
       },
       {
         name: 'onHistoryChange',
@@ -633,6 +659,12 @@ export const REACT_API = [
         signature: 'getMarkdown(): string · setMarkdown(text: string): void',
         summary: 'Read the document, or replace it wholesale.',
         note: '`setMarkdown` resyncs the engine, which clears the undo history.',
+      },
+      {
+        name: 'getInteractionMode / setInteractionMode',
+        kind: 'method',
+        signature: "getInteractionMode(): 'edit' | 'view' · setInteractionMode(mode): void",
+        summary: 'Read or switch the interaction contract without rebuilding the component.',
       },
       {
         name: 'wrapSelection',
@@ -868,6 +900,13 @@ export const SWIFT_API = [
         summary: 'The document. Reading it is reading the text storage.',
       },
       {
+        name: 'MarkdownTextView.interactionMode',
+        kind: 'property',
+        signature: 'var interactionMode: MarkdownInteractionMode // .edit or .view',
+        summary:
+          'View mode keeps UIKit/AppKit text selectable and renderer controls interactive, but prevents native edits, syntax reveal, and task toggles.',
+      },
+      {
         name: 'MarkdownTextView.decorations',
         kind: 'property',
         signature: 'var decorations: [Decoration] { get }',
@@ -933,7 +972,7 @@ export const SWIFT_API = [
         kind: 'method',
         signature: '@discardableResult func requestOpenLink(at offset: Int) -> Bool',
         summary:
-          'Ask the host delegate to open the parser-resolved link at an offset. Used by Command-click and iOS long press.',
+          'Ask the host delegate to open the parser-resolved link at an offset. View mode uses an ordinary click/tap; edit mode uses Command-click or iOS long press.',
       },
       {
         name: 'MarkdownTextView.setLayer',

@@ -9,6 +9,8 @@ import MDEHost
 final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
     private var editor: MarkdownTextView!
+    private var boldItem: NSButton!
+    private var modeItem: NSButton!
     private var undoItem: NSButton!
     private var typewriterItem: NSButton!
     private var posItem: NSButton!
@@ -78,13 +80,15 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
 
         undoItem = NSButton(title: "Undo", target: self, action: #selector(undoTapped))
         redoItem = NSButton(title: "Redo", target: self, action: #selector(redoTapped))
-        let bold = NSButton(title: "Bold", target: self, action: #selector(boldTapped))
+        boldItem = NSButton(title: "Bold", target: self, action: #selector(boldTapped))
+        modeItem = NSButton(title: "View", target: self, action: #selector(modeTapped))
+        modeItem.setButtonType(.toggle)
         // Both features are toggled the same way, because both are just a layer being
         // pushed and cleared. Neither needed a change to the editor.
         typewriterItem = NSButton(title: "Typewriter", target: self, action: #selector(typewriterTapped))
         posItem = NSButton(title: "Parts of speech", target: self, action: #selector(posTapped))
         historyItem = NSButton(title: "History", target: self, action: #selector(historyTapped))
-        for b in [bold, undoItem!, redoItem!, typewriterItem!, posItem!, historyItem!] {
+        for b in [modeItem!, boldItem!, undoItem!, redoItem!, typewriterItem!, posItem!, historyItem!] {
             bar.addArrangedSubview(b)
         }
         bar.addArrangedSubview(NSView())
@@ -182,9 +186,20 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         refreshButtons()
     }
 
+    @objc private func modeTapped() {
+        editor.interactionMode = editor.interactionMode == .edit ? .view : .edit
+        refreshButtons()
+    }
+
     private func refreshButtons() {
-        undoItem.isEnabled = editor.canUndo
-        redoItem.isEnabled = editor.canRedo
+        let edits = editor.interactionMode == .edit
+        modeItem.state = edits ? .off : .on
+        boldItem.isEnabled = edits
+        undoItem.isEnabled = edits && editor.canUndo
+        redoItem.isEnabled = edits && editor.canRedo
+        historyItem.isEnabled = edits
+        typewriterItem.isEnabled = edits
+        posItem.isEnabled = edits
         typewriterItem.state = typewriter.isEnabled ? .on : .off
         posItem.state = partsOfSpeech.isEnabled ? .on : .off
     }
@@ -202,6 +217,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// A formatting command: fence it with undo boundaries so it comes off in one step
     /// rather than as two stray marker insertions.
     @objc private func boldTapped() {
+        guard editor.interactionMode == .edit else { return }
         let range = editor.selectedRange()
         guard range.length > 0, let storage = editor.textStorage else { return }
         let selected = (storage.string as NSString).substring(with: range)

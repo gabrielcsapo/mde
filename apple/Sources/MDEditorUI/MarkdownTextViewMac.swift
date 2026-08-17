@@ -8,7 +8,7 @@ import MDEPluginKit
 public protocol MarkdownTextViewDelegate: AnyObject {
     /// A `Hit` decoration was clicked — a task checkbox, a mention chip.
     func markdownTextView(_ view: MarkdownTextView, didTap decoration: Decoration, source: String)
-    /// Command-click requested navigation without taking normal clicks away from editing.
+    /// View-mode clicks and edit-mode Command-clicks request navigation.
     func markdownTextView(_ view: MarkdownTextView, didRequestOpenLink destination: String)
     func markdownTextViewDidChange(_ view: MarkdownTextView)
     /// The caret or selection moved. Hosts that decorate from the caret's position —
@@ -41,6 +41,13 @@ private final class AppKitPluginPresentationRecord {
 public final class MarkdownTextView: NSTextView {
     public var engine: MarkdownEngine { applier.engine }
     public weak var markdownDelegate: (any MarkdownTextViewDelegate)?
+    /// View mode stays selectable and interactive, but never exposes or changes source.
+    public var interactionMode: MarkdownInteractionMode = .edit {
+        didSet {
+            guard oldValue != interactionMode else { return }
+            applyInteractionMode()
+        }
+    }
     /// Optional host-backed persistence for namespaced plugin state.
     public var pluginStateStore: (any MarkdownPluginStateStore)?
 
@@ -195,10 +202,26 @@ public final class MarkdownTextView: NSTextView {
         isVerticallyResizable = true
         isHorizontallyResizable = false
         autoresizingMask = [.width]
+        applyInteractionMode()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
+
+    private func applyInteractionMode() {
+        for name in pluginPresentationOrder.reversed() {
+            removePluginPresentation(name, reason: .programmatic)
+        }
+        isEditable = interactionMode == .edit
+        isSelectable = true
+        if interactionMode == .view {
+            if window?.firstResponder === self { window?.makeFirstResponder(nil) }
+            hasReportedSelection = false
+            lastReportedSelection = nil
+            applyPatch(engine.setSelection(nil))
+            pluginsDidChangeSelection()
+        }
+    }
 
     override public func layout() {
         super.layout()
@@ -670,7 +693,7 @@ public final class MarkdownTextView: NSTextView {
         guard !hasReportedSelection || lastReportedSelection != selection else { return }
         lastReportedSelection = selection
         hasReportedSelection = true
-        applyPatch(engine.setSelection(selection))
+        applyPatch(engine.setSelection(interactionMode == .edit ? selection : nil))
         pluginsDidChangeSelection()
         markdownDelegate?.markdownTextViewDidChangeSelection(self)
     }
@@ -698,6 +721,11 @@ public final class MarkdownTextView: NSTextView {
         let point = convert(event.locationInWindow, from: nil)
         dismissPluginPresentations(at: point)
         let index = characterIndexForInsertion(at: point)
+        if interactionMode == .view {
+            if requestOpenLink(at: index) { return }
+            super.mouseDown(with: event)
+            return
+        }
         if event.modifierFlags.contains(.command),
            requestOpenLink(at: index) {
             return
@@ -721,6 +749,7 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public func toggleTask(at decoration: Decoration) {
+        guard interactionMode == .edit else { return }
         guard let storage = textStorage else { return }
         let ns = string as NSString
         guard decoration.range.upperBound <= ns.length else { return }
@@ -972,7 +1001,7 @@ public final class MarkdownTextView: NSTextView {
                             payload: attachment.payload
                         ) ?? false),
                     revealSource: { [weak self] in
-                        guard let self else { return }
+                        guard let self, self.interactionMode == .edit else { return }
                         self.window?.makeFirstResponder(self)
                         let source = NSRange(
                             location: min(range.location + 1, range.upperBound),

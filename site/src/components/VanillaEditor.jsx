@@ -79,10 +79,11 @@ export default function VanillaEditor({ historyInitiallyOpen, descriptionId }) {
       }
 
       const onChange = () => {
-        setStatus(`${ed.markdown.length} chars · ${ed.decorations.length} decorations`);
+        setStatus(`${ed.interactionMode} · ${ed.markdown.length} chars · ${ed.decorations.length} decorations`);
         refresh();
       };
       ed.addEventListener('change', onChange);
+      ed.addEventListener('modechange', onChange);
 
       ed.addEventListener('hit', (e) => {
         if (e.detail.decoration.role === Role.TaskCheckbox) {

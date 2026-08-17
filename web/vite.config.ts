@@ -48,6 +48,7 @@ export default defineConfig({
       maxBackgroundTransition: Number(
         process.env.MDE_WEB_BACKGROUND_TRANSITION_BUDGET_MS ?? 100,
       ),
+      maxModeTransition: Number(process.env.MDE_WEB_MODE_TRANSITION_BUDGET_MS ?? 50),
       heapGrowth: Number(process.env.MDE_WEB_LIFECYCLE_HEAP_GROWTH_BUDGET_BYTES ?? 80000000),
     }),
     __MDE_EXTENDED_BUDGETS__: JSON.stringify({

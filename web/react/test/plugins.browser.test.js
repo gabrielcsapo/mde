@@ -170,6 +170,32 @@ test('React handle exposes discoverable plugin commands', async () => {
   expect(seen).toEqual(['run']);
 });
 
+test('React changes interaction mode without remounting or losing source', async () => {
+  const ref = createRef();
+  const seen = [];
+  const props = {
+    ref,
+    defaultValue: 'Read [the docs](https://example.dev)',
+    onModeChange: (mode) => seen.push(mode),
+  };
+  const { root } = mount(createElement(MarkdownEditor, {
+    ...props,
+    interactionMode: 'view',
+  }));
+  await until(() => ref.current?.isReady(), 'React editor never became ready');
+  expect(ref.current.getInteractionMode()).toBe('view');
+  expect(ref.current.getElement().getAttribute('contenteditable')).toBe('false');
+
+  root.render(createElement(MarkdownEditor, { ...props, interactionMode: 'edit' }));
+  await until(() => ref.current.getInteractionMode() === 'edit', 'mode prop stayed stale');
+  expect(ref.current.getMarkdown()).toBe(props.defaultValue);
+  expect(seen).toContain('edit');
+
+  ref.current.setInteractionMode('view');
+  expect(ref.current.getInteractionMode()).toBe('view');
+  expect(seen).toContain('view');
+});
+
 test('React command hook receives the live registry', async () => {
   const ref = createRef();
   const plugin = definePlugin({

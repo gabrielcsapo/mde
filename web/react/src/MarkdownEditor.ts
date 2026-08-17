@@ -105,7 +105,9 @@ function MarkdownEditorImpl(props, forwardedRef) {
     /* eslint-disable no-unused-vars */
     defaultValue,
     value,
+    interactionMode,
     onChange,
+    onModeChange,
     onSelectionChange: _onSelectionChange,
     onHit,
     onLinkOpen,
@@ -201,6 +203,10 @@ function MarkdownEditorImpl(props, forwardedRef) {
       latest.current.onSelectionChange?.(event.detail?.range ?? null, api);
     };
 
+    const onModeChange = (/** @type {any} */ event) => {
+      latest.current.onModeChange?.(event.detail?.mode ?? 'edit', api);
+    };
+
     const onHit = (/** @type {any} */ event) => {
       const detail = event.detail;
       const wantsTasks = latest.current.toggleTasksOnClick !== false;
@@ -251,7 +257,11 @@ function MarkdownEditorImpl(props, forwardedRef) {
             }
           : undefined;
 
-        editor = new CoreEditor(host, engine, { widgetProvider, resourceResolver });
+        editor = new CoreEditor(host, engine, {
+          widgetProvider,
+          resourceResolver,
+          interactionMode: props0.interactionMode ?? 'edit',
+        });
         editorRef.current = editor;
         alive.add(editor);
         layerState.current = { sigs: {}, roles: new Map() };
@@ -261,6 +271,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
 
         editor.addEventListener('change', onChange);
         editor.addEventListener('selectionchange', onSelectionChange);
+        editor.addEventListener('modechange', onModeChange);
         editor.addEventListener('hit', onHit);
         editor.addEventListener('linkopen', onLinkOpen);
         editor.addEventListener('commandschange', onCommandsChange);
@@ -310,6 +321,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
       if (editor) {
         editor.removeEventListener('change', onChange);
         editor.removeEventListener('selectionchange', onSelectionChange);
+        editor.removeEventListener('modechange', onModeChange);
         editor.removeEventListener('hit', onHit);
         editor.removeEventListener('linkopen', onLinkOpen);
         editor.removeEventListener('commandschange', onCommandsChange);
@@ -359,6 +371,12 @@ function MarkdownEditorImpl(props, forwardedRef) {
     editor.closeUndoGroup();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, generation]);
+
+  // Mode is a cheap presentation contract and can change without rebuilding the engine
+  // or losing document history.
+  useLayoutEffect(() => {
+    editorRef.current?.setInteractionMode(interactionMode ?? 'edit');
+  }, [interactionMode, generation]);
 
   // MARK: - Declarative layers (DESIGN §5.3)
   useEffect(() => {
@@ -491,6 +509,8 @@ function makeHandle({ editorRef, coreRef, engineRef, hostRef }) {
     getCore: () => coreRef.current,
     getElement: () => hostRef.current,
     focus: () => ed()?.root.focus(),
+    getInteractionMode: () => ed()?.interactionMode ?? 'edit',
+    setInteractionMode: (mode) => ed()?.setInteractionMode(mode),
 
     // ---- document
     getMarkdown: () => ed()?.markdown ?? '',

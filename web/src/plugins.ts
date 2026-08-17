@@ -215,6 +215,7 @@ export interface EditorPluginContext {
 
 export interface EditorEventMap {
   change: Event;
+  modechange: CustomEvent<{ mode: 'edit' | 'view' }>;
   selectionchange: CustomEvent<{ range: SelectionRange | null }>;
   hit: CustomEvent<{ decoration: Decoration; source: string }>;
   linkopen: CustomEvent<{ decoration: Decoration; destination: string }>;

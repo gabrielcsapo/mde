@@ -9,8 +9,7 @@ import UIKit
 public protocol MarkdownTextViewDelegate: AnyObject {
     /// A `Hit` decoration was tapped — a task checkbox, a mention chip.
     func markdownTextView(_ view: MarkdownTextView, didTap decoration: Decoration, source: String)
-    /// A long-pressed link label requested navigation without stealing ordinary taps
-    /// from source editing.
+    /// View-mode taps and edit-mode long presses request navigation.
     func markdownTextView(_ view: MarkdownTextView, didRequestOpenLink destination: String)
     func markdownTextViewDidChange(_ view: MarkdownTextView)
     /// The caret or selection moved. Hosts that decorate from the caret's position —
@@ -44,6 +43,13 @@ private final class UIKitPluginPresentationRecord {
 public final class MarkdownTextView: UITextView {
     public var engine: MarkdownEngine { applier.engine }
     public weak var markdownDelegate: (any MarkdownTextViewDelegate)?
+    /// View mode stays selectable and interactive, but never exposes or changes source.
+    public var interactionMode: MarkdownInteractionMode = .edit {
+        didSet {
+            guard oldValue != interactionMode else { return }
+            applyInteractionMode()
+        }
+    }
     /// Optional host-backed persistence for namespaced plugin state.
     public var pluginStateStore: (any MarkdownPluginStateStore)?
 
@@ -208,10 +214,24 @@ public final class MarkdownTextView: UITextView {
         linkPress.minimumPressDuration = 0.45
         linkPress.cancelsTouchesInView = false
         addGestureRecognizer(linkPress)
+        applyInteractionMode()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
+
+    private func applyInteractionMode() {
+        for name in pluginPresentationOrder.reversed() {
+            removePluginPresentation(name, reason: .programmatic)
+        }
+        isEditable = interactionMode == .edit
+        isSelectable = true
+        if interactionMode == .view {
+            _ = resignFirstResponder()
+            applyPatch(engine.setSelection(nil))
+            pluginsDidChangeSelection()
+        }
+    }
 
     override public func layoutSubviews() {
         super.layoutSubviews()
@@ -682,7 +702,7 @@ public final class MarkdownTextView: UITextView {
 
     private func reportSelection() {
         guard isFirstResponder else { return }
-        applyPatch(engine.setSelection(selectedRange))
+        applyPatch(engine.setSelection(interactionMode == .edit ? selectedRange : nil))
         pluginsDidChangeSelection()
         markdownDelegate?.markdownTextViewDidChangeSelection(self)
     }
@@ -707,13 +727,18 @@ public final class MarkdownTextView: UITextView {
         dismissPluginPresentations(at: point)
         guard let position = closestPosition(to: point) else { return }
         let index = offset(from: beginningOfDocument, to: position)
+        if interactionMode == .view {
+            _ = requestOpenLink(at: index)
+            return
+        }
         guard let hit = applier.hit(at: index) else { return }
         let source = (textStorage.string as NSString).substring(with: hit.range)
         markdownDelegate?.markdownTextView(self, didTap: hit, source: source)
     }
 
     @objc private func handleLinkPress(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began,
+        guard interactionMode == .edit,
+              gesture.state == .began,
               let position = closestPosition(to: gesture.location(in: self))
         else { return }
         let index = offset(from: beginningOfDocument, to: position)
@@ -734,6 +759,7 @@ public final class MarkdownTextView: UITextView {
     /// Toggle a `- [ ]` / `- [x]` checkbox. Goes through the normal edit path, so it
     /// lands in the undo history as its own step.
     public func toggleTask(at decoration: Decoration) {
+        guard interactionMode == .edit else { return }
         let ns = textStorage.string as NSString
         guard decoration.range.upperBound <= ns.length else { return }
         let replacement = ns.substring(with: decoration.range).lowercased().contains("x")
@@ -987,8 +1013,8 @@ public final class MarkdownTextView: UITextView {
                             payload: attachment.payload
                         ) ?? false),
                     revealSource: { [weak self] in
-                        guard let self else { return }
-                        self.becomeFirstResponder()
+                        guard let self, self.interactionMode == .edit else { return }
+                        _ = self.becomeFirstResponder()
                         let source = NSRange(
                             location: min(range.location + 1, range.upperBound),
                             length: 0

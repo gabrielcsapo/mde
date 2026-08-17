@@ -34,6 +34,7 @@ test.runIf(__MDE_PERF_LIFECYCLE__)('repeated editor lifecycle stays bounded', as
   let maxOperation = 0;
   let maxFrameGap = 0;
   let maxBackgroundTransition = 0;
+  let maxModeTransition = 0;
   let previousFrame = performance.now();
 
   for (let cycle = 0; cycle < 30; cycle++) {
@@ -68,6 +69,12 @@ test.runIf(__MDE_PERF_LIFECYCLE__)('repeated editor lifecycle stays bounded', as
     maxBackgroundTransition = Math.max(
       maxBackgroundTransition, (performance.now() - started) / 3,
     );
+    started = performance.now();
+    for (let transition = 0; transition < 3; transition++) {
+      editor.interactionMode = 'view';
+      editor.interactionMode = 'edit';
+    }
+    maxModeTransition = Math.max(maxModeTransition, (performance.now() - started) / 6);
     expect(editor.markdown).toBe(source.slice(0, editAt) + 'x' + source.slice(editAt));
     await nextFrame();
     const now = performance.now();
@@ -82,7 +89,7 @@ test.runIf(__MDE_PERF_LIFECYCLE__)('repeated editor lifecycle stays bounded', as
   const heapGrowth = heapBefore === null || heapAfter === null
     ? 0 : Math.max(0, heapAfter - heapBefore);
   const report = {
-    maxOperation, maxFrameGap, maxBackgroundTransition, heapGrowth,
+    maxOperation, maxFrameGap, maxBackgroundTransition, maxModeTransition, heapGrowth,
     retainedNodes: document.body.children.length,
   };
   await fetch('/__mde_perf_lifecycle_report', {
@@ -93,6 +100,7 @@ test.runIf(__MDE_PERF_LIFECYCLE__)('repeated editor lifecycle stays bounded', as
   expect(maxBackgroundTransition).toBeLessThanOrEqual(
     __MDE_LIFECYCLE_BUDGETS__.maxBackgroundTransition,
   );
+  expect(maxModeTransition).toBeLessThanOrEqual(__MDE_LIFECYCLE_BUDGETS__.maxModeTransition);
   expect(heapGrowth).toBeLessThanOrEqual(__MDE_LIFECYCLE_BUDGETS__.heapGrowth);
   expect(report.retainedNodes).toBe(0);
 }, 60_000);
