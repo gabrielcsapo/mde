@@ -19,9 +19,11 @@ Conceal       link              83..105  caret_in_node "](https://example.dev)"
 Gutter        quote            117..118  never         ">" depth=1
 Gutter        quote            131..132  never         ">" depth=1
 Gutter        quote            133..134  never         ">" depth=2
-Gutter        list.bullet      149..150  never         "-"
-Gutter        list.bullet      162..163  never         "-"
+Gutter        list.bullet      149..150  never         "-" depth=1
+Conceal       marker           162..163  caret_in_line "-"
+Conceal       task.checkbox    164..167  caret_in_node "[ ]"
 Hit           task.checkbox    164..167  never         "[ ]"
-Gutter        list.bullet      175..176  never         "-"
+Conceal       marker           175..176  caret_in_line "-"
+Conceal       task.checkbox    177..180  caret_in_node "[x]"
 Hit           task.checkbox    177..180  never         "[x]"
 Style         rule             194..198  never         "---\n"

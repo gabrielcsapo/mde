@@ -1420,6 +1420,31 @@ final class MacRendererTests: XCTestCase {
         XCTAssertEqual(storage.string, source)
     }
 
+    func testResolvedInlineResourceReplacesItsLoadingOverlay() throws {
+        let source = "![chart](chart.png)\n"
+        let resolver = DeferredResolver()
+        editor.resourceResolver = resolver
+        editor.setMarkdown(source)
+        forceLayout()
+
+        let loading = try XCTUnwrap(
+            editor.subviews.compactMap { $0 as? WidgetContainer }.first
+        )
+        XCTAssertEqual(resolver.deliveries.count, 1)
+
+        resolver.deliveries[0](.ready(FixedSizeView(size: CGSize(width: 96, height: 54))))
+        drainMainQueue()
+        forceLayout()
+
+        let resolved = try XCTUnwrap(
+            editor.subviews.compactMap { $0 as? WidgetContainer }.first
+        )
+        XCTAssertFalse(resolved === loading, "resource completion retained its loading container")
+        XCTAssertTrue(resolved.subviews.contains { $0 is FixedSizeView })
+        XCTAssertEqual(editor.markdown, source)
+        XCTAssertEqual(storage.string, source)
+    }
+
     // MARK: - Widget view cache
 
     /// A keystroke elsewhere in the paragraph must not make the host redraw a widget
@@ -1645,6 +1670,122 @@ final class MacRendererTests: XCTestCase {
         )
         editor.toggleTask(at: uppercase)
         XCTAssertEqual(editor.markdown, "- [ ] already checked\n")
+    }
+
+    func testListsProjectNativeBulletsAndCheckboxesWithoutChangingMarkdown() throws {
+        let source = "- unordered\n1. ordered\n- [ ] open\n- [x] done\n"
+        editor.setMarkdown(source)
+        let ns = source as NSString
+        let bullet = ns.range(of: "- unordered").location
+        let ordered = ns.range(of: "1. ordered").location
+        let open = ns.range(of: "[ ]")
+        let done = ns.range(of: "[x]")
+
+        focus()
+        editor.setSelectedRange(NSRange(location: ns.length, length: 0))
+        XCTAssertEqual(
+            attribute(DecorationApplier.listProjectionAttribute, at: bullet) as String?,
+            "•"
+        )
+        XCTAssertNil(attribute(DecorationApplier.listProjectionAttribute, at: ordered) as String?)
+        XCTAssertGreaterThan(attribute(.kern, at: ordered + 1) as CGFloat? ?? 0, 0)
+        XCTAssertEqual(
+            attribute(DecorationApplier.listProjectionAttribute, at: open.location) as String?,
+            "□"
+        )
+        XCTAssertEqual(
+            attribute(DecorationApplier.listProjectionAttribute, at: done.location) as String?,
+            "☑"
+        )
+        XCTAssertEqual(storage.string, source)
+        XCTAssertEqual(editor.markdown, source)
+
+        editor.setSelectedRange(NSRange(location: open.location + 1, length: 0))
+        XCTAssertNil(
+            attribute(DecorationApplier.listProjectionAttribute, at: open.location) as String?,
+            "the exact task marker should return when the caret enters it"
+        )
+        XCTAssertGreaterThan(fontSize(at: open.location), 1)
+    }
+
+    func testBlockQuotesProjectRailsWithoutChangingMarkdown() {
+        let source = "> quoted\n> > nested\n"
+        editor.setMarkdown(source)
+        let ns = source as NSString
+        let first = ns.range(of: ">").location
+        let nested = ns.range(of: ">", options: [], range: NSRange(location: first + 1, length: ns.length - first - 1)).location
+
+        focus()
+        editor.setSelectedRange(NSRange(location: ns.length, length: 0))
+        XCTAssertEqual(
+            attribute(DecorationApplier.listProjectionAttribute, at: first) as String?,
+            "│"
+        )
+        XCTAssertEqual(
+            attribute(DecorationApplier.listProjectionAttribute, at: nested) as String?,
+            "│"
+        )
+        XCTAssertEqual(storage.string, source)
+        XCTAssertEqual(editor.markdown, source)
+    }
+
+    func testEveryCommonMarkHelpSpellingReachesTheNativeRenderer() {
+        let cases: [(String, UInt32)] = [
+            ("*italic*", Role.emphasis),
+            ("_italic_", Role.emphasis),
+            ("**bold**", Role.strong),
+            ("__bold__", Role.strong),
+            ("## heading\n", Role.heading),
+            ("heading\n-------\n", Role.heading),
+            ("[label](https://example.dev)", Role.linkText),
+            ("[label][id]\n\n[id]: /path\n", Role.linkText),
+            ("![alt](chart.png)", Role.image),
+            ("![alt][image]\n\n[image]: chart.png\n", Role.image),
+            ("> quoted\n", Role.quote),
+            ("* item\n", Role.listBullet),
+            ("- item\n", Role.listBullet),
+            ("+ item\n", Role.listBullet),
+            ("1. item\n", Role.listBullet),
+            ("1) item\n", Role.listBullet),
+            ("---\n", Role.rule),
+            ("***\n", Role.rule),
+            ("* * *\n", Role.rule),
+            ("`code`", Role.codeInline),
+            ("```\ncode\n```\n", Role.codeBlock),
+            ("    code\n", Role.codeBlock),
+        ]
+        for (source, role) in cases {
+            editor.setMarkdown(source)
+            XCTAssertTrue(
+                editor.decorations.contains { $0.role == role },
+                "\(source.debugDescription) did not reach native role \(role)"
+            )
+            XCTAssertEqual(storage.string, source)
+            XCTAssertEqual(editor.markdown, source)
+        }
+    }
+
+    func testThematicBreakAndCodeScaffoldingProjectWithoutChangingMarkdown() {
+        let source = "---\n\n    indented\n\n```swift\nfenced\n```\n"
+        editor.setMarkdown(source)
+        let ns = source as NSString
+        let rule = ns.range(of: "---")
+        let indent = ns.range(of: "    indented")
+        let opening = ns.range(of: "```swift")
+        let closing = ns.range(of: "```", options: .backwards)
+
+        XCTAssertNotNil(attribute(.strikethroughStyle, at: rule.location))
+        XCTAssertTrue(
+            editor.decorations.contains {
+                $0.kind == .conceal && NSLocationInRange(indent.location, $0.range)
+            },
+            "indented-code conceal missing: \(editor.decorations)"
+        )
+        XCTAssertEqual(fontSize(at: indent.location), 0.01, accuracy: 0.001)
+        XCTAssertEqual(fontSize(at: opening.location), 0.01, accuracy: 0.001)
+        XCTAssertEqual(fontSize(at: closing.location), 0.01, accuracy: 0.001)
+        XCTAssertEqual(storage.string, source)
+        XCTAssertEqual(editor.markdown, source)
     }
 
     func testTheViewRefusesToUndoWhenThereIsNothingToUndo() {

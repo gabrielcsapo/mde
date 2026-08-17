@@ -1,6 +1,7 @@
 #if !os(macOS)
 import MDECore
 import MDEPluginKit
+import CoreText
 import UIKit
 
 /// UIKit callbacks a host can observe without taking the `UITextViewDelegate` slot,
@@ -889,6 +890,9 @@ public final class MarkdownTextView: UITextView {
     /// A resource finished loading. Repaint only the nodes that point at it, so one
     /// slow image does not re-lay-out the document.
     private func repaintNodes(referencing reference: String) {
+        for key in applier.widgetKeys(referencing: reference) {
+            widgetOverlays.removeValue(forKey: key)?.removeFromSuperview()
+        }
         for range in applier.ranges(referencing: reference) {
             applier.repaint(range, in: textStorage)
         }
@@ -1024,6 +1028,7 @@ extension MarkdownTextView: NSLayoutManagerDelegate {
             return 0
         }
         var widgetCharacters = Set<Int>()
+        var listProjections: [Int: String] = [:]
         storage.enumerateAttribute(
             DecorationApplier.widgetAttachmentAttribute,
             in: NSRange(location: first, length: min(storage.length - first, last - first + 1)),
@@ -1031,9 +1036,29 @@ extension MarkdownTextView: NSLayoutManagerDelegate {
         ) { value, range, _ in
             if value is WidgetAttachment { widgetCharacters.insert(range.location) }
         }
-        guard !widgetCharacters.isEmpty else { return 0 }
+        storage.enumerateAttribute(
+            DecorationApplier.listProjectionAttribute,
+            in: NSRange(location: first, length: min(storage.length - first, last - first + 1)),
+            options: []
+        ) { value, range, _ in
+            if let projection = value as? String { listProjections[range.location] = projection }
+        }
+        guard !widgetCharacters.isEmpty || !listProjections.isEmpty else { return 0 }
         var changed = false
-        for index in generatedProps.indices where widgetCharacters.contains(generatedIndexes[index]) {
+        for index in generatedProps.indices {
+            if let projection = listProjections[generatedIndexes[index]],
+               let character = projection.utf16.first {
+                var source = character
+                var glyph: CGGlyph = 0
+                let font = CTFontCreateUIFontForLanguage(.system, aFont.pointSize, nil)
+                if let font,
+                   CTFontGetGlyphsForCharacters(font, &source, &glyph, 1), glyph != 0 {
+                    generatedGlyphs[index] = glyph
+                    changed = true
+                    continue
+                }
+            }
+            guard widgetCharacters.contains(generatedIndexes[index]) else { continue }
             generatedGlyphs[index] = 0
             generatedProps[index].insert(.controlCharacter)
             changed = true

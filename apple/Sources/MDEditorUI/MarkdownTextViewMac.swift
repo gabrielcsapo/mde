@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CoreText
 import MDECore
 import MDEPluginKit
 
@@ -868,6 +869,9 @@ public final class MarkdownTextView: NSTextView {
 
     private func repaintNodes(referencing reference: String) {
         guard let storage = textStorage else { return }
+        for key in applier.widgetKeys(referencing: reference) {
+            widgetOverlays.removeValue(forKey: key)?.removeFromSuperview()
+        }
         for range in applier.ranges(referencing: reference) {
             applier.repaint(range, in: storage)
         }
@@ -1006,6 +1010,7 @@ extension MarkdownTextView: NSLayoutManagerDelegate {
               first < storage.length
         else { return 0 }
         var widgetCharacters = Set<Int>()
+        var listProjections: [Int: String] = [:]
         storage.enumerateAttribute(
             DecorationApplier.widgetAttachmentAttribute,
             in: NSRange(
@@ -1016,9 +1021,31 @@ extension MarkdownTextView: NSLayoutManagerDelegate {
         ) { value, range, _ in
             if value is WidgetAttachment { widgetCharacters.insert(range.location) }
         }
-        guard !widgetCharacters.isEmpty else { return 0 }
+        storage.enumerateAttribute(
+            DecorationApplier.listProjectionAttribute,
+            in: NSRange(
+                location: first,
+                length: min(storage.length - first, last - first + 1)
+            ),
+            options: []
+        ) { value, range, _ in
+            if let projection = value as? String { listProjections[range.location] = projection }
+        }
+        guard !widgetCharacters.isEmpty || !listProjections.isEmpty else { return 0 }
         var changed = false
         for index in generatedProps.indices {
+            if let projection = listProjections[generatedIndexes[index]],
+               let character = projection.utf16.first {
+                var source = character
+                var glyph: CGGlyph = 0
+                let font = CTFontCreateUIFontForLanguage(.system, aFont.pointSize, nil)
+                if let font,
+                   CTFontGetGlyphsForCharacters(font, &source, &glyph, 1), glyph != 0 {
+                    generatedGlyphs[index] = glyph
+                    changed = true
+                    continue
+                }
+            }
             guard widgetCharacters.contains(generatedIndexes[index]) else { continue }
             generatedGlyphs[index] = 0
             generatedProps[index].insert(.controlCharacter)

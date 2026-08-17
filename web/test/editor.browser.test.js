@@ -533,6 +533,75 @@ function makeEditor(options = {}) {
     assert(underline, 'setext underline was not concealed');
   });
 
+  test('block quote markers project as rails without changing their source', () => {
+    const e = makeEditor();
+    const source = '> quoted\n> > nested\n';
+    e.setMarkdown(source);
+
+    const quotes = [...e.root.querySelectorAll('.mde-quote')];
+    assertEqual(quotes.length, 3);
+    assertEqual(quotes.map((quote) => quote.textContent).join(''), '>>>');
+    assertEqual(getComputedStyle(quotes[0]).color, 'rgba(0, 0, 0, 0)');
+    assertEqual(getComputedStyle(quotes[0], '::after').content, '\"\"');
+    assertEqual(domText(e.root), source);
+    assertEqual(e.markdown, source);
+  });
+
+  test('thematic breaks and code scaffolding project without changing source', () => {
+    const e = makeEditor();
+    const source = '---\n\n    indented\n\n```swift\nfenced\n```\n';
+    e.setMarkdown(source);
+
+    const rule = e.root.querySelector('.mde-rule');
+    assert(rule, 'thematic break did not reach its projection');
+    assertEqual(getComputedStyle(rule).color, 'rgba(0, 0, 0, 0)');
+    assertEqual(getComputedStyle(rule, '::after').content, '\"\"');
+    const concealed = [...e.root.querySelectorAll('.mde-conceal')].map((item) => item.textContent);
+    assert(concealed.includes('    '), 'indented code scaffolding stayed visible');
+    assert(concealed.includes('```swift\n'), 'opening fence stayed visible');
+    assert(concealed.includes('```'), 'closing fence stayed visible');
+    assertEqual(domText(e.root), source);
+    assertEqual(e.markdown, source);
+  });
+
+  test('every CommonMark help spelling reaches the browser renderer', () => {
+    const e = makeEditor();
+    const cases = [
+      ['*italic*', '.mde-emphasis'],
+      ['_italic_', '.mde-emphasis'],
+      ['**bold**', '.mde-strong'],
+      ['__bold__', '.mde-strong'],
+      ['## heading\n', '.mde-heading.mde-h2'],
+      ['heading\n-------\n', '.mde-heading.mde-h2'],
+      ['[label](https://example.dev)', '.mde-link-text'],
+      ['[label][id]\n\n[id]: /path\n', '.mde-link-text'],
+      ['> quoted\n', '.mde-quote'],
+      ['* item\n', '.mde-list-unordered'],
+      ['- item\n', '.mde-list-unordered'],
+      ['+ item\n', '.mde-list-unordered'],
+      ['1. item\n', '.mde-list-ordered'],
+      ['1) item\n', '.mde-list-ordered'],
+      ['---\n', '.mde-rule'],
+      ['***\n', '.mde-rule'],
+      ['* * *\n', '.mde-rule'],
+      ['`code`', '.mde-code-inline'],
+      ['```\ncode\n```\n', '.mde-code-block'],
+      ['    code\n', '.mde-code-block'],
+    ];
+    for (const [source, selector] of cases) {
+      e.setMarkdown(source);
+      assert(e.root.querySelector(selector), `${JSON.stringify(source)} did not render ${selector}`);
+      assertEqual(domText(e.root), source, `${JSON.stringify(source)} changed its source`);
+    }
+
+    for (const source of ['![alt](chart.png)', '![alt][image]\n\n[image]: chart.png\n']) {
+      e.setMarkdown(source);
+      assert(e.decorations.some((item) => item.role === Role.Image), 'image missed the widget path');
+      assert(e.root.querySelector('.mde-widget'), 'image did not reach the browser widget renderer');
+      assertEqual(domText(e.root), source);
+    }
+  });
+
   test('raw HTML is visibly source, not ordinary prose', () => {
     const e = makeEditor();
     const source = 'Press <kbd>Enter</kbd>.';
@@ -853,6 +922,32 @@ function makeEditor(options = {}) {
     assert(uppercase, 'no uppercase checkbox decoration');
     e.toggleTask(uppercase);
     assertEqual(e.markdown, '- [ ] already checked\n');
+  });
+
+  test('lists project bullets and checkboxes while keeping exact editable source', () => {
+    const e = makeEditor();
+    const source = '* star\n  - nested dash\n    + nested plus\n1. ordered\n2) parenthesized\n- [ ] open\n- [x] done\n';
+    e.setMarkdown(source);
+
+    assertEqual(domText(e.root), source);
+    assertEqual(e.root.querySelectorAll('.mde-list-unordered').length, 3);
+    assertEqual(e.root.querySelectorAll('.mde-list-ordered').length, 2);
+    assert(e.root.querySelector('.mde-list-depth-3'), 'nested marker lost its depth');
+    const tasks = [...e.root.querySelectorAll('.mde-task-projected')];
+    assertEqual(tasks.length, 2);
+    assert(!tasks[0].classList.contains('mde-task-checked'));
+    assert(tasks[1].classList.contains('mde-task-checked'));
+
+    const open = source.indexOf('[ ]');
+    e.root.focus();
+    e.setSelectionRange({ start: open + 1, end: open + 1 });
+    e.onSelectionChange();
+    assertEqual(domText(e.root), source);
+    assertEqual(
+      [...e.root.querySelectorAll('.mde-task-projected')].length,
+      1,
+      'the selected checkbox did not reveal its Markdown source',
+    );
   });
 
   test('undo restores the caret to where the edit began', () => {

@@ -130,6 +130,7 @@ enum RendererTestMode {
             let pluginCleanup = pluginRemoved
                 && plugin.uninstalls == 1
                 && !editor.decorations.contains { $0.role == plugin.role }
+            let commonMarkHelp = commonMarkHelpReachesRenderer(editor)
 
             finish([
                 "fixture": true,
@@ -153,8 +154,46 @@ enum RendererTestMode {
                 "pluginInstalled": pluginInstalled,
                 "pluginLayer": pluginLayer,
                 "pluginCleanup": pluginCleanup,
+                "commonMarkHelp": commonMarkHelp,
             ])
         }
+    }
+
+    private static func commonMarkHelpReachesRenderer(_ editor: MarkdownTextView) -> Bool {
+        let original = editor.markdown
+        defer { editor.setMarkdown(original) }
+        let cases: [(String, UInt32)] = [
+            ("*italic*", Role.emphasis),
+            ("_italic_", Role.emphasis),
+            ("**bold**", Role.strong),
+            ("__bold__", Role.strong),
+            ("## heading\n", Role.heading),
+            ("heading\n-------\n", Role.heading),
+            ("[label](https://example.dev)", Role.linkText),
+            ("[label][id]\n\n[id]: /path\n", Role.linkText),
+            ("![alt](chart.png)", Role.image),
+            ("![alt][image]\n\n[image]: chart.png\n", Role.image),
+            ("> quoted\n", Role.quote),
+            ("* item\n", Role.listBullet),
+            ("- item\n", Role.listBullet),
+            ("+ item\n", Role.listBullet),
+            ("1. item\n", Role.listBullet),
+            ("1) item\n", Role.listBullet),
+            ("---\n", Role.rule),
+            ("***\n", Role.rule),
+            ("* * *\n", Role.rule),
+            ("`code`", Role.codeInline),
+            ("```\ncode\n```\n", Role.codeBlock),
+            ("    code\n", Role.codeBlock),
+        ]
+        for (source, role) in cases {
+            editor.setMarkdown(source)
+            editor.layoutIfNeeded()
+            guard editor.markdown == source,
+                  editor.decorations.contains(where: { $0.role == role })
+            else { return false }
+        }
+        return true
     }
 
     private static func descendants(of root: UIView) -> [UIView] {

@@ -110,10 +110,11 @@ export default function Testing() {
 
       <H2 id="visual-captures">Reproduce the cross-platform screenshot matrix</H2>
       <p>
-        These are captures of the real renderers, not HTML mockups. Six focused fixtures cover
-        CommonMark, rich tables and resources, host extensions, plugin canvas UI, live syntax
-        reveal, and selected table source across JS, React, iOS, and macOS. Keeping each scenario short makes every
-        feature visible at phone height and makes platform differences easy to spot.
+        These are captures of the real renderers, not HTML mockups. Focused fixtures cover every
+        CommonMark help category, the deliberately source-preserved forms, rich tables and
+        resources, host extensions, plugin canvas UI, live syntax reveal, and selected table
+        source across JS, React, iOS, and macOS. Keeping each scenario short makes every feature
+        visible at phone height and makes platform differences easy to spot.
       </p>
       <CaptureMatrix />
       <SourceFigure className="mt-6" path="from the repository root" lang="bash" code={captures} />

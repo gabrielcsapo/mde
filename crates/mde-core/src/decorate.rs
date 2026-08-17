@@ -44,6 +44,7 @@ struct Builder<'a> {
     out: Vec<Built>,
     block_stack: Vec<(usize, usize)>,
     quote_depth: u8,
+    list_depth: u8,
     /// Byte ranges owned by a custom directive block; pulldown sees these as
     /// paragraphs, so its decorations inside them are discarded.
     directives: Vec<(usize, usize)>,
@@ -327,6 +328,7 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
         out: Vec::new(),
         block_stack: Vec::new(),
         quote_depth: 0,
+        list_depth: 0,
         directives: Vec::new(),
     };
     b.scan_directives();
@@ -424,24 +426,63 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                 b.block_stack.pop();
             }
 
+            Event::Start(Tag::List(_)) => {
+                b.list_depth = b.list_depth.saturating_add(1);
+            }
+            Event::End(TagEnd::List(_)) => {
+                b.list_depth = b.list_depth.saturating_sub(1);
+            }
+
             Event::Start(Tag::Item) => {
                 b.block_stack.push((r.start, r.end));
                 let line = &src[r.start..text.line_range(r.start).1];
                 let marker_len = list_marker_len(line);
-                b.push(
-                    r.start,
-                    r.start + marker_len,
-                    (r.start, r.end),
-                    Kind::Gutter,
-                    role::LIST_BULLET,
-                    Reveal::Never,
-                );
+                let marker_end = r.start + marker_len;
+                let rest = line[marker_len..].trim_start_matches([' ', '\t']);
+                let task = rest.starts_with("[ ]")
+                    || rest.starts_with("[x]")
+                    || rest.starts_with("[X]");
+                if task {
+                    let marker_start = r.start
+                        + line.bytes().take_while(|byte| matches!(byte, b' ' | b'\t')).count();
+                    b.push(
+                        marker_start,
+                        marker_end,
+                        (r.start, r.end),
+                        Kind::Conceal,
+                        role::MARKER,
+                        Reveal::CaretInLine,
+                    );
+                } else {
+                    b.push_with(
+                        r.start,
+                        marker_end,
+                        (r.start, r.end),
+                        Kind::Gutter,
+                        role::LIST_BULLET,
+                        Reveal::Never,
+                        Some(Arc::from(&src[r.start..marker_end])),
+                    );
+                    let depth = b.list_depth;
+                    if let Some(last) = b.out.last_mut() {
+                        last.depth = depth;
+                    }
+                }
             }
             Event::End(TagEnd::Item) => {
                 b.block_stack.pop();
             }
 
-            Event::TaskListMarker(_) => {
+            Event::TaskListMarker(checked) => {
+                b.push_with(
+                    r.start,
+                    r.end,
+                    (r.start, r.end),
+                    Kind::Conceal,
+                    role::TASK_CHECKBOX,
+                    Reveal::CaretInNode,
+                    Some(Arc::from(if checked { "checked" } else { "unchecked" })),
+                );
                 b.push(r.start, r.end, (r.start, r.end), Kind::Hit, role::TASK_CHECKBOX, Reveal::Never);
             }
 
@@ -515,6 +556,89 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                     CodeBlockKind::Fenced(s) => s.to_string(),
                     CodeBlockKind::Indented => String::new(),
                 };
+                match &kind {
+                    CodeBlockKind::Fenced(_) => {
+                        let node = (r.start, r.end);
+                        let block = &src[r.start..r.end];
+                        let opening_end = block.find('\n').map_or(r.end, |at| r.start + at + 1);
+                        b.push(
+                            r.start,
+                            opening_end,
+                            node,
+                            Kind::Conceal,
+                            role::MARKER,
+                            Reveal::CaretInBlock,
+                        );
+
+                        let body_end = block.trim_end_matches(['\n', '\r']).len();
+                        let closing_start = block[..body_end]
+                            .rfind('\n')
+                            .map_or(0, |at| at + 1);
+                        let opening = block.trim_start_matches([' ', '\t']).chars().next();
+                        let closing = block[closing_start..body_end].trim();
+                        if opening.is_some_and(|marker| {
+                            matches!(marker, '`' | '~')
+                                && closing.chars().all(|character| character == marker)
+                                && closing.len() >= 3
+                        }) {
+                            b.push(
+                                r.start + closing_start,
+                                r.end,
+                                node,
+                                Kind::Conceal,
+                                role::MARKER,
+                                Reveal::CaretInBlock,
+                            );
+                        }
+                    }
+                    CodeBlockKind::Indented => {
+                        let first_line_start = text.line_range(r.start).0;
+                        let node = (first_line_start, r.end);
+                        if r.start > first_line_start
+                            && src[first_line_start..r.start]
+                                .chars()
+                                .all(|character| matches!(character, ' ' | '\t'))
+                        {
+                            b.push(
+                                first_line_start,
+                                r.start,
+                                node,
+                                Kind::Conceal,
+                                role::MARKER,
+                                Reveal::CaretInBlock,
+                            );
+                        }
+                        let mut offset = r.start;
+                        for line in src[r.start..r.end].split_inclusive('\n') {
+                            let mut columns = 0;
+                            let mut bytes = 0;
+                            for character in line.chars() {
+                                match character {
+                                    ' ' if columns < 4 => {
+                                        columns += 1;
+                                        bytes += 1;
+                                    }
+                                    '\t' if columns < 4 => {
+                                        columns = 4;
+                                        bytes += 1;
+                                    }
+                                    _ => break,
+                                }
+                            }
+                            if columns >= 4 {
+                                b.push(
+                                    offset,
+                                    offset + bytes,
+                                    node,
+                                    Kind::Conceal,
+                                    role::MARKER,
+                                    Reveal::CaretInBlock,
+                                );
+                            }
+                            offset += line.len();
+                        }
+                    }
+                }
                 match reg.block_for_fence(&info) {
                     Some(rule) => {
                         let (role_id, k, rev) = (rule.role, rule.kind, rule.reveal);
@@ -867,6 +991,67 @@ mod tests {
     }
 
     #[test]
+    fn every_commonmark_help_spelling_reaches_the_same_renderer_contract() {
+        let rendered = [
+            ("asterisk emphasis", "*italic*", role::EMPHASIS),
+            ("underscore emphasis", "_italic_", role::EMPHASIS),
+            ("asterisk strong", "**bold**", role::STRONG),
+            ("underscore strong", "__bold__", role::STRONG),
+            ("ATX heading", "## heading\n", role::HEADING),
+            ("setext heading", "heading\n-------\n", role::HEADING),
+            ("inline link", "[label](https://example.dev)", role::LINK_TEXT),
+            ("reference link", "[label][id]\n\n[id]: /path\n", role::LINK_TEXT),
+            ("inline image", "![alt](chart.png)", role::IMAGE),
+            ("reference image", "![alt][image]\n\n[image]: chart.png\n", role::IMAGE),
+            ("block quote", "> quoted\n", role::QUOTE),
+            ("star list", "* item\n", role::LIST_BULLET),
+            ("dash list", "- item\n", role::LIST_BULLET),
+            ("plus list", "+ item\n", role::LIST_BULLET),
+            ("period list", "1. item\n", role::LIST_BULLET),
+            ("parenthesis list", "1) item\n", role::LIST_BULLET),
+            ("dash rule", "---\n", role::RULE),
+            ("star rule", "***\n", role::RULE),
+            ("spaced rule", "* * *\n", role::RULE),
+            ("inline code", "`code`", role::CODE_INLINE),
+            ("fenced code", "```\ncode\n```\n", role::CODE_BLOCK),
+            ("indented code", "    code\n", role::CODE_BLOCK),
+        ];
+        for (name, source, expected) in rendered {
+            let (_, decorations) = built(source, None);
+            assert!(
+                decorations.iter().any(|item| item.role == expected),
+                "{name} should reach renderer role {expected}: {decorations:?}"
+            );
+        }
+
+        let (_, nested) = built("* outer\n  1) inner\n", None);
+        let bullets = find(&nested, Kind::Gutter, role::LIST_BULLET);
+        assert_eq!(bullets.len(), 2);
+        assert_eq!((bullets[0].depth, bullets[1].depth), (1, 2));
+    }
+
+    #[test]
+    fn code_block_scaffolding_collapses_but_reveals_with_its_block() {
+        let (fenced_text, fenced) = built("```rust\nlet x = 1\n```\n", None);
+        let fence_markers = find(&fenced, Kind::Conceal, role::MARKER);
+        let fence_sources: Vec<_> = fence_markers
+            .iter()
+            .map(|item| &fenced_text.as_str()[item.start..item.end])
+            .collect();
+        assert_eq!(fence_sources, vec!["```rust\n", "```"]);
+        assert!(fence_markers.iter().all(|item| item.reveal == Reveal::CaretInBlock));
+
+        let (indented_text, indented) = built("    one\n\ttwo\n", None);
+        let indents = find(&indented, Kind::Conceal, role::MARKER);
+        let indent_sources: Vec<_> = indents
+            .iter()
+            .map(|item| &indented_text.as_str()[item.start..item.end])
+            .collect();
+        assert_eq!(indent_sources, vec!["    ", "\t"]);
+        assert!(indents.iter().all(|item| item.reveal == Reveal::CaretInBlock));
+    }
+
+    #[test]
     fn image_is_an_inline_widget_over_its_whole_source() {
         let (t, d) = built("![alt](a.png)", None);
         let w = find(&d, Kind::InlineWidget, role::IMAGE);
@@ -880,6 +1065,16 @@ mod tests {
         let h = find(&d, Kind::Hit, role::TASK_CHECKBOX);
         assert_eq!(h.len(), 1);
         assert_eq!(&t.as_str()[h[0].start..h[0].end], "[ ]");
+        let checkbox = find(&d, Kind::Conceal, role::TASK_CHECKBOX);
+        assert_eq!(checkbox.len(), 1);
+        assert_eq!(checkbox[0].reveal, Reveal::CaretInNode);
+        assert_eq!(checkbox[0].payload.as_deref(), Some("unchecked"));
+
+        let (_, checked) = built("- [x] done\n", None);
+        assert_eq!(
+            find(&checked, Kind::Conceal, role::TASK_CHECKBOX)[0].payload.as_deref(),
+            Some("checked")
+        );
     }
 
     #[test]
@@ -893,6 +1088,18 @@ mod tests {
         let (list_text, list) = built("3.\titem\n", None);
         let bullets = find(&list, Kind::Gutter, role::LIST_BULLET);
         assert_eq!(&list_text.as_str()[bullets[0].start..bullets[0].end], "3.");
+        assert_eq!(bullets[0].payload.as_deref(), Some("3."));
+    }
+
+    #[test]
+    fn nested_lists_carry_depth_and_exact_marker_payloads() {
+        let (_, decorations) = built("- outer\n  - inner\n", None);
+        let bullets = find(&decorations, Kind::Gutter, role::LIST_BULLET);
+        assert_eq!(bullets.len(), 2);
+        assert_eq!(bullets[0].depth, 1);
+        assert_eq!(bullets[0].payload.as_deref(), Some("-"));
+        assert_eq!(bullets[1].depth, 2);
+        assert_eq!(bullets[1].payload.as_deref(), Some("-"));
     }
 
     #[test]

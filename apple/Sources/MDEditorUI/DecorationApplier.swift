@@ -307,6 +307,16 @@ final class DecorationApplier {
         return Self.merged(ranges)
     }
 
+    /// Top-level widget keys whose resolved view must replace a loading overlay.
+    /// Decoration keys intentionally remain stable when external bytes arrive, so the
+    /// viewport cannot use key identity alone to decide that its native view is fresh.
+    func widgetKeys(referencing reference: String) -> Set<UInt64> {
+        Set((references[reference] ?? []).filter { key in
+            guard let decoration = live[key] else { return false }
+            return decoration.kind == .inlineWidget || decoration.kind == .blockWidget
+        })
+    }
+
     /// References intersecting a source range, used to prioritize viewport media.
     func references(intersecting range: NSRange) -> Set<String> {
         var result = Set<String>()
@@ -410,6 +420,69 @@ final class DecorationApplier {
                 roleAttributes[cacheKey] = attrs
             }
             if !attrs.isEmpty { storage.addAttributes(attrs, range: range) }
+            if d.kind == .style, d.role == Role.rule {
+                let markerRange = NSIntersectionRange(
+                    d.range,
+                    NSRange(
+                        location: d.range.location,
+                        length: ns.substring(with: d.range)
+                            .trimmingCharacters(in: .newlines).utf16.count
+                    )
+                )
+                let visibleMarker = NSIntersectionRange(markerRange, range)
+                if visibleMarker.length > 0 {
+                    storage.addAttributes(
+                        [
+                            .foregroundColor: PlatformColor.clear,
+                            .strikethroughColor: theme.mutedColor,
+                            .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                            .kern: max(2, 72 / CGFloat(max(1, markerRange.length))),
+                        ],
+                        range: visibleMarker
+                    )
+                }
+            }
+            if d.kind == .gutter,
+               d.role == Role.quote,
+               NSLocationInRange(d.range.location, range) {
+                storage.addAttribute(
+                    Self.listProjectionAttribute,
+                    value: "│",
+                    range: NSRange(location: d.range.location, length: 1)
+                )
+            }
+            if d.kind == .gutter,
+               d.role == Role.listBullet,
+               let marker = engine.payload(for: d.key)?.trimmingCharacters(in: .whitespaces),
+               !marker.isEmpty {
+                let markerEnd = d.range.upperBound - 1
+                if marker.count == 1,
+                   "-+*".contains(marker),
+                   NSLocationInRange(markerEnd, range) {
+                    storage.addAttribute(
+                        Self.listProjectionAttribute,
+                        value: "•",
+                        range: NSRange(location: markerEnd, length: 1)
+                    )
+                } else if marker.last == "." || marker.last == ")" {
+                    let markerFont = PlatformFont.monospacedDigitSystemFont(
+                        ofSize: theme.bodyFont.pointSize,
+                        weight: .regular
+                    )
+                    storage.addAttribute(.font, value: markerFont, range: range)
+                    let digitCount = max(0, marker.count - 1)
+                    if digitCount < 2, NSLocationInRange(markerEnd, range) {
+                        let digitWidth = ("0" as NSString).size(
+                            withAttributes: [.font: markerFont]
+                        ).width
+                        storage.addAttribute(
+                            .kern,
+                            value: digitWidth * CGFloat(2 - digitCount),
+                            range: NSRange(location: markerEnd, length: 1)
+                        )
+                    }
+                }
+            }
             #if os(macOS)
             // TextKit 1 paints a background attached to a newline across the remaining
             // line fragment. Keep code-block backgrounds behind glyphs, matching UIKit
@@ -428,6 +501,20 @@ final class DecorationApplier {
             #endif
 
         case .conceal:
+            if d.role == Role.taskCheckbox,
+               NSLocationInRange(d.range.location, range) {
+                storage.addAttributes(Self.concealAttributes, range: range)
+                storage.addAttributes(
+                    [
+                        .font: theme.bodyFont,
+                        .foregroundColor: theme.accentColor,
+                        Self.listProjectionAttribute:
+                            ns.substring(with: d.range).lowercased().contains("x") ? "☑" : "□",
+                    ],
+                    range: NSRange(location: d.range.location, length: 1)
+                )
+                return
+            }
             storage.addAttributes(Self.concealAttributes, range: range)
 
         case .inlineWidget, .blockWidget:
@@ -475,6 +562,7 @@ final class DecorationApplier {
     // MARK: - Widget substitution
 
     static let widgetAttachmentAttribute = NSAttributedString.Key("MDEWidgetAttachment")
+    static let listProjectionAttribute = NSAttributedString.Key("MDEListProjection")
 
     private func isTopLevelWidget(_ candidate: Decoration) -> Bool {
         !decorations(intersecting: candidate.range).contains(where: { outer in

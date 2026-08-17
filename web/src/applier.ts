@@ -712,6 +712,10 @@ export class DomApplier {
 
       const classes = ['mde-run'];
       let concealed = false;
+      let listMarker = null;
+      let listDepth = 0;
+      let taskProjected = false;
+      let taskChecked = false;
       for (const d of active) {
         if (d.kind === Kind.InlineWidget || d.kind === Kind.BlockWidget) continue;
         if (d.kind === Kind.Conceal) concealed = true;
@@ -721,8 +725,24 @@ export class DomApplier {
           classes.push(`mde-h${d.depth || this.headingLevel(d.start)}`);
         }
         if (d.kind === Kind.Gutter && d.depth > 0) classes.push(`mde-depth-${d.depth}`);
+        if (d.kind === Kind.Gutter && d.role === Role.ListBullet) {
+          listMarker = (this.engine.payload(d.key) ?? this.text.slice(d.start, d.end)).trim();
+          listDepth = d.depth;
+        }
+        if (d.role === Role.TaskCheckbox) {
+          taskProjected ||= d.kind === Kind.Conceal;
+          taskChecked ||= (this.engine.payload(d.key) ?? this.text.slice(d.start, d.end))
+            .toLowerCase()
+            .includes('x') || this.engine.payload(d.key) === 'checked';
+        }
       }
       if (concealed) classes.push('mde-conceal');
+      if (listMarker !== null) {
+        classes.push(/^[-+*]$/.test(listMarker) ? 'mde-list-unordered' : 'mde-list-ordered');
+        classes.push(`mde-list-depth-${Math.max(1, listDepth)}`);
+      }
+      if (taskProjected) classes.push('mde-task-projected');
+      if (taskChecked) classes.push('mde-task-checked');
 
       const className = classes.length === 1 ? null : classes.join(' ');
       if (className !== pendingClass) {

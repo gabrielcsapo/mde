@@ -126,16 +126,107 @@
 }
 .mde-link { color: var(--mde-muted, #a3a7b3); }
 
-.mde-quote,
 .mde-list-bullet,
 .mde-task-checkbox {
   color: var(--mde-accent, #2f6bf5);
+}
+.mde-quote {
+  position: relative;
+  display: inline-block;
+  width: 0.72em;
+  color: transparent;
+}
+.mde-quote::after {
+  content: '';
+  position: absolute;
+  width: 3px;
+  height: 1.28em;
+  left: 0.23em;
+  top: 50%;
+  border-radius: 999px;
+  background: var(--mde-accent, #2f6bf5);
+  transform: translateY(-50%);
+}
+.mde-list-bullet {
+  font-variant-numeric: tabular-nums;
+}
+.mde-list-unordered {
+  position: relative;
+  display: inline-block;
+  width: 0.82em;
+  color: transparent;
+  text-align: center;
+}
+.mde-list-unordered::after {
+  content: '';
+  position: absolute;
+  width: 0.34em;
+  height: 0.34em;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  background: var(--mde-accent, #2f6bf5);
+  transform: translate(-50%, -50%);
+}
+.mde-list-ordered {
+  display: inline-block;
+  min-width: 1.32em;
+  padding-right: 0.12em;
+  text-align: right;
 }
 .mde-task-checkbox {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   cursor: pointer;
 }
-.mde-rule { color: var(--mde-muted, #a3a7b3); }
+.mde-task-checkbox.mde-task-projected {
+  position: relative;
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  overflow: hidden;
+  color: transparent !important;
+  font-size: inherit !important;
+  line-height: 1;
+  vertical-align: -0.14em;
+}
+.mde-task-projected::before {
+  content: '';
+  position: absolute;
+  inset: 0.08em;
+  box-sizing: border-box;
+  border: 1.5px solid var(--mde-accent, #2f6bf5);
+  border-radius: 0.27em;
+  background: var(--mde-bg, #fff);
+}
+.mde-task-projected.mde-task-checked::before {
+  background: var(--mde-accent, #2f6bf5);
+}
+.mde-task-projected.mde-task-checked::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  color: var(--mde-bg, #fff);
+  font: 700 0.72em/1.42 system-ui, sans-serif;
+  text-align: center;
+}
+.mde-rule {
+  position: relative;
+  display: inline-block;
+  width: 6rem;
+  height: 1.6em;
+  color: transparent;
+  vertical-align: top;
+}
+.mde-rule::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 1px;
+  left: 0;
+  top: 50%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mde-muted, #a3a7b3) 58%, transparent);
+}
 
 /* Tables render as semantic HTML until the caret enters the block. The Markdown source
    never leaves the DOM. While editing, it deliberately returns to ordinary source lines

@@ -1,5 +1,10 @@
 const SCENARIOS = [
   ['core', 'CommonMark essentials'],
+  ['commonmark-inline', 'Inline CommonMark'],
+  ['commonmark-media', 'Links and images'],
+  ['commonmark-blocks', 'Block structure'],
+  ['commonmark-source', 'Portable source forms'],
+  ['lists', 'Native list markers'],
   ['tables', 'Rich tables and resources'],
   ['extensions', 'Host-defined syntax'],
   ['composer', 'Mention suggestions'],

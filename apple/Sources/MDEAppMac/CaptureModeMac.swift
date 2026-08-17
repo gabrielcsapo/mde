@@ -135,6 +135,7 @@ enum CaptureMode {
         }).first else { return }
         editor.setMarkdown(source)
         scroll(editor, to: 0)
+        editor.window?.makeFirstResponder(nil)
         guard let storage = editor.textStorage else { return }
         switch scenario {
         case "composer":

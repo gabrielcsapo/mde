@@ -43,10 +43,11 @@ importers:
         version: 8.2.1(jiti@2.7.0)
 
   web:
-    devDependencies:
+    dependencies:
       '@mde/plugin-sdk':
         specifier: workspace:*
         version: link:plugin-sdk
+    devDependencies:
       '@vitest/browser-playwright':
         specifier: ^4.1.10
         version: 4.1.10(playwright@1.62.1)(vite@8.2.1(jiti@2.7.0))(vitest@4.1.10)

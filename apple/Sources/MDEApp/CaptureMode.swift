@@ -74,6 +74,7 @@ enum CaptureMode {
         else { return }
         editor.setMarkdown(source)
         scroll(editor, to: top(of: editor))
+        _ = editor.resignFirstResponder()
         switch scenario {
         case "composer":
             let range = (source as NSString).range(of: "@ga")

@@ -38,15 +38,20 @@ Gutter        quote            460..461  never         ">" depth=1
 Gutter        quote            474..475  never         ">" depth=1
 Gutter        quote            476..477  never         ">" depth=1
 Gutter        quote            478..479  never         ">" depth=2
-Gutter        list.bullet      494..495  never         "-"
-Gutter        list.bullet      503..504  never         "-"
+Gutter        list.bullet      494..495  never         "-" depth=1
+Conceal       marker           503..504  caret_in_line "-"
+Conceal       task.checkbox    505..508  caret_in_node "[ ]"
 Hit           task.checkbox    505..508  never         "[ ]"
-Gutter        list.bullet      519..520  never         "-"
+Conceal       marker           519..520  caret_in_line "-"
+Conceal       task.checkbox    521..524  caret_in_node "[x]"
 Hit           task.checkbox    521..524  never         "[x]"
-Gutter        list.bullet      541..543  never         "3."
-Gutter        list.bullet      563..565  never         "4."
+Gutter        list.bullet      541..543  never         "3." depth=1
+Gutter        list.bullet      563..565  never         "4." depth=1
+Conceal       marker           623..627  caret_in_block "    "
 Style         code.block       627..641  never         "indented code\n"
 Style         code.block       642..668  never         "```rust\nfenced_code();\n```"
+Conceal       marker           642..650  caret_in_block "```rust\n"
+Conceal       marker           665..668  caret_in_block "```"
 Style         html             670..696  never         "<section data-kind=\"raw\">\n"
 Style         html             696..707  never         "HTML block\n"
 Style         html             707..718  never         "</section>\n"

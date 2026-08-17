@@ -1,6 +1,11 @@
 {
   "scenarios": [
     { "id": "core", "title": "CommonMark essentials", "fixture": "capture-core.md" },
+    { "id": "commonmark-inline", "title": "Inline CommonMark", "fixture": "capture-commonmark-inline.md" },
+    { "id": "commonmark-media", "title": "Links and images", "fixture": "capture-commonmark-media.md" },
+    { "id": "commonmark-blocks", "title": "Block structure", "fixture": "capture-commonmark-blocks.md" },
+    { "id": "commonmark-source", "title": "Portable source forms", "fixture": "capture-commonmark-source.md" },
+    { "id": "lists", "title": "Native list markers", "fixture": "capture-lists.md" },
     { "id": "tables", "title": "Rich tables and resources", "fixture": "capture-tables.md" },
     { "id": "extensions", "title": "Host-defined syntax", "fixture": "capture-extensions.md" },
     { "id": "composer", "title": "Plugin canvas UI", "fixture": "capture-composer.md", "mention": "@ga" },
