@@ -238,6 +238,103 @@ public struct MarkdownPluginResourceContribution {
     }
 }
 
+/// One plugin-owned renderer in the editor's ordinary widget pipeline.
+public struct MarkdownPluginRendererContribution {
+    public var matches: (String, String, String?) -> Bool
+    public var makeWidget: (String, String, String?) -> PlatformView?
+    public var updateWidget: (PlatformView, String, String, String?) -> Void
+    public var removeWidget: (PlatformView) -> Void
+    public var size: (String, String, CGFloat) -> CGSize?
+    public var wantsTouches: (String, String, String?) -> Bool
+
+    public init(
+        matches: @escaping (String, String, String?) -> Bool,
+        makeWidget: @escaping (String, String, String?) -> PlatformView?,
+        updateWidget: @escaping (PlatformView, String, String, String?) -> Void = { _, _, _, _ in },
+        removeWidget: @escaping (PlatformView) -> Void = { _ in },
+        size: @escaping (String, String, CGFloat) -> CGSize? = { _, _, _ in nil },
+        wantsTouches: @escaping (String, String, String?) -> Bool = { _, _, _ in false }
+    ) {
+        self.matches = matches
+        self.makeWidget = makeWidget
+        self.updateWidget = updateWidget
+        self.removeWidget = removeWidget
+        self.size = size
+        self.wantsTouches = wantsTouches
+    }
+}
+
+struct MarkdownPluginRendererRegistration {
+    let plugin: String
+    let order: Int
+    let contribution: MarkdownPluginRendererContribution
+}
+
+final class CompositePluginWidgetProvider: WidgetProvider {
+    let registrations: [MarkdownPluginRendererRegistration]
+    let fallback: (any WidgetProvider)?
+    private var owners: [ObjectIdentifier: MarkdownPluginRendererContribution] = [:]
+
+    init(registrations: [MarkdownPluginRendererRegistration], fallback: (any WidgetProvider)?) {
+        self.registrations = registrations.sorted { $0.order < $1.order }
+        self.fallback = fallback
+    }
+
+    private func contribution(
+        roleName: String,
+        source: String,
+        payload: String?
+    ) -> MarkdownPluginRendererContribution? {
+        registrations.first {
+            $0.contribution.matches(roleName, source, payload)
+        }?.contribution
+    }
+
+    func makeWidget(roleName: String, source: String, payload: String?) -> PlatformView? {
+        if let contribution = contribution(roleName: roleName, source: source, payload: payload),
+           let view = contribution.makeWidget(roleName, source, payload) {
+            owners[ObjectIdentifier(view)] = contribution
+            return view
+        }
+        return fallback?.makeWidget(roleName: roleName, source: source, payload: payload)
+    }
+
+    func updateWidget(_ view: PlatformView, roleName: String, source: String, payload: String?) {
+        if let owner = owners[ObjectIdentifier(view)] {
+            owner.updateWidget(view, roleName, source, payload)
+        } else {
+            fallback?.updateWidget(view, roleName: roleName, source: source, payload: payload)
+        }
+    }
+
+    func removeWidget(_ view: PlatformView) {
+        if let owner = owners.removeValue(forKey: ObjectIdentifier(view)) {
+            owner.removeWidget(view)
+        } else {
+            fallback?.removeWidget(view)
+        }
+    }
+
+    func widgetSize(roleName: String, source: String, fittingWidth: CGFloat) -> CGSize? {
+        if let contribution = contribution(roleName: roleName, source: source, payload: nil),
+           let size = contribution.size(roleName, source, fittingWidth) {
+            return size
+        }
+        return fallback?.widgetSize(roleName: roleName, source: source, fittingWidth: fittingWidth)
+    }
+
+    func widgetWantsTouches(roleName: String) -> Bool {
+        fallback?.widgetWantsTouches(roleName: roleName) ?? false
+    }
+
+    func widgetWantsTouches(roleName: String, source: String, payload: String?) -> Bool {
+        contribution(roleName: roleName, source: source, payload: payload)?
+            .wantsTouches(roleName, source, payload)
+            ?? fallback?.widgetWantsTouches(roleName: roleName, source: source, payload: payload)
+            ?? false
+    }
+}
+
 struct MarkdownPluginResourceRegistration {
     let order: Int
     let contribution: MarkdownPluginResourceContribution
@@ -411,6 +508,14 @@ public final class MarkdownPluginSelection {
         get { editor?.selectedRange }
         set { if let newValue { editor?.selectedRange = newValue } }
     }
+    public var isActive: Bool {
+        guard let editor else { return false }
+        #if os(macOS)
+        return editor.window?.firstResponder === editor
+        #else
+        return editor.isFirstResponder
+        #endif
+    }
 }
 
 public final class MarkdownPluginSemantics {
@@ -523,6 +628,7 @@ public final class MarkdownPluginContext {
     private var transfers: [(order: Int, handler: MarkdownPluginTransferHandler)] = []
     private var registrationOrder = 0
     private var resources: Set<String> = []
+    private var renderers: Set<String> = []
     private var active = true
 
     fileprivate init(editor: MarkdownTextView, name: String) {
@@ -710,6 +816,23 @@ public final class MarkdownPluginContext {
         editor.refreshPluginResourceResolver()
     }
 
+    public func registerRenderer(
+        _ name: String,
+        contribution: MarkdownPluginRendererContribution
+    ) {
+        guard active, let editor = editorStorage, let qualified = qualified("renderer", name) else {
+            return
+        }
+        registrationOrder += 1
+        renderers.insert(qualified)
+        editor.pluginRendererContributions[qualified] = MarkdownPluginRendererRegistration(
+            plugin: self.name,
+            order: registrationOrder,
+            contribution: contribution
+        )
+        editor.refreshPluginWidgetProvider()
+    }
+
     fileprivate func applyInputRule(_ request: MarkdownPluginInputRequest) -> Bool {
         let ordered = inputRules.sorted {
             $0.rule.priority == $1.rule.priority
@@ -832,6 +955,7 @@ public final class MarkdownPluginContext {
             inputRules.removeAll()
             transfers.removeAll()
             resources.removeAll()
+            renderers.removeAll()
             return
         }
         for layer in layers { editor.clearLayer(layer) }
@@ -847,6 +971,9 @@ public final class MarkdownPluginContext {
         for resource in resources { editor.pluginResourceContributions.removeValue(forKey: resource) }
         resources.removeAll()
         editor.refreshPluginResourceResolver()
+        for renderer in renderers { editor.pluginRendererContributions.removeValue(forKey: renderer) }
+        renderers.removeAll()
+        editor.refreshPluginWidgetProvider()
     }
 }
 

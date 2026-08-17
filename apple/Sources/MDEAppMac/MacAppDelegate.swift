@@ -45,8 +45,13 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         attachments = AttachmentComposer()
         linkEditor = LinkEditor()
         slashCommands = MarkdownSuggestionPlugins.slashCommands()
+        let rawHTML = RawHTMLPlugin(renderer: RawHTMLRenderers.trustedWebView {
+            $0.contains("data-mde-render")
+        })
         editor = try! MarkdownTextView(
-            plugins: [typewriter, partsOfSpeech, mentions, attachments, linkEditor, slashCommands],
+            plugins: [
+                typewriter, partsOfSpeech, mentions, attachments, linkEditor, slashCommands, rawHTML,
+            ],
             manifest: HostExtensions.manifest,
             theme: theme
         )

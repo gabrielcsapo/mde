@@ -6,7 +6,7 @@ import { tag } from '../../lib/highlight.js';
 
 const golden = tag('bash', `UPDATE_GOLDEN=1 cargo test -p mde-core --test golden`);
 const all = tag('bash', `./scripts/test.sh   # Rust, both Swift suites, and the browser suite`);
-const captures = tag('bash', `pnpm capture:cross-platform   # 7 scenarios × 4 renderers`);
+const captures = tag('bash', `pnpm capture:cross-platform   # 13 scenarios × 4 renderers`);
 const performance = tag('bash', `./scripts/test-performance.sh   # edit matrix + budgets`);
 
 const SUITES = [
@@ -112,7 +112,7 @@ export default function Testing() {
       <p>
         These are captures of the real renderers, not HTML mockups. Focused fixtures cover every
         CommonMark help category, the deliberately source-preserved forms, rich tables and
-        resources, host extensions, plugin canvas UI, live syntax reveal, and selected table
+        resources, host extensions, plugin-rendered HTML, plugin canvas UI, live syntax reveal, and selected table
         source across JS, React, iOS, and macOS. Keeping each scenario short makes every feature
         visible at phone height and makes platform differences easy to spot.
       </p>

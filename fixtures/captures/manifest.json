@@ -8,6 +8,7 @@
     { "id": "lists", "title": "Native list markers", "fixture": "capture-lists.md" },
     { "id": "tables", "title": "Rich tables and resources", "fixture": "capture-tables.md" },
     { "id": "extensions", "title": "Host-defined syntax", "fixture": "capture-extensions.md" },
+    { "id": "custom-html", "title": "Plugin-rendered HTML", "fixture": "capture-custom-html.md" },
     { "id": "composer", "title": "Plugin canvas UI", "fixture": "capture-composer.md", "mention": "@ga" },
     { "id": "commands", "title": "Discoverable command menu", "fixture": "capture-commands.md", "slash": "/" },
     { "id": "editing", "title": "Live syntax reveal", "fixture": "capture-editing.md", "reveal": "revealed syntax" },

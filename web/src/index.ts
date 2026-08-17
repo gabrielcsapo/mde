@@ -49,6 +49,7 @@ export type {
   PluginPresentationHandle,
   PluginPresentationOptions,
   PluginPresentationPlacement,
+  PluginRenderersCapability,
 } from './plugins.js';
 export type * from '@mde/plugin-sdk';
 export type { ResourceRequest, ResourceResolver, ResourceState } from './resources.js';
@@ -61,4 +62,11 @@ export type {
 export type { SessionDocument } from './session.js';
 export type { PreparedDocument, PrepareDocumentOptions } from './preparation.js';
 export type { CommandResult, MarkdownCommand } from './commands.js';
-export type { WidgetProvider, WidgetRequest } from './widgets.js';
+export type {
+  WidgetMount,
+  WidgetProvider,
+  WidgetRenderContext,
+  WidgetRenderer,
+  WidgetRequest,
+  WidgetResult,
+} from './widgets.js';

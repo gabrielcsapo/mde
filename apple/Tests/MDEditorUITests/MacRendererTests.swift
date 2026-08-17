@@ -3,6 +3,7 @@ import AppKit
 @testable import MDECore
 import MDEPluginKit
 @testable import MDEHost
+import WebKit
 import XCTest
 @testable import MDEditorUI
 
@@ -2112,6 +2113,134 @@ extension MacRendererTests {
         editor.layoutManager?.ensureLayout(for: editor.textContainer!)
         XCTAssertTrue(resolver.requested.contains("plugin://photo"))
         XCTAssertTrue(editor.removePlugin(named: plugin.name))
+    }
+
+    func testRawHTMLPluginMountsUpdatesRevealsAndUnmountsANativeView() throws {
+        let source = "<div data-widget=\"counter\">Count</div>\n"
+        let lifecycle = RendererLifecycleCounts()
+        let plugin = RawHTMLPlugin(
+            name: "test.raw-html",
+            renderer: MarkdownPluginRendererContribution(
+                matches: { _, _, _ in true },
+                makeWidget: { _, _, _ in
+                    lifecycle.mounts += 1
+                    return NSButton(title: "Run custom code", target: nil, action: nil)
+                },
+                updateWidget: { _, _, _, _ in lifecycle.updates += 1 },
+                removeWidget: { _ in lifecycle.unmounts += 1 },
+                size: { _, _, width in CGSize(width: min(220, width), height: 44) },
+                wantsTouches: { _, _, _ in true }
+            )
+        )
+        editor.setMarkdown(source)
+        try editor.installPlugin(plugin)
+
+        let widget = try XCTUnwrap(editor.decorations.first {
+            $0.layer > 0 && $0.kind == .blockWidget
+        })
+        let paragraph = try XCTUnwrap(editor.textContentStorage(
+            editor.contentStorage,
+            textParagraphWith: NSRange(location: 0, length: storage.length)
+        ))
+        let attachment = try XCTUnwrap(
+            paragraph.attributedString.attribute(.attachment, at: 0, effectiveRange: nil)
+                as? WidgetAttachment
+        )
+        let first = try XCTUnwrap(attachment.makeView() as? NSButton)
+        let second = try XCTUnwrap(attachment.makeView() as? NSButton)
+        XCTAssertTrue(first === second, "stable HTML rebuilt its native view")
+        XCTAssertEqual(lifecycle.mounts, 1)
+        XCTAssertEqual(lifecycle.updates, 1)
+        XCTAssertEqual(first.title, "Run custom code")
+        XCTAssertEqual(widget.range, NSRange(location: 0, length: (source as NSString).length))
+        XCTAssertEqual(editor.markdown, source)
+
+        focus()
+        editor.setSelectedRange(NSRange(location: 8, length: 0))
+        XCTAssertFalse(editor.decorations.contains { $0.layer > 0 && $0.kind == .blockWidget })
+        XCTAssertEqual(lifecycle.unmounts, 1, "revealing source did not tear down the view")
+        XCTAssertEqual(editor.markdown, source)
+
+        XCTAssertTrue(editor.removePlugin(named: plugin.name))
+        XCTAssertEqual(lifecycle.unmounts, 1, "plugin removal unmounted the same view twice")
+    }
+
+    func testTrustedRawHTMLRendererFiltersContentAndExecutesJavaScript() throws {
+        let renderer = RawHTMLRenderers.trustedWebView(
+            height: 96,
+            accepts: { $0.contains("data-mde-render") }
+        )
+        XCTAssertFalse(renderer.matches("html", "<p>ordinary HTML</p>", "block"))
+        XCTAssertTrue(renderer.matches(
+            "html",
+            "<div data-mde-render=\"test\"></div>",
+            "block"
+        ))
+
+        let source = """
+        <div data-mde-render="test" id="status">waiting</div>
+        <button id="action" onclick="this.textContent='Action ran'">Run action</button>
+        <script>document.querySelector('#status').textContent = 'executed';</script>
+        """
+        let webView = try XCTUnwrap(renderer.makeWidget("html", source, "block") as? WKWebView)
+        let revealed = expectation(description: "web view background requested source reveal")
+        let container = WidgetContainer(
+            hosting: webView,
+            wantsTouches: true,
+            revealSource: { revealed.fulfill() }
+        )
+        XCTAssertTrue(webView.superview === container)
+        let loaded = expectation(description: "trusted HTML finished loading")
+        let probe = WebViewNavigationProbe { loaded.fulfill() }
+        webView.navigationDelegate = probe
+        wait(for: [loaded], timeout: 3)
+
+        let evaluated = expectation(description: "trusted JavaScript executed")
+        var result: String?
+        webView.evaluateJavaScript("document.querySelector('#status').textContent") {
+            value, error in
+            XCTAssertNil(error)
+            result = value as? String
+            evaluated.fulfill()
+        }
+        wait(for: [evaluated], timeout: 3)
+        XCTAssertEqual(result, "executed")
+
+        let action = expectation(description: "trusted inline action executed")
+        webView.evaluateJavaScript("document.querySelector('#action').click(); "
+            + "document.querySelector('#action').textContent") { value, error in
+            XCTAssertNil(error)
+            XCTAssertEqual(value as? String, "Action ran")
+            action.fulfill()
+        }
+        wait(for: [action], timeout: 3)
+
+        let background = expectation(description: "background click dispatched")
+        webView.evaluateJavaScript("document.body.click()") { _, error in
+            XCTAssertNil(error)
+            background.fulfill()
+        }
+        wait(for: [background, revealed], timeout: 3)
+        XCTAssertEqual(renderer.size("html", source, 480), CGSize(width: 480, height: 96))
+        renderer.removeWidget(webView)
+    }
+}
+
+private final class RendererLifecycleCounts {
+    var mounts = 0
+    var updates = 0
+    var unmounts = 0
+}
+
+private final class WebViewNavigationProbe: NSObject, WKNavigationDelegate {
+    private let onFinish: () -> Void
+
+    init(onFinish: @escaping () -> Void) {
+        self.onFinish = onFinish
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        onFinish()
     }
 }
 

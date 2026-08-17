@@ -43,6 +43,7 @@ import { findAndReplace, linkEditor, templatePicker } from '../dist/extensions/p
 import { journalAttachments } from '../dist/extensions/journal-attachments.js';
 import { checkPluginCompatibility } from '../dist/plugin-testing.js';
 import { backlinks, mediaGallery } from '../dist/extensions/examples.js';
+import { rawHTMLPlugin, trustedHTMLPlugin } from '../plugins/src/raw-html.ts';
 
 function assert(condition, message) {
   expect(condition, message).toBeTruthy();
@@ -607,6 +608,86 @@ function makeEditor(options = {}) {
     const source = 'Press <kbd>Enter</kbd>.';
     e.setMarkdown(source);
     assertEqual(e.root.querySelectorAll('.mde-html').length, 2);
+    assertEqual(domText(e.root), source);
+  });
+
+  test('a plugin can project trusted HTML without changing the markdown', () => {
+    const e = makeEditor();
+    const source = '<article><strong>Rendered HTML</strong>'
+      + '<button onclick="this.dataset.ran=\'yes\'">Run action</button></article>\n';
+    e.installPlugin(trustedHTMLPlugin());
+    e.setMarkdown(source);
+
+    assertEqual(e.root.querySelector('.mde-raw-html strong')?.textContent, 'Rendered HTML');
+    assertEqual(domText(e.root), source);
+    assertEqual(e.markdown, source);
+
+    const button = e.root.querySelector('.mde-raw-html button');
+    button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    button.click();
+    assertEqual(button.dataset.ran, 'yes', 'trusted inline action did not run');
+    assert(e.root.querySelector('.mde-raw-html'), 'using a control revealed the source');
+
+    e.root.querySelector('.mde-raw-html').dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+    );
+    assert(!e.root.querySelector('.mde-raw-html'), 'card background did not reveal raw source');
+    assert(e.root.querySelector('.mde-html'), 'revealed HTML lost its source styling');
+    assertEqual(domText(e.root), source);
+
+    e.root.blur();
+    assert(e.root.querySelector('.mde-raw-html'), 'blur did not restore the rendered card');
+    e.root.focus();
+    e.setSelectionRange({ start: 10, end: 10 });
+    e.onSelectionChange();
+    assert(!e.root.querySelector('.mde-raw-html'), 'caret did not reveal the raw source');
+    assert(e.root.querySelector('.mde-html'), 'revealed HTML lost its source styling');
+    assertEqual(domText(e.root), source);
+
+    e.root.blur();
+    assert(
+      e.root.querySelector('.mde-raw-html'),
+      'an inactive editor kept revealing a stale selection',
+    );
+    assertEqual(domText(e.root), source);
+  });
+
+  test('custom renderers own JavaScript behavior, layout, and teardown', () => {
+    const e = makeEditor();
+    const source = '<div data-widget="counter">Count</div>\n';
+    let clicks = 0;
+    let layouts = 0;
+    let unmounts = 0;
+    e.installPlugin(rawHTMLPlugin({
+      name: 'test.executable-html',
+      mount(_request, context) {
+        const button = document.createElement('button');
+        button.textContent = 'Run custom code';
+        button.addEventListener('click', () => { clicks++; });
+        return {
+          element: button,
+          wantsPointerEvents: true,
+          update() { layouts++; },
+          unmount() { unmounts++; },
+        };
+      },
+    }));
+    e.setMarkdown(source);
+
+    const button = e.root.querySelector('button');
+    assert(button, 'custom renderer did not mount');
+    button.click();
+    assertEqual(clicks, 1, 'plugin-owned JavaScript did not run');
+    assertEqual(getComputedStyle(button.closest('.mde-widget-view')).pointerEvents, 'auto');
+
+    e.renderAll(true);
+    assert(layouts > 0, 'stable renderer did not receive an update');
+    assertEqual(unmounts, 0, 'stable repaint tore down the renderer');
+    assertEqual(domText(e.root), source);
+
+    assertEqual(e.removePlugin('test.executable-html'), true);
+    assertEqual(unmounts, 1, 'plugin removal did not unmount its view exactly once');
+    assert(!e.root.querySelector('button'));
     assertEqual(domText(e.root), source);
   });
 

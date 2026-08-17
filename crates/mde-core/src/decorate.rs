@@ -705,8 +705,27 @@ pub fn build(text: &Text, reg: &Registry) -> Vec<Built> {
                 b.push(r.start, r.end, (r.start, r.end), Kind::Style, role::TABLE_CELL, Reveal::Never);
             }
 
-            Event::Html(_) | Event::InlineHtml(_) => {
-                b.push(r.start, r.end, (r.start, r.end), Kind::Style, role::HTML, Reveal::Never);
+            Event::Html(_) => {
+                b.push_with(
+                    r.start,
+                    r.end,
+                    (r.start, r.end),
+                    Kind::Style,
+                    role::HTML,
+                    Reveal::Never,
+                    Some(Arc::from("block")),
+                );
+            }
+            Event::InlineHtml(_) => {
+                b.push_with(
+                    r.start,
+                    r.end,
+                    (r.start, r.end),
+                    Kind::Style,
+                    role::HTML,
+                    Reveal::Never,
+                    Some(Arc::from("inline")),
+                );
             }
 
             Event::Rule => {
@@ -935,6 +954,8 @@ mod tests {
         assert_eq!(html.len(), 3);
         assert_eq!(&t.as_str()[html[0].start..html[0].end], "<div>block</div>\n");
         assert!(html.iter().all(|item| item.kind == Kind::Style));
+        assert_eq!(html[0].payload.as_deref(), Some("block"));
+        assert!(html[1..].iter().all(|item| item.payload.as_deref() == Some("inline")));
     }
 
     #[test]

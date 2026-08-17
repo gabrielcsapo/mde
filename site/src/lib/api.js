@@ -445,9 +445,17 @@ export const WEB_API = [
         name: 'WidgetProvider.makeWidget',
         kind: 'method',
         signature:
-          'makeWidget(request: {roleName, source, payload, decoration}): HTMLElement | null',
+          'makeWidget(request, context): HTMLElement | WidgetMount | null',
         summary:
           'Draw a replaced range. Return `null` to fall through to the resolver, and failing that to leave the range as styled text.',
+      },
+      {
+        name: 'EditorPluginContext.renderers.register',
+        kind: 'method',
+        signature: 'renderers.register(name, {matches(request), mount(request, context)})',
+        summary:
+          'Register a lifecycle-owned custom node renderer. WidgetMount can update, unmount, request layout, and opt into pointer events.',
+        note: 'Removal tears down cached and visible views while preserving the exact source projection.',
       },
       {
         name: 'WidgetProvider.widgetWantsPointerEvents',
@@ -993,6 +1001,13 @@ export const SWIFT_API = [
           'Place plugin-owned UI at the caret, editor edge, or viewport center without adding anything to markdown storage.',
       },
       {
+        name: 'MarkdownPluginContext.registerRenderer',
+        kind: 'method',
+        signature: 'registerRenderer(_:contribution: MarkdownPluginRendererContribution)',
+        summary: 'Mount a plugin-owned UIView or NSView through the same cached widget pipeline as tables and media.',
+        note: 'Stable nodes update in place; source changes, selection reveal, and plugin removal invoke teardown.',
+      },
+      {
         name: 'MarkdownPluginPresentationOptions / Handle',
         kind: 'type',
         signature: 'view · anchor · placement · offset · modal · Escape/outside interaction · initial/focus restoration · onDismiss · update/reposition/dismiss',
@@ -1022,7 +1037,7 @@ export const SWIFT_API = [
         name: 'WidgetProvider',
         kind: 'protocol',
         signature:
-          'func makeWidget(roleName: String, source: String, payload: String?) -> PlatformView?\nfunc widgetSize(roleName: String, source: String, fittingWidth: CGFloat) -> CGSize?\nfunc widgetWantsTouches(roleName: String) -> Bool',
+          'func makeWidget(roleName: String, source: String, payload: String?) -> PlatformView?\nfunc updateWidget(_:roleName:source:payload:)\nfunc removeWidget(_:)\nfunc widgetSize(roleName: String, source: String, fittingWidth: CGFloat) -> CGSize?',
         summary:
           'Draw a replaced range. All three have defaults — nil, nil, and false.',
         note: '`widgetWantsTouches` defaults to false because a view that takes touches swallows them before the text view sees them, so the caret can never land in the widget’s source.',

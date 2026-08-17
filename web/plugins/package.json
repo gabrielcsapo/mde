@@ -9,6 +9,7 @@
     "./examples": { "types": "./dist/types/examples.d.ts", "import": "./dist/examples.js" },
     "./typewriter": { "types": "./dist/types/typewriter.d.ts", "import": "./dist/typewriter.js" },
     "./parts-of-speech": { "types": "./dist/types/parts-of-speech.d.ts", "import": "./dist/parts-of-speech.js" },
+    "./raw-html": { "types": "./dist/types/raw-html.d.ts", "import": "./dist/raw-html.js" },
     "./extensions.css": "./extensions.css", "./package.json": "./package.json"
   },
   "files": ["dist", "extensions.css", "README.md"],

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useState } from 'react';
 import { MarkdownEditor, useEditorHistory, useMarkdownEditorRef } from '@mde/react';
 import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/plugins/composer';
 import { linkEditor } from '@mde/plugins/productivity';
+import { trustedHTMLPlugin } from '@mde/plugins/raw-html';
 import wasmUrl from '@mde/web/mde.wasm?url';
 
 import {
@@ -23,6 +24,7 @@ const COMPOSER_PLUGINS = [
   attachmentComposer(),
   linkEditor(),
   slashCommandMenu(),
+  trustedHTMLPlugin({ accepts: ({ source }) => source.includes('data-mde-render') }),
 ];
 
 export default function ReactEditor({ historyInitiallyOpen, descriptionId }) {

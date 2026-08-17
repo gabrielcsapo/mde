@@ -133,8 +133,12 @@ final class DecorationApplier {
         references.removeAll()
         referenceByKey.removeAll()
         resources.reset()
-        widgetViews.removeAll()
-        widgetOrder.removeAll()
+        resetWidgets()
+    }
+
+    /// Drop only host views while retaining parsed decorations and resolved resources.
+    func resetWidgets() {
+        for key in Array(widgetViews.keys) { discardWidget(for: key) }
     }
 
     /// A previously built view for this widget, if one is still cached.
@@ -153,7 +157,14 @@ final class DecorationApplier {
         // Drop the oldest entry that is no longer a live decoration before evicting
         // anything the document still points at.
         let victim = widgetOrder.firstIndex { live[$0] == nil } ?? 0
-        widgetViews.removeValue(forKey: widgetOrder.remove(at: victim))
+        discardWidget(for: widgetOrder[victim])
+    }
+
+    private func discardWidget(for key: UInt64) {
+        guard let view = widgetViews.removeValue(forKey: key) else { return }
+        widgetProvider?.removeWidget(view)
+        view.removeFromSuperview()
+        widgetOrder.removeAll { $0 == key }
     }
 
     func ingest(_ patch: Patch) {
@@ -175,9 +186,7 @@ final class DecorationApplier {
             live.removeValue(forKey: key)
             // A removed key can never come back: it encodes the node's own source, so
             // its view is unreachable and would just occupy the cache.
-            if widgetViews.removeValue(forKey: key) != nil {
-                widgetOrder.removeAll { $0 == key }
-            }
+            discardWidget(for: key)
         }
         if incrementalIndex, !removedKeys.isEmpty {
             index.removeAll { removedKeys.contains($0.key) }
@@ -297,8 +306,7 @@ final class DecorationApplier {
             }) {
                 // The cached table contains the loading projection. Rebuild it now
                 // that the nested resource is ready, without refetching the bytes.
-                widgetViews.removeValue(forKey: table.key)?.removeFromSuperview()
-                widgetOrder.removeAll { $0 == table.key }
+                discardWidget(for: table.key)
                 ranges.append(table.range)
             } else {
                 ranges.append(decoration.range)

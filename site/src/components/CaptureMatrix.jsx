@@ -7,6 +7,7 @@ const SCENARIOS = [
   ['lists', 'Native list markers'],
   ['tables', 'Rich tables and resources'],
   ['extensions', 'Host-defined syntax'],
+  ['custom-html', 'Plugin-rendered HTML'],
   ['composer', 'Mention suggestions'],
   ['commands', 'Discoverable command menu'],
   ['editing', 'Live syntax reveal'],

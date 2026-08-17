@@ -8,6 +8,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { MarkdownEditor, Role, encodeManifest, loadCore } from '@mde/web';
 import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/plugins/composer';
 import { linkEditor } from '@mde/plugins/productivity';
+import { trustedHTMLPlugin } from '@mde/plugins/raw-html';
 import wasmUrl from '@mde/web/mde.wasm?url';
 import {
   manifestSpec,
@@ -67,6 +68,9 @@ export default function VanillaEditor({ historyInitiallyOpen, descriptionId }) {
       ed.installPlugin(attachmentComposer());
       ed.installPlugin(linkEditor());
       ed.installPlugin(slashCommandMenu());
+      ed.installPlugin(trustedHTMLPlugin({
+        accepts: ({ source }) => source.includes('data-mde-render'),
+      }));
 
       try {
         ed.resourceSizes = JSON.parse(localStorage.getItem(SIZES_KEY) ?? '{}');

@@ -28,6 +28,7 @@ const CAPABILITIES = [
   ['input rules + transfers', 'Claim typed patterns, paste, drop, and host payloads by priority.'],
   ['state + resources', 'Keep namespaced state and contribute host-resolved content.'],
   ['decorations + tasks', 'Publish visual ranges and run cancellable latest-wins analysis.'],
+  ['renderers', 'Mount, update, measure, and tear down custom canvas content.'],
 ];
 
 const suggestionExample = `suggestionPlugin({
@@ -38,6 +39,21 @@ const suggestionExample = `suggestionPlugin({
   provider: async ({ query, signal }) =>
     api.people.search(query, { signal }),
 });`;
+
+const htmlExample = `import { rawHTMLPlugin } from '@mde/plugins/raw-html';
+
+editor.installPlugin(rawHTMLPlugin({
+  name: 'journal.widgets',
+  mount({ source }, { requestLayout }) {
+    const element = renderJournalWidget(source);
+    element.onReady = requestLayout;
+    return {
+      element,
+      wantsPointerEvents: true,
+      unmount: () => element.destroy(),
+    };
+  },
+}));`;
 
 const swiftExample = `let mentions = MarkdownSuggestionPlugin(
   name: "journal.people",
@@ -122,6 +138,19 @@ export default function Plugins() {
       <Note>
         Identical in-flight queries are coalesced. This matters because browsers and TextKit can emit
         several selection callbacks while revealing a token at the caret.
+      </Note>
+
+      <H2 id="renderers">Put anything on the canvas</H2>
+      <Lede>
+        Renderer plugins turn parser-recognized ranges into ordinary editor widgets. They may mount
+        DOM, canvas, interactive JavaScript, native views, or a managed web view; the core continues
+        to own source identity, selection, caching, and layout invalidation.
+      </Lede>
+      <SourceFigure path="journal-widgets.ts" lang="typescript" code={htmlExample} />
+      <Note>
+        Raw HTML is only the reference plugin. The host chooses which renderer to install and owns
+        sanitization or sandboxing. Entering a rendered node reveals its exact source, and removing
+        the plugin unmounts every owned view.
       </Note>
 
       <H3 id="framework-ui">React and SwiftUI stay optional</H3>

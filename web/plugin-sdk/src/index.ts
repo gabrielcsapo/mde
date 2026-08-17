@@ -4,7 +4,7 @@ export const MDE_PLUGIN_API_VERSION = 1 as const;
 export type PluginCapabilityName =
   | 'document' | 'selection' | 'semantics' | 'state' | 'commands'
   | 'presentations' | 'decorations' | 'tasks' | 'input-rules'
-  | 'transfers' | 'resources';
+  | 'transfers' | 'resources' | 'renderers';
 
 export interface PluginRequirement {
   apiVersion?: number;
@@ -60,6 +60,7 @@ export interface PluginDocumentCapability {
 }
 export interface PluginSelectionCapability {
   readonly range: PluginRange | null;
+  readonly isActive: boolean;
   set(range: PluginRange | null): void;
 }
 

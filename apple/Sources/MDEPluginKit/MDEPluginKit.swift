@@ -19,9 +19,10 @@ public struct MarkdownPluginCapability: OptionSet, Sendable, Hashable {
     public static let inputRules = Self(rawValue: 1 << 8)
     public static let transfers = Self(rawValue: 1 << 9)
     public static let resources = Self(rawValue: 1 << 10)
+    public static let renderers = Self(rawValue: 1 << 11)
     public static let all: Self = [
         .document, .selection, .semantics, .state, .commands, .presentations,
-        .decorations, .analysis, .inputRules, .transfers, .resources,
+        .decorations, .analysis, .inputRules, .transfers, .resources, .renderers,
     ]
 }
 

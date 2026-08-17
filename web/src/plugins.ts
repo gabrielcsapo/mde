@@ -2,6 +2,7 @@ import type { Decoration, LayerSpan, SelectionRange } from './core.js';
 import type { MarkdownEditor } from './editor.js';
 import type { ManifestSpec } from './manifest.js';
 import type { ResourceRequest, ResourceResolver } from './resources.js';
+import type { WidgetRenderer } from './widgets.js';
 import { composeManifests } from './manifest.js';
 import type {
   PluginDocumentCapability,
@@ -120,6 +121,10 @@ export interface PluginResourceContribution {
 export interface PluginResourcesCapability {
   register(name: string, contribution: PluginResourceContribution): import('@mde/plugin-sdk').PluginOwnedHandle;
 }
+export interface PluginRenderersCapability {
+  /** Register one renderer in deterministic plugin/install order. */
+  register(name: string, renderer: WidgetRenderer): import('@mde/plugin-sdk').PluginOwnedHandle;
+}
 
 export interface PluginAnalysisInput {
   /** Immutable source snapshot captured when the analysis was scheduled. */
@@ -172,6 +177,7 @@ export interface EditorPluginContext {
   readonly commands: PluginCommandsCapability;
   readonly view: PluginViewCapability;
   readonly resources: PluginResourcesCapability;
+  readonly renderers: PluginRenderersCapability;
   /** @deprecated Use the small capability objects above. */
   readonly editor: MarkdownEditor;
   readonly signal: AbortSignal;
@@ -239,6 +245,7 @@ export interface InstalledPlugin {
   inputRules: Set<string>;
   transfers: Set<string>;
   resources: Set<string>;
+  renderers: Set<string>;
   legacyEditorAccessed: boolean;
   analysisSequence: number;
   cleanup?: PluginCleanup;

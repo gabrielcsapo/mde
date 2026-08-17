@@ -7,7 +7,13 @@
 import { Kind, Role } from './core.js';
 import type { Decoration, Engine } from './core.js';
 import type { ResourceCache } from './resources.js';
-import type { WidgetProvider } from './widgets.js';
+import type {
+  WidgetMount,
+  WidgetProvider,
+  WidgetResult,
+} from './widgets.js';
+
+type CachedWidget = WidgetMount;
 
 /** Marks subtrees that are presentation only and contribute no document text. */
 export const IGNORE_ATTR = 'data-mde-ignore';
@@ -109,9 +115,10 @@ export class DomApplier {
   sorted: Decoration[];
   indexStale: boolean;
   maxLength: number;
-  widgetViews: Map<bigint, HTMLElement>;
+  widgetViews: Map<bigint, CachedWidget>;
   widgetOrder: bigint[];
   widgetCacheLimit: number;
+  onWidgetLayout: (() => void) | null;
   references: Map<string, Set<bigint>>;
   referenceByKey: Map<bigint, string>;
 
@@ -135,12 +142,13 @@ export class DomApplier {
     /**
      * Host-drawn widget views, kept by decoration key so a re-render of the line does
      * not ask the host to build the same callout again.
-     * @type {Map<bigint, HTMLElement>}
+     * @type {Map<bigint, CachedWidget>}
      */
     this.widgetViews = new Map();
     /** Insertion order, for eviction. @type {bigint[]} */
     this.widgetOrder = [];
     this.widgetCacheLimit = 256;
+    this.onWidgetLayout = null;
     /** Resource/reference lookup maintained with `live`, avoiding a document scan on resolve. */
     this.references = new Map();
     this.referenceByKey = new Map();
@@ -152,22 +160,33 @@ export class DomApplier {
     this.referenceByKey.clear();
     this.indexStale = true;
     this.resources?.reset();
+    this.resetWidgets();
+  }
+
+  /** Drop only host views while retaining parsed decorations and resolved resources. */
+  resetWidgets() {
+    for (const widget of this.widgetViews.values()) widget.unmount?.();
     this.widgetViews.clear();
     this.widgetOrder.length = 0;
   }
 
   /** @param {bigint} key */
-  cachedWidget(key) {
-    return this.widgetViews.get(key) ?? null;
+  cachedWidget(key, request, context) {
+    const cached = this.widgetViews.get(key) ?? null;
+    cached?.update?.(request, context);
+    return cached;
   }
 
   /**
    * @param {bigint} key
-   * @param {HTMLElement|null|undefined} view
-   * @returns {HTMLElement|null}
+   * @param {WidgetResult|null|undefined} result
+   * @returns {CachedWidget|null}
    */
-  cacheWidget(key, view) {
-    if (!view) return null;
+  cacheWidget(key, result) {
+    if (!result) return null;
+    const view = result instanceof HTMLElement
+      ? { element: result }
+      : result;
     this.widgetViews.set(key, view);
     this.widgetOrder.push(key);
     if (this.widgetOrder.length > this.widgetCacheLimit) {
@@ -175,6 +194,7 @@ export class DomApplier {
       // anything the document still points at.
       let victim = this.widgetOrder.findIndex((k) => !this.live.has(k));
       if (victim < 0) victim = 0;
+      this.widgetViews.get(this.widgetOrder[victim])?.unmount?.();
       this.widgetViews.delete(this.widgetOrder[victim]);
       this.widgetOrder.splice(victim, 1);
     }
@@ -234,7 +254,10 @@ export class DomApplier {
       this.live.delete(key);
       // A removed key can never come back: it encodes the node's own source, so its
       // view is unreachable and would just occupy the cache.
-      if (this.widgetViews.delete(key)) {
+      const widget = this.widgetViews.get(key);
+      if (widget) {
+        widget.unmount?.();
+        this.widgetViews.delete(key);
         const at = this.widgetOrder.indexOf(key);
         if (at >= 0) this.widgetOrder.splice(at, 1);
       }
@@ -777,31 +800,37 @@ export class DomApplier {
       const roleName = this.engine.roleName(d.role);
       const payload = this.engine.payload(d.key);
       const source = this.text.slice(d.start, d.end);
+      const request = { roleName, source, payload, decoration: d };
+      const context = { requestLayout: () => this.onWidgetLayout?.() };
 
       const view = document.createElement('span');
       view.className = 'mde-widget-view';
       view.setAttribute(IGNORE_ATTR, '');
       view.setAttribute('contenteditable', 'false');
       // Opt-in only: by default clicks pass through so the caret can reach the source.
-      if (this.widgetProvider?.widgetWantsPointerEvents?.(roleName)) {
-        view.setAttribute('data-mde-interactive', '');
-      }
-
       // Host-drawn views are cached by decoration key. That is safe precisely because
       // keys are stable across edits (DESIGN §3.3): a key changes exactly when its
       // node's own source changes, so the cache invalidates itself for free. Resource
       // views are already cached by the resolver and are reused as-is.
       const built =
-        this.cachedWidget(d.key) ??
+        this.cachedWidget(d.key, request, context) ??
         this.cacheWidget(
           d.key,
-          this.widgetProvider?.makeWidget({ roleName, source, payload, decoration: d }),
+          this.widgetProvider?.makeWidget(request, context),
         ) ??
-        this.resources?.view({ reference: payload, roleName, source }) ??
         null;
+      const resource = built
+        ? null
+        : this.resources?.view({ reference: payload, roleName, source }) ??
+        null;
+      if (
+        built?.wantsPointerEvents
+        || this.widgetProvider?.widgetWantsPointerEvents?.(roleName)
+      ) view.setAttribute('data-mde-interactive', '');
       // Re-parenting is the point: an element lives in one place, and the wrapper it
       // came from is being discarded.
-      if (built) view.appendChild(built);
+      if (built) view.appendChild(built.element);
+      else if (resource) view.appendChild(resource);
       wrap.appendChild(view);
     }
 

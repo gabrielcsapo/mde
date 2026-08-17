@@ -45,8 +45,8 @@ public final class MarkdownTextView: NSTextView {
     public var pluginStateStore: (any MarkdownPluginStateStore)?
 
     public var widgetProvider: (any WidgetProvider)? {
-        get { applier.widgetProvider }
-        set { applier.widgetProvider = newValue }
+        get { pluginWidgetBaseProvider }
+        set { pluginWidgetBaseProvider = newValue; refreshPluginWidgetProvider() }
     }
 
     /// Resolves references (`![a](photo.jpg)`) to views. See `ResourceResolver` — the
@@ -116,6 +116,8 @@ public final class MarkdownTextView: NSTextView {
     var pluginInstallations: [MarkdownPluginInstallation] = []
     var pluginResourceBaseResolver: (any ResourceResolver)?
     var pluginResourceContributions: [String: MarkdownPluginResourceRegistration] = [:]
+    var pluginWidgetBaseProvider: (any WidgetProvider)?
+    var pluginRendererContributions: [String: MarkdownPluginRendererRegistration] = [:]
     private var pluginCommands: [String: MarkdownPluginCommandRegistration] = [:]
     private var pluginCommandOrder: [String] = []
     private var pluginPresentations: [String: AppKitPluginPresentationRecord] = [:]
@@ -130,6 +132,18 @@ public final class MarkdownTextView: NSTextView {
         applier.resources.reset()
         applier.resources.resolver = resolver
         refreshPainting()
+    }
+
+    func refreshPluginWidgetProvider() {
+        applier.resetWidgets()
+        applier.widgetProvider = pluginRendererContributions.isEmpty
+            ? pluginWidgetBaseProvider
+            : CompositePluginWidgetProvider(
+                registrations: Array(pluginRendererContributions.values),
+                fallback: pluginWidgetBaseProvider
+            )
+        refreshPainting()
+        scheduleWidgetLayout()
     }
 
     // MARK: - Init
@@ -953,8 +967,20 @@ public final class MarkdownTextView: NSTextView {
                     hosting: attachment.makeView(),
                     wantsTouches: attachment.roleName == "table"
                         || (attachment.provider?.widgetWantsTouches(
-                            roleName: attachment.roleName
-                        ) ?? false)
+                            roleName: attachment.roleName,
+                            source: attachment.source,
+                            payload: attachment.payload
+                        ) ?? false),
+                    revealSource: { [weak self] in
+                        guard let self else { return }
+                        self.window?.makeFirstResponder(self)
+                        let source = NSRange(
+                            location: min(range.location + 1, range.upperBound),
+                            length: 0
+                        )
+                        self.setSelectedRange(source)
+                        self.scrollRangeToVisible(source)
+                    }
                 )
                 widgetOverlays[attachment.key] = overlay
                 addSubview(overlay)

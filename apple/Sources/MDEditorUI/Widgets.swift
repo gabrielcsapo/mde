@@ -35,6 +35,15 @@ public protocol WidgetProvider: AnyObject {
     /// Return true only for widgets with real controls of their own — a video
     /// scrubber, a button — and give those an escape hatch back to the source.
     func widgetWantsTouches(roleName: String) -> Bool
+
+    /// Richer form used by plugin renderers that share a role but match on source.
+    func widgetWantsTouches(roleName: String, source: String, payload: String?) -> Bool
+
+    /// Stable widget keys call update instead of rebuilding the platform view.
+    func updateWidget(_ view: PlatformView, roleName: String, source: String, payload: String?)
+
+    /// Called exactly once when a cached host view becomes unreachable.
+    func removeWidget(_ view: PlatformView)
 }
 
 public extension WidgetProvider {
@@ -45,6 +54,23 @@ public extension WidgetProvider {
         nil
     }
     func widgetWantsTouches(roleName _: String) -> Bool { false }
+    func widgetWantsTouches(roleName: String, source _: String, payload _: String?) -> Bool {
+        widgetWantsTouches(roleName: roleName)
+    }
+    func updateWidget(
+        _: PlatformView,
+        roleName _: String,
+        source _: String,
+        payload _: String?
+    ) {}
+    func removeWidget(_: PlatformView) {}
+}
+
+/// Optional bridge for interactive widget views whose non-control background should
+/// still reveal the exact source they replace. The editor installs the handler; the
+/// view only reports the user's intent, so it never needs document or selection APIs.
+public protocol WidgetSourceRevealRequesting: AnyObject {
+    func setSourceRevealHandler(_ handler: @escaping () -> Void)
 }
 
 /// Carries context and geometry from the source decoration to the viewport overlay.
@@ -112,7 +138,10 @@ final class WidgetAttachment: NSTextAttachment {
     /// resolver, and caching them again here would keep a second reference to a view
     /// that may be shared between two references to the same asset.
     func makeView() -> PlatformView {
-        if let cached = cache?.cachedWidgetView(for: key) { return cached }
+        if let cached = cache?.cachedWidgetView(for: key) {
+            provider?.updateWidget(cached, roleName: roleName, source: source, payload: payload)
+            return cached
+        }
         if let view = provider?.makeWidget(roleName: roleName, source: source, payload: payload) {
             cache?.cacheWidgetView(view, for: key)
             return view
@@ -196,7 +225,11 @@ final class WidgetViewProvider: NSTextAttachmentViewProvider {
         view = WidgetContainer(
             hosting: attachment.makeView(),
             wantsTouches: attachment.roleName == "table"
-                || (attachment.provider?.widgetWantsTouches(roleName: attachment.roleName) ?? false)
+                || (attachment.provider?.widgetWantsTouches(
+                    roleName: attachment.roleName,
+                    source: attachment.source,
+                    payload: attachment.payload
+                ) ?? false)
         )
     }
 }
@@ -211,10 +244,19 @@ final class WidgetContainer: PlatformView {
     private let wantsTouches: Bool
     private let content: PlatformView
 
-    init(hosting content: PlatformView, wantsTouches: Bool) {
+    init(
+        hosting content: PlatformView,
+        wantsTouches: Bool,
+        revealSource: (() -> Void)? = nil
+    ) {
         self.wantsTouches = wantsTouches
         self.content = content
         super.init(frame: content.bounds)
+
+        if let revealSource,
+           let requesting = content as? any WidgetSourceRevealRequesting {
+            requesting.setSourceRevealHandler(revealSource)
+        }
 
         // Explicit frames, not constraints. Pinning the content to all four edges at
         // required priority fights any intrinsic size the content sets for itself — an

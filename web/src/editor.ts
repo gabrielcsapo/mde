@@ -12,7 +12,13 @@ import { Kind } from './core.js';
 import type { Decoration, Engine, LayerSpan, Patch, Rewind, Revision, SelectionRange } from './core.js';
 import { ResourceCache } from './resources.js';
 import type { ResourceResolver } from './resources.js';
-import type { WidgetProvider } from './widgets.js';
+import type {
+  WidgetProvider,
+  WidgetRenderer,
+  WidgetRenderContext,
+  WidgetRequest,
+  WidgetResult,
+} from './widgets.js';
 import { pluginLayerName } from './plugins.js';
 import type {
   EditorPlugin,
@@ -43,7 +49,7 @@ import type {
 
 const PLUGIN_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set([
   'document', 'selection', 'semantics', 'state', 'commands', 'presentations',
-  'decorations', 'tasks', 'input-rules', 'transfers', 'resources',
+  'decorations', 'tasks', 'input-rules', 'transfers', 'resources', 'renderers',
 ]);
 
 /**
@@ -166,6 +172,12 @@ export class MarkdownEditor extends EventTarget {
     contribution: import('./plugins.js').PluginResourceContribution;
     order: number;
   }>;
+  private baseWidgetProvider: WidgetProvider | null;
+  private pluginRenderers: Map<string, {
+    plugin: string;
+    renderer: WidgetRenderer;
+    order: number;
+  }>;
   private resourcePriorityFrame: number | null;
   private virtualizationFrame: number | null;
   private virtualizesDocument: boolean;
@@ -196,7 +208,17 @@ export class MarkdownEditor extends EventTarget {
     super();
     this.engine = engine;
     this.applier = new DomApplier(engine);
-    this.applier.widgetProvider = options.widgetProvider ?? null;
+    this.baseWidgetProvider = options.widgetProvider ?? null;
+    this.pluginRenderers = new Map();
+    this.applier.widgetProvider = {
+      makeWidget: (request, context) => this.makePluginWidget(request, context),
+      widgetWantsPointerEvents: (roleName) =>
+        this.baseWidgetProvider?.widgetWantsPointerEvents?.(roleName) ?? false,
+    };
+    this.applier.onWidgetLayout = () => {
+      this.scheduleVirtualization();
+      this.repositionPluginPresentations();
+    };
     this.applier.resources = new ResourceCache(options.resourceResolver ?? null, (ref) =>
       this.repaintReferencing(ref)
     );
@@ -254,6 +276,8 @@ export class MarkdownEditor extends EventTarget {
     this.root.addEventListener('blur', () => {
       this.applyPatch(this.engine.setSelection(null));
       this.activateChunk(null);
+      this.dispatchEvent(new CustomEvent('selectionchange', { detail: { range: null } }));
+      this.repositionPluginPresentations();
     }, listener);
     this.root.addEventListener('click', (e) => this.onClick(e), listener);
     // Before the browser gets to place a caret — see `onMouseDown`.
@@ -504,6 +528,7 @@ export class MarkdownEditor extends EventTarget {
       inputRules: new Set(),
       transfers: new Set(),
       resources: new Set(),
+      renderers: new Set(),
       legacyEditorAccessed: false,
       analysisSequence: 0,
     };
@@ -545,6 +570,7 @@ export class MarkdownEditor extends EventTarget {
       },
       selection: {
         get range() { return editor.selectionRange(); },
+        get isActive() { return document.activeElement === editor.root; },
         set: (range) => {
           if (range) this.setSelectionRange(range);
           else document.getSelection()?.removeAllRanges();
@@ -645,6 +671,24 @@ export class MarkdownEditor extends EventTarget {
             if (this.pluginResources.get(id) === registration) this.pluginResources.delete(id);
             installed.resources.delete(id);
             this.refreshPluginResourceResolver();
+          } };
+        },
+      },
+      renderers: {
+        register: (local, renderer) => {
+          const canonical = local.trim();
+          if (!canonical) throw new Error(`Plugin "${name}" used an empty renderer name`);
+          const id = pluginLayerName(name, `renderer:${canonical}`);
+          const registration = {
+            plugin: name, renderer, order: ++this.pluginRegistrationOrder,
+          };
+          this.pluginRenderers.set(id, registration);
+          installed.renderers.add(id);
+          this.refreshPluginRenderers();
+          return { unregister: () => {
+            if (this.pluginRenderers.get(id) === registration) this.pluginRenderers.delete(id);
+            installed.renderers.delete(id);
+            this.refreshPluginRenderers();
           } };
         },
       },
@@ -771,7 +815,9 @@ export class MarkdownEditor extends EventTarget {
       for (const rule of installed.inputRules) this.pluginInputRules.delete(rule);
       for (const transfer of installed.transfers) this.pluginTransfers.delete(transfer);
       for (const resource of installed.resources) this.pluginResources.delete(resource);
+      for (const renderer of installed.renderers) this.pluginRenderers.delete(renderer);
       this.refreshPluginResourceResolver();
+      this.refreshPluginRenderers();
       installed.commands.clear();
       for (const layer of installed.layers) this.clearLayer(layer);
       for (const presentation of installed.presentations) {
@@ -797,6 +843,8 @@ export class MarkdownEditor extends EventTarget {
     for (const resource of installed.resources) this.pluginResources.delete(resource);
     installed.resources.clear();
     this.refreshPluginResourceResolver();
+    for (const renderer of installed.renderers) this.pluginRenderers.delete(renderer);
+    installed.renderers.clear();
     for (const task of [...installed.analyses.keys()]) {
       const run = installed.analyses.get(task);
       installed.analyses.delete(task);
@@ -816,6 +864,7 @@ export class MarkdownEditor extends EventTarget {
         this.dismissPluginPresentation(presentation, 'plugin-removed');
       }
       installed.presentations.clear();
+      this.refreshPluginRenderers();
     }
     if (cleanupError !== undefined) throw cleanupError;
     return true;
@@ -990,6 +1039,32 @@ export class MarkdownEditor extends EventTarget {
           },
         };
     if (this.text) this.renderAll(true);
+  }
+
+  private makePluginWidget(
+    request: WidgetRequest,
+    context?: WidgetRenderContext,
+  ): WidgetResult | null {
+    const renderContext = context ?? { requestLayout: () => {} };
+    const renderers = [...this.pluginRenderers.values()].sort((a, b) => a.order - b.order);
+    for (const registration of renderers) {
+      try {
+        if (!registration.renderer.matches(request)) continue;
+        const mounted = registration.renderer.mount(request, renderContext);
+        if (mounted) return mounted;
+      } catch (error) {
+        this.dispatchEvent(new CustomEvent('pluginerror', {
+          detail: { plugin: registration.plugin, task: 'renderer', error },
+        }));
+      }
+    }
+    return this.baseWidgetProvider?.makeWidget(request, renderContext) ?? null;
+  }
+
+  /** Rebuild only presentation views; parsing, resources, and editor state stay warm. */
+  private refreshPluginRenderers(): void {
+    this.applier.resetWidgets();
+    if (this.lines.length > 0) this.renderAll(true);
   }
 
   /** Discover every plugin command in deterministic registration order. */
@@ -1601,6 +1676,16 @@ export class MarkdownEditor extends EventTarget {
     const wrap = target?.closest?.('.mde-widget');
     if (!wrap || !this.root.contains(wrap)) return;
 
+    // Interactive widgets have two equally important click paths. Real controls keep
+    // their native behavior; the rest of the widget remains an affordance for
+    // revealing its exact source. Without this split, opting a widget into pointer
+    // events makes either every button inert or the source impossible to reach.
+    const control = target?.closest?.(
+      'a[href],button,input,select,textarea,summary,video,audio,[contenteditable="true"],'
+        + '[role="button"],[data-mde-control]',
+    );
+    if (control && wrap.contains(control)) return;
+
     const key = wrap.getAttribute('data-mde-key');
     let decoration = null;
     for (const d of this.applier.live.values()) {
@@ -1613,9 +1698,15 @@ export class MarkdownEditor extends EventTarget {
 
     event.preventDefault();
     this.root.focus();
-    const at = { start: decoration.start, end: decoration.start };
+    const offset = Math.min(decoration.start + 1, decoration.end);
+    const at = { start: offset, end: offset };
     this.setSelectionRange(at);
     this.applyPatch(this.engine.setSelection(at), null, at);
+    // `preventDefault()` suppresses the browser's own selectionchange. Plugin layers
+    // still need the same notification as core decorations so they can yield their
+    // widget and expose the source under the caret.
+    this.dispatchEvent(new CustomEvent('selectionchange', { detail: { range: at } }));
+    this.repositionPluginPresentations();
   }
 
   /** @param {MouseEvent} event */
