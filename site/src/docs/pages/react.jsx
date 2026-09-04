@@ -4,6 +4,7 @@ import SourceFigure from '../../components/SourceFigure.jsx';
 import { Link } from '../../lib/router.jsx';
 import { REACT_API } from '../../lib/api.js';
 import {
+  installReact,
   reactBasicJsx,
   reactCommandsJsx,
   reactHistoryJsx,
@@ -13,45 +14,57 @@ import {
 export default function ReactPage() {
   return (
     <>
-      <H2 id="optional">An adapter, not the editor</H2>
+      <H2 id="optional">React adapter architecture</H2>
       <Lede>
-        <code>@mde/react</code> lives in <code>web/react/</code> and is an optional layer over the
+        <code>@mdink/react</code> lives in <code>web/react/</code> and is an optional layer over the
         framework-free editor in <code>web/src/</code>. It imports that editor directly — it is
         never a fork of it — and it takes React and React DOM as peer dependencies, so it adds
         nothing to a page that already has them.
       </Lede>
       <p>
-        Everything on the rest of this site is still true underneath: the same wasm core, the same
-        decoration protocol, the same extension manifest, the same host contracts. The adapter’s job
-        is to make the editor’s lifetime and its events look like React, and to keep the two things
-        React does that this editor genuinely dislikes from happening.
+        The adapter uses the same wasm core, decoration protocol, extension manifest, and host
+        contracts as the JS integration. It maps the editor lifecycle and events to React while
+        preserving the editor instance across component renders.
       </p>
       <Note>
-        The <Link to="/try">demo editor</Link> lets you switch between the adapter and the direct
+        The <Link to="/docs/try">demo editor</Link> lets you switch between the adapter and the direct
         framework-free mount. The React variant is lazy-loaded, so choosing JS does not load
         the adapter at all.
       </Note>
 
       <H3 id="installing">Installing it</H3>
       <p>
-        Install <code>@mde/react</code> alongside React. It declares <code>@mde/web</code> as a normal
+        Install <code>@mdink/react</code> alongside React. It declares <code>@mdink/web</code> as a normal
         dependency and React and React DOM as peers, so the adapter remains a thin package boundary
         instead of copying the editor or bundling a second React runtime.
       </p>
+      <SourceFigure className="mt-6" path="terminal" lang="bash" code={installReact} />
       <p>
         Both packages are TypeScript source compiled as ESM libraries with Vite. The framework-free
         build emits JavaScript and wasm separately, and the React build keeps React and{' '}
-        <code>@mde/web</code> external. Import <code>@mde/web/theme.css</code> yourself, and{' '}
-        <code>@mde/plugins/extensions.css</code> if you use the optional feature package.
+        <code>@mdink/web</code> external. Import <code>@mdink/web/theme.css</code> yourself, and{' '}
+        <code>@mdink/plugins/extensions.css</code> if you use the optional feature package.
       </p>
 
-      <H2 id="uncontrolled">Uncontrolled by design</H2>
+      <H3 id="five-minute-react">Your first React editor</H3>
+      <p>
+        Import the Wasm file as an asset URL so your bundler emits it with the app, then pass that
+        URL to the component. The starter below has no host-only variables and runs as written in a
+        Vite React application.
+      </p>
+      <SourceFigure className="mt-6" path="Editor.jsx" lang="javascript" code={reactBasicJsx} />
+
+      <H2 id="uncontrolled">Uncontrolled value model</H2>
       <Lede>
         <code>defaultValue</code> and <code>onChange</code>, not <code>value</code> and{' '}
         <code>onChange</code>. This is not a shortcut — a controlled text input is the one shape
         this editor cannot have.
       </Lede>
-      <SourceFigure className="mt-6" path="Editor.jsx" lang="javascript" code={reactBasicJsx} />
+      <p>
+        Treat <code>defaultValue</code> as the opening document and persist edits from{' '}
+        <code>onChange</code>. Use <code>value</code> only when a change arrives from outside the
+        editor, such as file sync or collaboration.
+      </p>
 
       <Aside tone="caution" title="Why not controlled">
         <p>
@@ -79,7 +92,7 @@ export default function ReactPage() {
         </p>
       </Aside>
 
-      <H3 id="rerenders">Re-rendering is free, and that is unusual</H3>
+      <H3 id="rerenders">React re-renders preserve the editor instance</H3>
       <p>
         Only <code>wasm</code> and the <em>content</em> of <code>manifest</code> rebuild the editor.
         Callbacks, providers and <code>layers</code> are read through refs, so a parent that
@@ -92,12 +105,12 @@ export default function ReactPage() {
         that should not be faked. The implementation behind one may change freely.
       </Note>
 
-      <H2 id="pitfalls">Two pitfalls the adapter exists to handle</H2>
+      <H2 id="pitfalls">Editor-instance and StrictMode handling</H2>
 
       <H3 id="bigint">The editor instance must never be state or a prop</H3>
       <p>
         Decoration keys are <code>u64</code> (
-        <Link to="/concepts/decorations">stable identity, DESIGN §3.3</Link>), which arrive in
+        <Link to="/docs/concepts/decorations">stable identity, DESIGN §3.3</Link>), which arrive in
         JavaScript as <code>BigInt</code>. React’s development-mode prop logging deep-serialises
         changed props — and <code>JSON.stringify</code> throws on a <code>BigInt</code>. Put the
         editor, or a decoration, into state or into a prop and you get an uncaught error on every
@@ -107,12 +120,12 @@ export default function ReactPage() {
         So <strong>every member of the handle is a method, never a value</strong>: the editor, its
         engine and its decorations all sit behind function calls, which keeps them out of the render
         path entirely. It is also why <code>onHistoryChange</code> carries four scalars rather than
-        the editor — those are safe to put straight into state. This site’s own toolbar reaches the
-        editor through a stable callback for the same reason, and says so in{' '}
+        the editor — those are safe to put straight into state. The demo toolbar reaches the editor
+        through a stable callback for the same reason; its implementation is in{' '}
         <code>site/src/components/Toolbar.jsx</code>.
       </p>
 
-      <H3 id="strictmode">StrictMode double-mounts, which is what destroy() is for</H3>
+      <H3 id="strictmode">StrictMode cleanup</H3>
       <p>
         Under <code>StrictMode</code> React mounts every component twice on purpose, to surface
         effects that are not cleanly reversible. An editor that does not tear down leaves the first
@@ -135,7 +148,7 @@ export default function ReactPage() {
         and history. <code>preloadCore()</code> warms it from a route transition.
       </Note>
 
-      <H2 id="commands">Commands go through a ref</H2>
+      <H2 id="commands">Imperative commands with a ref</H2>
       <Lede>
         A command acts on a live selection in a live buffer. Expressing “wrap what is selected in{' '}
         <code>**</code>” as state would mean owning the selection, which belongs to the platform —
@@ -154,7 +167,7 @@ export default function ReactPage() {
 
       <H2 id="layers-prop">Layers, declaratively</H2>
       <p>
-        <Link to="/extend/layers">Host decoration layers</Link> are a natural fit for a prop: the
+        <Link to="/docs/extend/layers">Host decoration layers</Link> are a natural fit for a prop: the
         host says what the layer <em>is</em>, and the core diffs it. The adapter compares by content
         rather than by identity, so an inline object literal does not re-push a layer on every
         render, and a span’s role may be given as a name rather than an id.
@@ -167,7 +180,7 @@ export default function ReactPage() {
         about them; they meet at that one method.
       </Note>
 
-      <H2 id="history-panel">A history panel is a list and a jump</H2>
+      <H2 id="history-panel">Revision history panel</H2>
       <p>
         <code>onHistoryChange</code> carries only scalars — <code>canUndo</code>,{' '}
         <code>canRedo</code>, <code>position</code>, <code>count</code> — and fires only when one of
@@ -178,11 +191,11 @@ export default function ReactPage() {
       </p>
       <SourceFigure className="mt-6" path="History.jsx" lang="javascript" code={reactHistoryJsx} />
       <Note>
-        <Link to="/concepts/history">History and undo</Link> covers what a revision reports and why{' '}
+        <Link to="/docs/concepts/history">History and undo</Link> covers what a revision reports and why{' '}
         <code>jumpTo</code> is one splice however far it travels.
       </Note>
 
-      <Aside tone="note" title="A bug this adapter found, and where it was fixed">
+      <Aside tone="note" title="Controlled value synchronization">
         <p>
           Early versions of the editor could bounce focus straight back on blur: collapsing the
           reveal dirtied a line, the re-render restored the selection it had read <em>before</em>{' '}
@@ -203,17 +216,17 @@ export default function ReactPage() {
       <SeeAlso
         links={[
           {
-            to: '/install',
+            to: '/docs/install',
             title: 'Install and embed',
             note: 'the same editor without React, and how to build the wasm',
           },
           {
-            to: '/reference/web',
+            to: '/docs/reference/web',
             title: 'Web API',
             note: 'what the adapter is wrapping, in full',
           },
           {
-            to: '/extend/showcase',
+            to: '/docs/extend/showcase',
             title: 'Two extensions, no editor changes',
             note: 'what getEditor() is for',
           },

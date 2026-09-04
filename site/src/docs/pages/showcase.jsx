@@ -36,24 +36,22 @@ const WHERE = [
 export default function Showcase() {
   return (
     <>
-      <H2 id="the-claim">The claim, and how to check it</H2>
+      <H2 id="the-claim">Layer API examples</H2>
       <Lede>
-        Two features ship against the layer API and are deliberately <em>not</em> part of the
-        editor: typewriter mode, which dims everything but the paragraph under the caret, and
-        parts-of-speech highlighting, which tints nouns, verbs, adjectives and adverbs.
+        Typewriter mode dims text outside the active paragraph. Parts-of-speech highlighting tints
+        nouns, verbs, adjectives, and adverbs. Both are optional extensions built with the public
+        layer API.
       </Lede>
       <p>
-        Neither required a change to the core, the applier, or any of the three renderers. Both are
-        toggles in the toolbar of <Link to="/try">the editor on this site</Link>, and both exist
-        twice — once in JavaScript, once in Swift — against the same three calls.
+        Both are available in <Link to="/docs/try">the browser demo</Link> and implemented in JavaScript
+        and Swift with the same document, selection, and layer operations.
       </p>
       <p>
-        They were chosen because they are the two things a markdown parser can never do. One depends
-        on where the caret is, which is not in the document. The other depends on{' '}
-        <em>language</em>, which is not in the document either and never will be.
+        Typewriter mode depends on the current selection, while parts-of-speech highlighting depends
+        on language analysis. Neither state belongs in the Markdown document.
       </p>
 
-      <H2 id="what-they-cost">What adding them cost</H2>
+      <H2 id="what-they-cost">Integration surface</H2>
       <TableFrame className="mt-6">
         <thead>
           <tr>
@@ -73,9 +71,8 @@ export default function Showcase() {
         </tbody>
       </TableFrame>
       <Note>
-        And on this site, one object each in <code>site/src/lib/toolbar.js</code>. The toolbar is a
-        list of descriptors rather than markup, so a capability that arrives as an extension arrives
-        as a button — the page does not have to learn anything new about it.
+        Each extension also registers a descriptor in <code>site/src/lib/toolbar.js</code>. The
+        toolbar renders registered capabilities without extension-specific component code.
       </Note>
       <SourceFigure className="mt-6" path="site/src/lib/toolbar.js" lang="javascript" code={toolbarJs} />
 
@@ -86,12 +83,9 @@ export default function Showcase() {
       </Lede>
       <SourceFigure className="mt-6" path="web/extensions/typewriter.ts" lang="typescript" code={typewriterJs} />
       <p className="mt-6">
-        Two details in there are the interesting ones. A blank line is the paragraph boundary,
-        matching how the core segments blocks — falling back to the single line would make the mode
-        flicker paragraph-by-paragraph as the caret crosses a soft wrap, which reads as noise rather
-        than as focus. And no caret means an <em>empty</em> layer rather than a dim over everything:
-        dimming an entire document because the editor lost focus would be a strange thing to look
-        at.
+        Blank lines define paragraph boundaries, matching the core’s block segmentation and avoiding
+        changes when the caret crosses a soft wrap. When the editor has no selection, the extension
+        clears its layer instead of dimming the entire document.
       </p>
       <Aside tone="note" title="The Apple version knows about headings">
         Its focus role carries a slightly larger font, and attributes apply in paint order — so a
@@ -116,7 +110,7 @@ export default function Showcase() {
       </p>
       <SourceFigure className="mt-5" path="apple/Sources/MDEHost/PartsOfSpeech.swift" lang="swift" code={posSwift} />
 
-      <H3 id="web-tagger">On the web: a heuristic, and labelled as one</H3>
+      <H3 id="web-tagger">On the web: heuristic tagging</H3>
       <p>
         The browser has no <code>NLTagger</code>, and the alternative to a heuristic is shipping a
         real tagger — a model, a dictionary, megabytes — into a documentation page to demonstrate
@@ -126,9 +120,8 @@ export default function Showcase() {
       </p>
       <SourceFigure className="mt-5" path="web/extensions/parts-of-speech.ts" lang="typescript" code={posWebJs} />
       <Footnote>
-        The point being demonstrated is the plumbing, not the linguistics — that a feature this far
-        outside markdown can drive the editor’s decoration pipeline without the editor knowing it
-        exists. Saying so is cheaper than being quietly wrong about it.
+        This example demonstrates asynchronous language analysis through decoration layers. It is
+        not intended as a production-quality linguistic model.
       </Footnote>
 
       <H2 id="where-they-live">Where they live</H2>
@@ -162,14 +155,14 @@ export default function Showcase() {
 
       <SeeAlso
         links={[
-          { to: '/try', title: 'Try it', note: 'both toggles, on the real editor' },
+          { to: '/docs/try', title: 'Try it', note: 'use both extensions in the browser editor' },
           {
-            to: '/extend/layers',
+            to: '/docs/extend/layers',
             title: 'Host decoration layers',
             note: 'the API underneath, in full',
           },
           {
-            to: '/reference/roles',
+            to: '/docs/reference/roles',
             title: 'Roles and CSS classes',
             note: 'how a role invented at runtime gets styled',
           },

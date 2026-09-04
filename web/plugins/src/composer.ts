@@ -1,1 +1,1 @@
-export * from '@mde/web/extensions/composer';
+export * from '@mdink/web/extensions/composer';

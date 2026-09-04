@@ -38,7 +38,7 @@ const PLUGIN_SCALE = [
 export default function Performance() {
   return (
     <>
-      <H2 id="measured">Measured, then optimised</H2>
+      <H2 id="measured">Performance budgets and measurement</H2>
       <Lede>
         The original argument was that parsing is nearly free and the real cost is renderer
         mutation. Measurement said the first half is right and the second half is backwards by two
@@ -70,11 +70,11 @@ export default function Performance() {
       </TableFrame>
       <Note>
         Renderer mutation is the cheapest thing in the loop. That is not an accident — it is the{' '}
-        <Link to="/concepts/decorations">moved-does-not-repaint rule</Link> and disjoint dirty ranges
+        <Link to="/docs/concepts/decorations">moved-does-not-repaint rule</Link> and disjoint dirty ranges
         doing their job.
       </Note>
 
-      <H2 id="results">Per keystroke, on an M2</H2>
+      <H2 id="results">M2 edit-latency results</H2>
       <TableFrame className="mt-6 max-w-[860px]">
         <thead>
           <tr>
@@ -97,7 +97,7 @@ export default function Performance() {
       </TableFrame>
       <Note>500 KB now fits inside a 60 fps frame at the core level, against ~120 KB before.</Note>
 
-      <H2 id="plugin-scale">Optional features stay optional in cost</H2>
+      <H2 id="plugin-scale">Cost of optional features</H2>
       <Lede>
         Every performance run installs 0, 1, 10, and 50 capability-only plugins and measures
         steady-state edits. The 50-plugin web p95 is currently 0.10 ms with a 20 ms gate; AppKit
@@ -110,7 +110,7 @@ export default function Performance() {
         ))}</tbody>
       </TableFrame>
 
-      <H2 id="three-changes">What actually changed</H2>
+      <H2 id="three-changes">Implemented optimizations</H2>
       <Clauses>
         <Clause title="Reparse only the region an edit could change">
           A scan finds offsets where a top-level block provably begins — after a blank line, at
@@ -134,7 +134,7 @@ export default function Performance() {
         </Clause>
       </Clauses>
 
-      <H2 id="dirty-ranges">The 1844 ms keystroke</H2>
+      <H2 id="dirty-ranges">Pathological 1,844 ms edit</H2>
       <p>
         Dirty ranges are a set, not a bounding box. Editing a node changes how many byte-identical
         siblings precede its twin elsewhere in the document, which changes that twin’s key and puts
@@ -143,7 +143,7 @@ export default function Performance() {
         any document size. Both renderers now repaint disjoint ranges, with a test pinned to it.
       </p>
 
-      <Aside tone="note" title="One optimization measured and thrown away">
+      <Aside tone="note" title="Discarded viewport-window optimization">
         An earlier version limited decoration to a window around the viewport above 256 KB.
         Measurement killed it. Because it could not compose with the incremental splice, turning it
         on <em>disabled</em> the optimization actually doing the work — 13.2 ms against 17.3 ms at
@@ -157,17 +157,17 @@ export default function Performance() {
       <SeeAlso
         links={[
           {
-            to: '/internals/architecture',
+            to: '/docs/internals/architecture',
             title: 'Architecture',
             note: 'why a full reparse was the starting point',
           },
           {
-            to: '/extend/manifest',
+            to: '/docs/extend/manifest',
             title: 'The extension manifest',
             note: 'where the prefilter comes from, and when it is refused',
           },
           {
-            to: '/internals/status',
+            to: '/docs/internals/status',
             title: 'Status and open questions',
             note: 'the document shape that still degrades',
           },

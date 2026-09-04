@@ -164,12 +164,12 @@ export default function RefRoles() {
       <SeeAlso
         links={[
           {
-            to: '/extend/layers',
+            to: '/docs/extend/layers',
             title: 'Host decoration layers',
             note: 'where a role invented at runtime comes from',
           },
           {
-            to: '/platforms/web',
+            to: '/docs/platforms/web',
             title: 'Web',
             note: 'why the line classes are shaped the way they are',
           },

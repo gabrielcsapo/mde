@@ -5,11 +5,11 @@ import { createRoot } from 'react-dom/client';
 // copied — and unlayered CSS outranks every cascade layer Tailwind emits, so it
 // survives Preflight intact. `site.css` has to come second so *its* unlayered editor
 // rules at the bottom win against it on source order.
-import '@mde/web/theme.css';
+import '@mdink/web/theme.css';
 // The showcase extensions' own styling. After theme.css on purpose: a role class and a
 // built-in class are both single-class selectors, so source order is what lets a focus
 // dim actually dim a heading. See the note at the top of the file.
-import '@mde/plugins/extensions.css';
+import '@mdink/plugins/extensions.css';
 import './site.css';
 
 import App from './App.jsx';

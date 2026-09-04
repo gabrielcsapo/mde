@@ -22,12 +22,12 @@ export default function Layers() {
         The spans then flow through machinery that already exists — identity, diffing,{' '}
         <code>moved</code>, painting, theming — so <strong>no renderer needed new code to draw
         them</strong>. That is the test of whether the{' '}
-        <Link to="/concepts/decorations">decoration protocol</Link> was actually a protocol or just
+        <Link to="/docs/concepts/decorations">decoration protocol</Link> was actually a protocol or just
         an internal shape: a feature invented years later, in a different language, should reach the
         screen through it unchanged.
       </p>
 
-      <H2 id="load-bearing">Three details are load-bearing</H2>
+      <H2 id="load-bearing">Layer ordering, identity, and rebasing</H2>
       <Clauses>
         <Clause title="Layers paint after the parse">
           <code>Decoration.layer</code> is <code>0</code> for anything derived from the markdown and
@@ -90,12 +90,12 @@ export default function Layers() {
       <p>
         The shipped extensions are executable examples: mentions, tags, wiki links, slash commands,
         formatting, templates, find/replace, image descriptions, and a full journal media importer.
-        The same plugin objects run through <code>@mde/web</code> and <code>@mde/react</code>; Swift
+        The same plugin objects run through <code>@mdink/web</code> and <code>@mdink/react</code>; Swift
         supplies the equivalent shared host implementations for UIKit and AppKit. Removing a plugin removes its listeners, commands, background work,
         layers, and every floating view as one operation.
       </p>
       <p>
-        Published compatibility helpers—<code>@mde/web/plugin-testing</code> and{' '}
+        Published compatibility helpers—<code>@mdink/web/plugin-testing</code> and{' '}
         <code>MarkdownPluginCompatibility.check</code>—exercise installation, source preservation,
         layer ownership, and teardown with no dependency on Vitest or XCTest.
       </p>
@@ -125,7 +125,7 @@ export default function Layers() {
         code={themeRolesSwift}
       />
 
-      <H3 id="recompute-cost">Recomputing is cheaper than it looks</H3>
+      <H3 id="recompute-cost">Recomputing layer decorations</H3>
       <p>
         A layer is replaced wholesale, not patched — the host says what the layer is now, and the
         core diffs it against what the layer was. Because edits rebase existing spans, a host that
@@ -149,22 +149,22 @@ export default function Layers() {
       <SeeAlso
         links={[
           {
-            to: '/extend/plugins',
+            to: '/docs/extend/plugins',
             title: 'Interactive plugins',
             note: 'commands, suggestions, popovers, and framework helpers',
           },
           {
-            to: '/extend/showcase',
+            to: '/docs/extend/showcase',
             title: 'Two extensions, no editor changes',
             note: 'the same API, twice, in two languages',
           },
           {
-            to: '/reference/web',
+            to: '/docs/reference/web',
             title: 'Web API',
             note: 'setLayer, clearLayer, internRole',
           },
           {
-            to: '/reference/swift',
+            to: '/docs/reference/swift',
             title: 'Swift API',
             note: 'the same three, on MarkdownTextView',
           },

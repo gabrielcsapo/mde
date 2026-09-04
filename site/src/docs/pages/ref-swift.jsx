@@ -17,17 +17,17 @@ export default function RefSwift() {
       <SeeAlso
         links={[
           {
-            to: '/platforms/apple',
+            to: '/docs/platforms/apple',
             title: 'iOS and macOS',
             note: 'what these types do to TextKit',
           },
           {
-            to: '/reference/ffi',
+            to: '/docs/reference/ffi',
             title: 'C ABI and wasm exports',
             note: 'the header this wraps',
           },
           {
-            to: '/install',
+            to: '/docs/install',
             title: 'Install and embed',
             note: 'adding the package and building the XCFramework',
           },

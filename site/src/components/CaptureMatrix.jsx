@@ -1,3 +1,5 @@
+import { withBase } from '../lib/base.js';
+
 const SCENARIOS = [
   ['core', 'CommonMark essentials'],
   ['commonmark-inline', 'Inline CommonMark'],
@@ -32,8 +34,8 @@ export default function CaptureMatrix({ scenario = null }) {
             {PLATFORMS.map(([platform, label]) => (
               <figure key={platform}>
                 <img
-                  src={`/assets/capture-${id}-${platform}.png`}
-                  alt={`${label} rendering the ${title.toLowerCase()} fixture.`}
+                  src={withBase(`/assets/capture-${id}-${platform}.png`)}
+                  alt={`${label} rendering the shared ${title.toLowerCase()} test document.`}
                   loading={scenario ? 'eager' : 'lazy'}
                 />
                 <figcaption>{label}</figcaption>

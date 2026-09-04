@@ -47,6 +47,11 @@ const KEYWORDS = {
 
 /** Which line-comment marker a language uses. `#` in JavaScript would eat a fragment. */
 const HASH_COMMENTS = new Set(['toml', 'bash', 'text']);
+const LANGUAGE_ALIASES = {
+  jsx: 'javascript',
+  tsx: 'javascript',
+  typescript: 'javascript',
+};
 
 /**
  * Tokenise a snippet.
@@ -56,8 +61,9 @@ const HASH_COMMENTS = new Set(['toml', 'bash', 'text']);
  * @returns {Token[]}
  */
 export function tag(lang, source) {
-  const keywords = KEYWORDS[lang] ?? new Set();
-  const comment = HASH_COMMENTS.has(lang) ? '#[^\\n]*' : '\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/';
+  const syntax = LANGUAGE_ALIASES[lang] ?? lang;
+  const keywords = KEYWORDS[syntax] ?? new Set();
+  const comment = HASH_COMMENTS.has(syntax) ? '#[^\\n]*' : '\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/';
   const re = new RegExp(
     `(${comment})` + // 1 comment
       `|('(?:\\\\.|[^'\\\\])*'|"(?:\\\\.|[^"\\\\])*"|\`(?:\\\\.|[^\`\\\\])*\`)` + // 2 string

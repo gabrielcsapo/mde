@@ -2,7 +2,7 @@
 // resolver. None of it is React-specific — these are the same plain objects the
 // framework-free demo and the Apple apps pass, which is the point.
 
-/** @type {import('@mde/react').ManifestSpec} */
+/** @type {import('@mdink/react').ManifestSpec} */
 export const manifestSpec = {
   blocks: [
     {
@@ -64,7 +64,7 @@ is unaffected — separate engines, separate histories, one core.
 Ping @someone-else.
 `;
 
-/** @type {import('@mde/react').WidgetProvider} */
+/** @type {import('@mdink/react').WidgetProvider} */
 export const widgetProvider = {
   makeWidget({ roleName, source, payload }) {
     switch (roleName) {
@@ -78,7 +78,7 @@ export const widgetProvider = {
   },
 };
 
-/** @type {import('@mde/react').ResourceResolver} */
+/** @type {import('@mdink/react').ResourceResolver} */
 export const resourceResolver = {
   async resolve({ reference }) {
     await new Promise((r) => setTimeout(r, 250));

@@ -6,7 +6,7 @@ import type {
   PluginPresentationDismissReason,
   PluginPresentationHandle,
   PluginPresentationOptions,
-} from '@mde/web';
+} from '@mdink/web';
 
 export type ReactPresentationOptions = Omit<
   PluginPresentationOptions,

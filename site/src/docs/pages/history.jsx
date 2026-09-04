@@ -26,7 +26,7 @@ const REVISION_FIELDS = [
 export default function History() {
   return (
     <>
-      <H2 id="core-owns-it">The core owns the history</H2>
+      <H2 id="core-owns-it">History state in the core</H2>
       <Lede>
         The platform undo manager sees keystrokes, not structure. Undoing a bold-toggle through it
         would come back as two unrelated character deletions, and <code>UITextView</code>’s manager
@@ -42,7 +42,7 @@ export default function History() {
         just <em>(redo edits, undo edits, selection before, selection after)</em>.
       </p>
 
-      <H2 id="flow-inverts">Undo is the one flow that travels core → platform</H2>
+      <H2 id="flow-inverts">Undo flow from core to platform</H2>
       <p>
         Edits normally travel platform → core: the buffer changes, the core is told, a patch comes
         back. An undo goes the other way. The core returns edits, the host applies them to its own
@@ -54,7 +54,7 @@ export default function History() {
         ones are still pending. This is the same ordering rule the core uses internally.
       </Note>
 
-      <H2 id="coalescing">Two gestures coalesce, and only two</H2>
+      <H2 id="coalescing">Typing and deletion coalescing</H2>
       <Lede>
         A forward typing run and a backspace run, both within 700 ms and both positionally adjacent.
         Everything else starts a new revision.
@@ -63,7 +63,7 @@ export default function History() {
         Those two are the only unambiguous cases. A newline ends a run — a paragraph break is where
         a person expects undo to stop — and <code>boundary()</code> forces a revision explicitly, so
         a formatting command never merges into the typing around it. That is why the{' '}
-        <Link to="/try">demo’s Bold button</Link> comes off in one step rather than as two marker
+        <Link to="/docs/try">demo’s Bold button</Link> comes off in one step rather than as two marker
         deletions.
       </p>
       <Aside tone="caution" title="A resync clears the history">
@@ -72,7 +72,7 @@ export default function History() {
         log away — which is also why <code>setMarkdown</code> does.
       </Aside>
 
-      <H2 id="timeline">A timeline, not just two buttons</H2>
+      <H2 id="timeline">Browsable revision timeline</H2>
       <Lede>
         Undo and redo are the one-step view of a history that can be listed and navigated. Three
         calls, on every platform.
@@ -104,7 +104,7 @@ export default function History() {
         states what happened.
       </Footnote>
 
-      <H2 id="decisions">Three decisions worth stating</H2>
+      <H2 id="decisions">Timeline behavior</H2>
       <Clauses>
         <Clause title="Undone revisions stay in the list">
           They are not deleted when you step back, only un-applied. A history you can browse has to
@@ -142,17 +142,17 @@ export default function History() {
       <SeeAlso
         links={[
           {
-            to: '/reference/web',
+            to: '/docs/reference/web',
             title: 'Web API',
             note: 'the history properties in context',
           },
           {
-            to: '/reference/swift',
+            to: '/docs/reference/swift',
             title: 'Swift API',
             note: 'Revision, RevisionKind and jump(to:)',
           },
           {
-            to: '/internals/architecture',
+            to: '/docs/internals/architecture',
             title: 'Architecture',
             note: 'why the platform owns the buffer in the first place',
           },

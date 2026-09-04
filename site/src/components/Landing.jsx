@@ -4,19 +4,19 @@ import { Link } from '../lib/router.jsx';
 
 const PRINCIPLES = [
   {
-    label: 'Shared meaning',
-    title: 'One parser, not three approximations.',
-    body: 'Rust owns parsing, reveal behavior, extensions, and undo. Web and Swift consume the same decisions.',
+    label: '01 · Consistent Markdown',
+    title: 'The same syntax produces the same decorations.',
+    body: 'The Rust core defines parsing, syntax reveal, extensions, and undo for every integration.',
   },
   {
-    label: 'Native input',
-    title: 'The platform still owns the caret.',
-    body: 'Contenteditable and TextKit keep IME, selection, spellcheck, and accessibility where they belong.',
+    label: '02 · Native editing',
+    title: 'Each platform keeps its native input behavior.',
+    body: 'Contenteditable and TextKit preserve native input, selection, spellcheck, and accessibility.',
   },
   {
-    label: 'Portable source',
-    title: 'Your document stays Markdown.',
-    body: 'The rendered experience is a decoration layer. Underneath it is an ordinary string you can take anywhere.',
+    label: '03 · Portable files',
+    title: 'Files remain plain Markdown.',
+    body: 'Rendering never replaces the source with a private document format. Your text remains portable.',
   },
 ];
 
@@ -29,8 +29,8 @@ export default function Landing() {
 
       <section className="landing-principles" aria-labelledby="principles-title">
         <div className="landing-principles-head">
-          <p className="eyebrow">Cross-platform by construction</p>
-          <h2 id="principles-title">The renderer changes. The editing contract doesn’t.</h2>
+          <p className="eyebrow">How it works</p>
+          <h2 id="principles-title">One document. Consistent behavior on every platform.</h2>
         </div>
         <div className="landing-principle-grid">
           {PRINCIPLES.map((principle) => (
@@ -45,32 +45,42 @@ export default function Landing() {
 
       <section className="landing-capture-proof" aria-labelledby="capture-proof-title">
         <div className="landing-capture-head">
-          <p className="eyebrow">CommonMark + custom syntax</p>
-          <h2 id="capture-proof-title">The screenshots are the product.</h2>
+          <p className="eyebrow">Cross-platform output</p>
+          <h2 id="capture-proof-title">Compare the four production integrations.</h2>
           <p>
-            These are generated from the production docs build with a fixed Markdown document. The
-            same capture includes headings, emphasis, links, quotes, tasks, tables, mentions,
+            Every image comes from a real reference app rendering the same Markdown document.
+            Together they cover headings, emphasis, links, quotes, tasks, tables, mentions,
             wikilinks, and a host-rendered callout.
           </p>
         </div>
         <CaptureMatrix scenario="core" />
-        <p className="landing-capture-command">
-          Regenerate the complete 4 × 4 renderer matrix with{' '}
-          <code>pnpm capture:cross-platform</code>.
-        </p>
       </section>
 
       <section className="landing-next" aria-labelledby="landing-next-title">
-        <p className="eyebrow">Start here</p>
-        <h2 id="landing-next-title">Build the same Markdown experience into every app.</h2>
+        <p className="eyebrow">Install mdink</p>
+        <h2 id="landing-next-title">Add the editor to your app.</h2>
         <p>
-          Follow the architecture from Rust decorations to the web and Swift renderers, or open the
-          full editor inside the documentation when you want to test the interaction yourself.
+          Start with the package for your platform. The install guide continues from each line to a
+          complete editor with no app-specific placeholders.
         </p>
+        <div className="landing-install-grid" aria-label="Installation options">
+          <Link className="landing-install-option" to="/docs/install#web">
+            <span>Web</span>
+            <code>pnpm add @mdink/web</code>
+          </Link>
+          <Link className="landing-install-option" to="/docs/install#react">
+            <span>React</span>
+            <code>pnpm add @mdink/react</code>
+          </Link>
+          <Link className="landing-install-option" to="/docs/install#apple">
+            <span>Swift</span>
+            <code>Add package → MDEditorUI</code>
+          </Link>
+        </div>
         <div className="landing-next-actions">
-          <Link to="/overview">Read the overview →</Link>
-          <Link to="/install">Install and embed</Link>
-          <Link to="/try">Open the live editor</Link>
+          <Link to="/docs/install">Open the install guide →</Link>
+          <Link to="/docs/overview">Read the architecture</Link>
+          <Link to="/docs/try">Open the live editor</Link>
         </div>
       </section>
     </main>

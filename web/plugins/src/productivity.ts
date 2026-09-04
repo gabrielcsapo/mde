@@ -1,1 +1,1 @@
-export * from '@mde/web/extensions/productivity';
+export * from '@mdink/web/extensions/productivity';

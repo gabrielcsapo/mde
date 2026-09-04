@@ -16,7 +16,7 @@ const PRIMITIVES = [
 export default function Apple() {
   return (
     <>
-      <H2 id="shared">Two hosts, one applier</H2>
+      <H2 id="shared">Shared decoration applier for UIKit and AppKit</H2>
       <Lede>
         iOS is a <code>UITextView</code> and macOS an <code>NSTextView</code>, both on TextKit 1’s
         incremental layout manager and both called <code>MarkdownTextView</code>. Everything that
@@ -26,11 +26,10 @@ export default function Apple() {
         has no UIKit or AppKit in it and is shared verbatim.
       </Lede>
       <p>
-        The two text views hold only what genuinely differs: first-responder handling, gesture
+        The two text views hold only platform-specific behavior: first-responder handling, gesture
         versus <code>mouseDown</code>, and the inert undo manager. Type divergence between UIKit and
-        AppKit is absorbed by aliases in <code>Platform.swift</code>. This split is the guard
-        against three renderers quietly disagreeing about atomic selection or reveal — they cannot
-        disagree about code they share.
+        AppKit is absorbed by aliases in <code>Platform.swift</code>. Sharing the applier keeps
+        atomic selection, reveal, and decoration behavior identical on both Apple platforms.
       </p>
 
       <H2 id="primitives">How each primitive is drawn</H2>
@@ -70,11 +69,11 @@ export default function Apple() {
         offset in the system honest. Line height is the max over the line, so shrinking a heading’s{' '}
         <code>#</code> does not shrink the heading. The cost is that concealed characters remain
         selectable — which is exactly why{' '}
-        <Link to="/concepts/reveal">the core snaps selection endpoints out of concealed ranges</Link>
+        <Link to="/docs/concepts/reveal">the core snaps selection endpoints out of concealed ranges</Link>
         .
       </p>
 
-      <H2 id="traps">Two silent UIKit traps</H2>
+      <H2 id="traps">UIKit input configuration</H2>
       <Aside tone="caution" title="Both of these present as “the editor accepts no input at all”">
         <p>
           A <code>UITapGestureRecognizer</code> added for <code>Hit</code> testing wins gesture
@@ -91,7 +90,7 @@ export default function Apple() {
         </p>
       </Aside>
 
-      <H2 id="widget-sizing">A widget view may size itself by frame, not only by Auto Layout</H2>
+      <H2 id="widget-sizing">Widget sizing with frames and Auto Layout</H2>
       <p>
         Measuring only with <code>systemLayoutSizeFitting</code> reports zero for such a view, which
         clamped a resolved image to one point and rendered it as an invisible gap. Related:
@@ -120,31 +119,28 @@ export default function Apple() {
       <H2 id="gallery">The reference apps</H2>
       <Lede>
         Both apps are real: a UIKit app in the simulator and an AppKit app on the desktop, each
-        driving the shared package against the same manifest as the web demo. These are captures of
-        them, produced by <code>./scripts/capture.sh</code>.
+        using the shared package and the same extension manifest as the web demo.
       </Lede>
       <Gallery />
       <Note>
-        Nothing drives the apps from outside — <code>simctl</code> can screenshot a simulator but
-        cannot inject a touch into one. The apps compose their own shots: both are launched with{' '}
-        <code>--mde-capture &lt;shot&gt;</code> and set their scroll offset and selection to match.
-        Rendering is untouched.
+        The examples show native TextKit rendering, including selection, syntax reveal, tables,
+        widgets, and extension content.
       </Note>
 
       <SeeAlso
         links={[
           {
-            to: '/platforms/web',
+            to: '/docs/platforms/web',
             title: 'Web',
             note: 'the same primitives against contenteditable',
           },
           {
-            to: '/reference/swift',
+            to: '/docs/reference/swift',
             title: 'Swift API',
             note: 'MarkdownTextView, MarkdownEngine and the host protocols',
           },
           {
-            to: '/install',
+            to: '/docs/install',
             title: 'Install and embed',
             note: 'the Swift package, and building the XCFramework',
           },

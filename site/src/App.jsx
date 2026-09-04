@@ -38,10 +38,10 @@ function Shell() {
   const isLanding = route.path === '/';
   useEffect(() => {
     document.title = isLanding
-      ? 'mde — cross-platform Markdown for web and Swift'
+      ? '@mdink — cross-platform Markdown for web and Swift'
       : page
-        ? `${page.title} · mde`
-        : 'Not found · mde';
+        ? `${page.title} · @mdink`
+        : 'Not found · @mdink';
   }, [page, isLanding]);
 
   const Page = ROUTES[route.path];
@@ -80,15 +80,18 @@ function Shell() {
             waiting for whichever one is styled second. */}
         <main className="doc-column" id="main">
           {Page && page ? (
-            <DocPage page={page}>
-              <Suspense fallback={<RoutePending />}>
+            <Suspense fallback={<RoutePending page={page} />}>
+              <DocPage page={page}>
                 <Page />
-              </Suspense>
-            </DocPage>
+              </DocPage>
+              <Footer />
+            </Suspense>
           ) : (
-            <NotFound path={route.path} />
+            <>
+              <NotFound path={route.path} />
+              <Footer />
+            </>
           )}
-          <Footer />
         </main>
 
         <Toc />
@@ -99,11 +102,11 @@ function Shell() {
   );
 }
 
-function RoutePending() {
+function RoutePending({ page }) {
   return (
     <div className="route-pending" role="status">
       <span />
-      Loading the live editor…
+      Loading {page?.title ?? 'documentation'}…
     </div>
   );
 }
@@ -122,7 +125,7 @@ function NotFound({ path }) {
         <kbd>⌘K</kbd> searches all of them.
       </p>
       <p className="mt-6">
-        <Link to="/overview">Back to the overview →</Link>
+        <Link to="/docs/overview">Back to the overview →</Link>
       </p>
     </div>
   );

@@ -48,7 +48,7 @@ const CLOSED = [
 export default function Status() {
   return (
     <>
-      <H2 id="where">Where the project is</H2>
+      <H2 id="where">Implemented capabilities</H2>
       <Lede>
         The core is complete, with undo and resource references. All three renderers run against it,
         each with a reference app. Runtime extensions now cover host decoration layers,
@@ -72,15 +72,13 @@ export default function Status() {
         </tbody>
       </TableFrame>
       <Note>
-        The <Link to="/try">editor on this site</Link> exercises the same commands, sessions,
-        media pipeline, and plugin presentations that package consumers receive. The remaining
-        authoring surface is built from the same extension model rather than a second editor.
+        The <Link to="/docs/try">browser demo</Link> uses the published commands, sessions, media
+        pipeline, and plugin presentation APIs documented here.
       </Note>
 
       <H2 id="open">Open questions</H2>
       <Lede>
-        Known and unresolved, rather than quietly hoped about. Each of these is a thing the design
-        does not currently answer.
+        These cases have documented limitations or need a platform-specific fallback.
       </Lede>
       <div className="qa">
         {OPEN.map(([title, body]) => (
@@ -93,8 +91,7 @@ export default function Status() {
 
       <H2 id="closed">Closed</H2>
       <Lede>
-        Questions that had answers, kept here because how they were closed is more useful than the
-        fact that they were.
+        Resolved performance and resource-management questions, with the implemented behavior.
       </Lede>
       <div className="qa qa-closed">
         {CLOSED.map(([title, body]) => (
@@ -105,19 +102,19 @@ export default function Status() {
         ))}
       </div>
 
-      <Aside tone="note" title="And one that was closed by deletion">
+      <Aside tone="note" title="Discarded viewport-window optimization">
         Limiting decoration to a window around the viewport above 256 KB was an obvious safety
         valve. Measured, it was worse at every document size tested, and could not help the case it
         was designed for.{' '}
-        <Link to="/internals/performance">The numbers are on the performance page.</Link>
+        <Link to="/docs/internals/performance">The numbers are on the performance page.</Link>
       </Aside>
 
       <SeeAlso
         links={[
           {
-            to: '/internals/testing',
+            to: '/docs/internals/testing',
             title: 'Testing',
-            note: 'what keeps the answered ones answered',
+            note: 'parser, renderer, visual, and performance coverage',
           },
           { to: '/', title: 'Overview', note: 'back to the start' },
         ]}

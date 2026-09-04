@@ -7,26 +7,51 @@
 // nothing here would ever call.
 //
 // Paths are real paths, not hashes, because `#` is spent on section anchors — a deep
-// link into one idea is `/concepts/reveal#unfocused`, and that only reads correctly if
+// link into one idea is `/docs/concepts/reveal#unfocused`, and that only reads correctly if
 // the fragment means "this heading". Vite's dev server and `vite preview` both fall back
 // to `index.html` for unknown paths; `vite.config.js` also writes a `404.html` copy so
 // static hosts that use one behave the same.
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { withBase, withoutBase } from './base.js';
 
 /** @typedef {{path: string, hash: string}} Route */
 
 const RouteContext = createContext(/** @type {Route} */ ({ path: '/', hash: '' }));
+const LEGACY_DOC_ROOTS = new Set([
+  'overview',
+  'try',
+  'install',
+  'embed',
+  'concepts',
+  'extend',
+  'platforms',
+  'reference',
+  'internals',
+]);
 
-/** Trailing slashes are noise; `/concepts/reveal/` and `/concepts/reveal` are one page. */
+/** Trailing slashes are noise; `/docs/concepts/reveal/` and `/docs/concepts/reveal` are one page. */
 export function normalize(path) {
   if (!path) return '/';
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
+/** Keep previously published links working while `/docs/…` remains canonical. */
+export function canonicalPath(path) {
+  const normalized = normalize(path);
+  if (normalized === '/docs') return '/docs/overview';
+  const root = normalized.split('/')[1];
+  return LEGACY_DOC_ROOTS.has(root) ? `/docs${normalized}` : normalized;
+}
+
 /** @returns {Route} */
 function read() {
-  return { path: normalize(location.pathname), hash: decodeURIComponent(location.hash.slice(1)) };
+  const requestedPath = normalize(withoutBase(location.pathname));
+  const path = canonicalPath(requestedPath);
+  if (path !== requestedPath) {
+    history.replaceState(null, '', `${withBase(path)}${location.search}${location.hash}`);
+  }
+  return { path, hash: decodeURIComponent(location.hash.slice(1)) };
 }
 
 /**
@@ -43,6 +68,7 @@ export function navigate(href, { replace = false } = {}) {
     location.href = url.href;
     return;
   }
+  url.pathname = withBase(canonicalPath(withoutBase(url.pathname)));
   if (replace) history.replaceState(null, '', url);
   else history.pushState(null, '', url);
   // `pushState` deliberately does not fire `popstate`, so the one listener below would
@@ -126,7 +152,7 @@ export function Link({ to, children, onClick, ...rest }) {
   );
 
   return (
-    <a href={to} onClick={handle} {...rest}>
+    <a href={withBase(to)} onClick={handle} {...rest}>
       {children}
     </a>
   );

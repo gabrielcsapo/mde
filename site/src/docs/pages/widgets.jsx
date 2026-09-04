@@ -43,9 +43,8 @@ export default function Widgets() {
     <>
       <H2 id="atomic">Widgets are atomic</H2>
       <Lede>
-        This table is the specification all three renderers implement identically. Divergence here
-        is the highest-risk failure mode in the project, which is why the Apple renderers share the
-        code that decides it and the web host is written against the same corpus.
+        JS, React, iOS, and macOS use the same source-range and selection rules for inline and block
+        widgets.
       </Lede>
       <TableFrame className="mt-6">
         <thead>
@@ -64,7 +63,7 @@ export default function Widgets() {
         </tbody>
       </TableFrame>
 
-      <H2 id="taps-fall-through">A widget’s view must not take taps unless its host opts in</H2>
+      <H2 id="taps-fall-through">Widget pointer behavior</H2>
       <p>
         This was originally specified the other way round — deliver the tap to the{' '}
         <code>Hit</code> handler and do not move the caret — and it made every widget uneditable.
@@ -73,10 +72,9 @@ export default function Widgets() {
         dead to the touch.
       </p>
       <p>
-        The default has to be that taps fall through, or the editor’s central promise — put the
-        caret in any node and its syntax comes back — is simply false for widgets. Hosts turn it on
-        per role, for widgets with real controls of their own, and those must offer a way back to
-        the source.
+        By default, taps fall through so the caret can enter the node and reveal its source. Hosts
+        opt into pointer handling per role for widgets with their own controls, and those widgets
+        must provide a way to edit the source.
       </p>
 
       <H2 id="provider">What the host draws</H2>
@@ -92,7 +90,7 @@ export default function Widgets() {
         editable document.
       </Footnote>
 
-      <H2 id="references">References, not content</H2>
+      <H2 id="references">External content uses references</H2>
       <Lede>
         A decoration can carry a <strong>payload</strong>: text the parser already resolved, which a
         renderer would otherwise have to re-derive by reparsing markdown in three languages.
@@ -115,12 +113,12 @@ export default function Widgets() {
       </TableFrame>
       <p className="mt-6">
         For anything whose content lives outside the document — images, video, documents, remote
-        assets — <strong>the payload is a reference and nothing else</strong>. A 26-character path
-        is the whole point of building on markdown; inlining bytes as base64 would make notes
-        enormous, destroy diffs, and stop every other markdown tool from reading them.
+        assets — <strong>the payload stores a reference</strong>. A short path keeps notes small,
+        produces useful diffs, and remains readable in other Markdown tools. Inlining binary data
+        as base64 would lose those properties.
       </p>
 
-      <H3 id="resolution">Resolution is asynchronous by assumption</H3>
+      <H3 id="resolution">Asynchronous resource resolution</H3>
       <SourceFigure className="mt-5" path="web/examples/vanilla/host.js" lang="javascript" code={resolverJs} />
       <p className="mt-5">
         The resolver returns <em>loading</em>, the editor reserves <code>reservedSize</code> so the
@@ -134,7 +132,7 @@ export default function Widgets() {
         same asset and should load once.
       </Note>
 
-      <Aside tone="caution" title="reservedSize is a guess exactly once">
+      <Aside tone="caution" title="Initial reservedSize estimate">
         Resolved sizes are measured and kept, and both platforms expose them as{' '}
         <code>resourceSizes</code>. A host that persists them and seeds them on open turns “the
         document shifts once per launch” into “once per asset, ever”. The guess remains the fallback
@@ -144,17 +142,17 @@ export default function Widgets() {
       <SeeAlso
         links={[
           {
-            to: '/extend/manifest',
+            to: '/docs/extend/manifest',
             title: 'The extension manifest',
             note: 'how a construct becomes a widget in the first place',
           },
           {
-            to: '/platforms/apple',
+            to: '/docs/platforms/apple',
             title: 'iOS and macOS',
-            note: 'what drawing one costs on TextKit',
+            note: 'native widget layout and caching',
           },
           {
-            to: '/platforms/web',
+            to: '/docs/platforms/web',
             title: 'Web',
             note: 'why a widget wrapper has to be a real box',
           },

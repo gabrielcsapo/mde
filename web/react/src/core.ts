@@ -11,13 +11,13 @@
 // tick share the single in-flight fetch rather than racing to start their own. A
 // rejection is evicted, so a transient network failure does not poison the page.
 
-import { DEFAULT_WASM_URL, loadCore } from '@mde/web';
+import { DEFAULT_WASM_URL, loadCore } from '@mdink/web';
 
 export { DEFAULT_WASM_URL };
 
-/** @type {Map<string, Promise<import('@mde/web').Core>>} */
+/** @type {Map<string, Promise<import('@mdink/web').Core>>} */
 const byUrl = new Map();
-/** @type {WeakMap<object, Promise<import('@mde/web').Core>>} */
+/** @type {WeakMap<object, Promise<import('@mdink/web').Core>>} */
 const byObject = new WeakMap();
 
 /**
@@ -51,7 +51,7 @@ function objectId(value) {
  * The shared `Core` for a wasm source, loading it if this is the first ask.
  *
  * @param {string|URL|ArrayBuffer|Response} [source]
- * @returns {Promise<import('@mde/web').Core>}
+ * @returns {Promise<import('@mdink/web').Core>}
  */
 export function sharedCore(source = DEFAULT_WASM_URL) {
   if (typeof source === 'string' || source instanceof URL) {

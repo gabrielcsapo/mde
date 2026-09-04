@@ -1,13 +1,18 @@
-# @mde/web
+# @mdink/web
 
-The framework-free web renderer for mde. It owns a native `contenteditable` buffer and
+The framework-free web renderer for mdink. It owns a native `contenteditable` buffer and
 uses the Rust/Wasm core to decide what every markdown range means.
 
-```ts
-import { MarkdownEditor, loadCore } from '@mde/web';
-import '@mde/web/theme.css';
+```sh
+pnpm add @mdink/web
+```
 
-const core = await loadCore();
+```ts
+import { MarkdownEditor, loadCore } from '@mdink/web';
+import wasmUrl from '@mdink/web/mde.wasm?url';
+import '@mdink/web/theme.css';
+
+const core = await loadCore(wasmUrl);
 const editor = new MarkdownEditor(
   document.querySelector('#editor')!,
   core.newEngine(),
@@ -33,7 +38,7 @@ editor presents the full source immediately. The source projection remains read-
 until activation, so input cannot race an engine describing another document:
 
 ```ts
-import { prepareDocument } from '@mde/web';
+import { prepareDocument } from '@mdink/web';
 
 const prepared = prepareDocument(markdown, { wasm: '/assets/mde.wasm' });
 await editor.setMarkdownProgressively(markdown, prepared);
@@ -47,7 +52,7 @@ editor instances. The host remains responsible for decoding because it owns reso
 URLs and credentials; the cache owns stable size/version keys and bounded storage:
 
 ```ts
-import { MediaPreviewCache } from '@mde/web';
+import { MediaPreviewCache } from '@mdink/web';
 
 const previews = new MediaPreviewCache({ maxEntries: 256 });
 const poster = await previews.getOrCreate(
@@ -59,7 +64,7 @@ const poster = await previews.getOrCreate(
 Commands and bounded multi-document sessions are framework-neutral:
 
 ```ts
-import { MarkdownSession, executeMarkdownCommand } from '@mde/web';
+import { MarkdownSession, executeMarkdownCommand } from '@mdink/web';
 
 const session = new MarkdownSession(editor, { maxDocuments: 12 });
 session.open('today', '# Today\n');
@@ -68,11 +73,11 @@ session.open('yesterday', '# Yesterday\n'); // saves Today before switching
 session.switchTo('today');
 ```
 
-React is deliberately not a dependency or bundled entry point. Use `@mde/react` for the
-React adapter. Ready-made features live in the optional `@mde/plugins` package:
+React is deliberately not a dependency or bundled entry point. Use `@mdink/react` for the
+React adapter. Ready-made features live in the optional `@mdink/plugins` package:
 
 ```ts
-import { TypewriterMode } from '@mde/plugins/typewriter';
+import { TypewriterMode } from '@mdink/plugins/typewriter';
 ```
 
 ## Plugins
@@ -88,7 +93,7 @@ import {
   composePluginManifests,
   definePlugin,
   encodeManifest,
-} from '@mde/web';
+} from '@mdink/web';
 
 const comments = definePlugin({
   name: 'com.example.comments',
@@ -138,14 +143,14 @@ cancellation state; compatibility reports include those diagnostics.
 
 Plugins can also add lifecycle-owned canvas UI without placing presentation text inside
 the contenteditable document. This shipped extension provides `@` autocomplete and a
-Command-O image/video/link composer; the same plugin object works through `@mde/react`:
+Command-O image/video/link composer; the same plugin object works through `@mdink/react`:
 
 ```ts
 import {
   attachmentComposer,
   mentionAutocomplete,
-} from '@mde/plugins/composer';
-import '@mde/plugins/extensions.css';
+} from '@mdink/plugins/composer';
+import '@mdink/plugins/extensions.css';
 
 editor.installPlugin(mentionAutocomplete({
   candidates: [{ handle: 'gabe', label: 'Gabriel' }],
@@ -156,10 +161,10 @@ editor.installPlugin(attachmentComposer());
 For richer editor UI, import the optional extension entry points:
 
 ```js
-import { suggestionPlugin } from '@mde/plugins/suggestions';
-import { tagAutocomplete, wikilinkAutocomplete, slashCommandMenu } from '@mde/plugins/composer';
-import { floatingSelectionToolbar, linkEditor, templatePicker, findAndReplace, imageAltEditor } from '@mde/plugins/productivity';
-import { journalAttachments } from '@mde/plugins/attachments';
+import { suggestionPlugin } from '@mdink/plugins/suggestions';
+import { tagAutocomplete, wikilinkAutocomplete, slashCommandMenu } from '@mdink/plugins/composer';
+import { floatingSelectionToolbar, linkEditor, templatePicker, findAndReplace, imageAltEditor } from '@mdink/plugins/productivity';
+import { journalAttachments } from '@mdink/plugins/attachments';
 ```
 
 Commands are centrally discoverable with `editor.listCommands()` and executable by id with
@@ -174,7 +179,7 @@ Plugin packages can verify the portable lifecycle without depending on a particu
 test framework:
 
 ```ts
-import { checkPluginCompatibility } from '@mde/web/plugin-testing';
+import { checkPluginCompatibility } from '@mdink/web/plugin-testing';
 
 expect(await checkPluginCompatibility(editor, comments)).toMatchObject({
   installed: true,

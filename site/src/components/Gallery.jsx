@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { withBase } from '../lib/base.js';
 
 // `assets/manifest.json` is written by the capture tooling and is the only authority on
 // what exists. It is read at runtime, not imported, so a fresh capture changes the
@@ -20,7 +21,7 @@ export default function Gallery() {
     let live = true;
     (async () => {
       try {
-        const res = await fetch('/assets/manifest.json', { cache: 'no-store' });
+        const res = await fetch(withBase('/assets/manifest.json'), { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
         if (live && Array.isArray(data?.assets)) {
@@ -71,7 +72,7 @@ export default function Gallery() {
 }
 
 function Shot({ item, onFail }) {
-  const src = `/assets/${item.file}`;
+  const src = withBase(`/assets/${item.file}`);
   const caption = item.caption ?? item.name;
   const isVideo = item.kind === 'video';
 
@@ -113,10 +114,7 @@ function Shot({ item, onFail }) {
 function Placeholder() {
   return (
     <div className="placeholder">
-      <p>
-        Native captures are not present in this build. The gallery renders whatever{' '}
-        <code>site/assets/manifest.json</code> lists, and nothing when it lists nothing.
-      </p>
+      <p>iOS and macOS examples are unavailable in this preview.</p>
     </div>
   );
 }

@@ -1,1 +1,1 @@
-export * from '@mde/web/extensions/parts-of-speech';
+export * from '@mdink/web/extensions/parts-of-speech';

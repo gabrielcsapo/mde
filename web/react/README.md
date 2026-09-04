@@ -1,29 +1,25 @@
-# @mde/react
+# @mdink/react
 
-A React component for the drop-in markdown editor. It depends on `@mde/web` — it is an
+A React component for the drop-in markdown editor. It depends on `@mdink/web` — it is an
 adapter, not a fork. The editor itself stays framework-free and has no idea this package
 exists.
 
+```sh
+pnpm add @mdink/react @mdink/web
+```
+
 ```jsx
-import { MarkdownEditor, useEditorHistory, useMarkdownEditorRef } from '@mde/react';
-import '@mde/web/theme.css';
+import { MarkdownEditor } from '@mdink/react';
+import wasmUrl from '@mdink/web/mde.wasm?url';
+import '@mdink/web/theme.css';
 
 function Note() {
-  const ref = useMarkdownEditorRef();
-  const [history, onHistoryChange] = useEditorHistory();
-
   return (
-    <>
-      <button onClick={() => ref.current.wrapSelection('**')}>Bold</button>
-      <button disabled={!history.canUndo} onClick={() => ref.current.undo()}>Undo</button>
-      <MarkdownEditor
-        ref={ref}
-        defaultValue="# Hello\n"
-        interactionMode="edit"
-        onChange={(markdown) => save(markdown)}
-        onHistoryChange={onHistoryChange}
-      />
-    </>
+    <MarkdownEditor
+      wasm={wasmUrl}
+      defaultValue="# Hello\n"
+      onChange={(markdown) => console.log(markdown)}
+    />
   );
 }
 ```
@@ -78,7 +74,7 @@ of the document.
 | `onHistoryChange` | `(state) => void` | `{canUndo, canRedo, position, count}`, only when one moves. |
 | `onReady` | `(handle) => void` | The editor exists and the document is rendered. |
 | `onError` | `(error) => void` | The wasm failed to load, or the manifest was rejected. |
-| `wasm` | `string \| URL \| ArrayBuffer \| Response` | Defaults to the `mde.wasm` emitted beside `@mde/web`. Pass an imported asset URL when bundling. |
+| `wasm` | `string \| URL \| ArrayBuffer \| Response` | Defaults to the `mde.wasm` emitted beside `@mdink/web`. Pass an imported asset URL when bundling. |
 | `manifest` | `ManifestSpec \| Uint8Array \| null` | Extension manifest (DESIGN §5). A plain object is fine — it is compared by content, not identity. |
 | `widgetProvider` | `WidgetProvider` | Host-drawn widgets. |
 | `resourceResolver` | `ResourceResolver` | Turns a reference into something displayable (DESIGN §5.1). |
@@ -144,7 +140,7 @@ const plugins = useMemo(() => [commentsPlugin], []);
 Plugins retain the full framework-free presentation surface. A plugin may show a
 selection-anchored autocomplete menu or viewport modal and register keyboard commands;
 those views live outside React's editor subtree and are removed automatically with the
-plugin. The ready-made `@mde/plugins/composer` plugin is used unchanged by the
+plugin. The ready-made `@mdink/plugins/composer` plugin is used unchanged by the
 React example.
 
 ### History
@@ -188,23 +184,23 @@ layer. For very high-frequency updates, call `handle.setLayer` directly instead.
 
 ## Install
 
-`@mde/react` declares `@mde/web` as a dependency and React and React DOM as peers. Its
+`@mdink/react` declares `@mdink/web` as a dependency and React and React DOM as peers. Its
 Vite library build keeps all three external, so consumers get one framework-free editor
 and their existing React runtime rather than copied implementations.
 
 ```sh
-pnpm add @mde/react @mde/web
+pnpm add @mdink/react @mdink/web
 ```
 
 The theme is not bundled either. Import it yourself, and `extensions.css` too if you use
 the shipped extensions:
 
 ```js
-import '@mde/web/theme.css';
+import '@mdink/web/theme.css';
 ```
 
 The runtime is TypeScript compiled to ESM. Adapter-specific declarations reuse the types
-exported by `@mde/web`, so the decoration and host-service contracts have one source.
+exported by `@mdink/web`, so the decoration and host-service contracts have one source.
 
 ## Example
 

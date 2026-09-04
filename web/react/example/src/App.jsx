@@ -6,12 +6,12 @@ import {
   loadedCoreCount,
   useEditorHistory,
   useMarkdownEditorRef,
-} from '@mde/react';
+} from '@mdink/react';
 
 // An extension written entirely against the layer API (DESIGN §5.3). It knows nothing
 // about React, and this adapter knows nothing about it — they meet at `getEditor()`.
-import { TypewriterMode } from '@mde/web/extensions/typewriter';
-import wasmUrl from '@mde/web/mde.wasm?url';
+import { TypewriterMode } from '@mdink/web/extensions/typewriter';
+import wasmUrl from '@mdink/web/mde.wasm?url';
 
 import { manifestSpec, resourceResolver, sample, second, widgetProvider } from './host.js';
 
@@ -21,7 +21,7 @@ export default function App() {
 
   return (
     <div className="page">
-      <h1>@mde/react</h1>
+      <h1>@mdink/react</h1>
       <p className="lede">
         The React adapter driving the real editor from <code>web/src</code>. Rendered under{' '}
         <code>StrictMode</code>, so every effect here has already run twice.

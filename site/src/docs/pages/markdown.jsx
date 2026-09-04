@@ -30,7 +30,7 @@ const NOT_ENABLED = [
 export default function MarkdownSupport() {
   return (
     <>
-      <H2 id="contract">Markdown support, without an asterisk</H2>
+      <H2 id="contract">Markdown support matrix</H2>
       <Lede>
         The parser follows CommonMark and deliberately enables GFM tables, task lists, and
         strikethrough. “Supported” does not always mean “turned into a preview”: this editor keeps
@@ -64,17 +64,17 @@ export default function MarkdownSupport() {
       <ul>
         {NOT_ENABLED.map((feature) => <li key={feature}>{feature}</li>)}
       </ul>
-      <Aside tone="caution" title="Raw HTML is never a web escape hatch">
+      <Aside tone="caution" title="Raw HTML remains source by default">
         HTML is highlighted source on every platform. The web renderer does not inject it into the
         DOM, which keeps the same document safe and visually consistent on iOS and macOS.
       </Aside>
       <Note>
-        Parsing conformance and presentation fidelity are separate promises. The core owns the
-        former; this matrix documents the latter.
+        The core handles parsing conformance. This matrix documents how each parsed construct is
+        presented and edited.
       </Note>
       <SeeAlso links={[
-        { to: '/reference/roles', title: 'Roles and CSS classes', note: 'the decoration vocabulary behind this matrix' },
-        { to: '/internals/testing', title: 'Testing', note: 'CommonMark fixtures and cross-platform renderer checks' },
+        { to: '/docs/reference/roles', title: 'Roles and CSS classes', note: 'the decoration vocabulary behind this matrix' },
+        { to: '/docs/internals/testing', title: 'Testing', note: 'CommonMark fixtures and cross-platform renderer checks' },
       ]} />
     </>
   );

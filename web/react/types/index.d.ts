@@ -23,7 +23,7 @@ import type {
   Revision,
   SelectionRange,
   WidgetProvider,
-} from '@mde/web';
+} from '@mdink/web';
 
 export {
   Kind,
@@ -33,7 +33,7 @@ export {
   composePluginManifests,
   definePlugin,
   encodeManifest,
-} from '@mde/web';
+} from '@mdink/web';
 export type {
   Decoration,
   EditorPlugin,
@@ -53,7 +53,7 @@ export type {
   PluginPresentationDismissReason,
   PluginPresentationHandle,
   PluginPresentationOptions,
-} from '@mde/web';
+} from '@mdink/web';
 
 export interface HistoryState {
   canUndo: boolean;

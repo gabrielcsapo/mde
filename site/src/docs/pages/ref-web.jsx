@@ -16,17 +16,17 @@ export default function RefWeb() {
       <SeeAlso
         links={[
           {
-            to: '/embed/react',
+            to: '/docs/embed/react',
             title: 'React',
             note: 'the adapter over this surface, and what it changes',
           },
           {
-            to: '/reference/ffi',
+            to: '/docs/reference/ffi',
             title: 'C ABI and wasm exports',
             note: 'the layer below — what these methods actually read',
           },
           {
-            to: '/reference/roles',
+            to: '/docs/reference/roles',
             title: 'Roles and CSS classes',
             note: 'the role ids these report, and the classes they become',
           },

@@ -24,6 +24,12 @@ enum CaptureMode {
     static func apply(to editor: MarkdownTextView) {
         guard let shot else { return }
 
+        if shot == "hero-video" {
+            showHeroVideoFixture(editor)
+            after(1.7) { runHeroVideo(editor) }
+            return
+        }
+
         // The screencast is started after the app, so the tour holds still long enough
         // for the recorder to be running before anything moves. The still shots need
         // only enough of a wait for the references to resolve — the chart landing at
@@ -57,6 +63,96 @@ enum CaptureMode {
     }
 
     // MARK: - Shots
+
+    /// A compact, difficult document for the landing-page film. It deliberately begins
+    /// before the edit so the recording shows the Markdown becoming a task list, link,
+    /// inline code, and native table through the ordinary incremental input path.
+    private static func showHeroVideoFixture(_ editor: MarkdownTextView) {
+        let source = """
+        # Field notes
+
+        > Native text input. Portable Markdown source.
+
+        ## Live edit
+
+        """
+        editor.setMarkdown(source)
+        editor.selectedRange = NSRange(location: (source as NSString).length, length: 0)
+        _ = editor.becomeFirstResponder()
+        editor.scrollRangeToVisible(editor.selectedRange)
+
+        if let navigation = editor.window?.rootViewController as? UINavigationController {
+            navigation.topViewController?.title = "Native Markdown"
+        }
+    }
+
+    /// Types through UITextView's input API one character at a time, then corrects a
+    /// typo and runs the public bold command. The film is therefore the production
+    /// editor processing real incremental changes, not a pre-rendered animation.
+    private static func runHeroVideo(_ editor: MarkdownTextView) {
+        let segments = [
+            "- [x] **Incremental** edits repaint one paragraph\n",
+            "  - [ ] keep [source portable](https://commonmark.org)\n\n",
+            "| Surface | Native input |\n|:--|:--|\n| iOS | TextKit |\n| Web | contenteditable |\n\n",
+            "Native perfromance, measured in edits—not demos.",
+        ]
+
+        type(segments, at: 0, into: editor) {
+            let source = editor.markdown as NSString
+            let typo = source.range(of: "perfromance")
+            guard typo.location != NSNotFound else { return }
+
+            editor.selectedRange = typo
+            editor.scrollRangeToVisible(typo)
+            after(0.65) {
+                editor.insertText("performance")
+                let updated = editor.markdown as NSString
+                let word = updated.range(of: "performance")
+                guard word.location != NSNotFound else { return }
+                editor.selectedRange = word
+
+                after(0.7) {
+                    _ = editor.execute(.bold, selection: word)
+                    after(0.9) {
+                        let end = (editor.markdown as NSString).length
+                        editor.selectedRange = NSRange(location: end, length: 0)
+                        editor.scrollRangeToVisible(editor.selectedRange)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func type(
+        _ segments: [String],
+        at index: Int,
+        into editor: MarkdownTextView,
+        completion: @escaping () -> Void
+    ) {
+        guard index < segments.count else {
+            completion()
+            return
+        }
+        type(Array(segments[index]), at: 0, into: editor) {
+            after(0.25) { type(segments, at: index + 1, into: editor, completion: completion) }
+        }
+    }
+
+    private static func type(
+        _ characters: [Character],
+        at index: Int,
+        into editor: MarkdownTextView,
+        completion: @escaping () -> Void
+    ) {
+        guard index < characters.count else {
+            completion()
+            return
+        }
+        let character = String(characters[index])
+        editor.insertText(character)
+        let delay = character == "\n" ? 0.085 : 0.019
+        after(delay) { type(characters, at: index + 1, into: editor, completion: completion) }
+    }
 
     private static func showCrossPlatformFixture(_ editor: MarkdownTextView) {
         guard let url = Bundle.main.url(forResource: "cross-platform", withExtension: "md"),

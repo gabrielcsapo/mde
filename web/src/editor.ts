@@ -36,7 +36,7 @@ import type { PreparedDocument } from './preparation.js';
 import {
   MDE_PLUGIN_API_VERSION,
   assertPluginRequirements,
-} from '@mde/plugin-sdk';
+} from '@mdink/plugin-sdk';
 import type {
   PluginCapabilityName,
   PluginInputRule,
@@ -45,7 +45,7 @@ import type {
   PluginTransactionResult,
   PluginTransferHandler,
   PluginTransferPayload,
-} from '@mde/plugin-sdk';
+} from '@mdink/plugin-sdk';
 
 const PLUGIN_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set([
   'document', 'selection', 'semantics', 'state', 'commands', 'presentations',
@@ -200,7 +200,7 @@ export class MarkdownEditor extends EventTarget {
    * @param {import('./core.js').Engine} engine
    * @param {{widgetProvider?: import('./widgets.js').WidgetProvider,
    *          resourceResolver?: import('./resources.js').ResourceResolver,
-   *          pluginStateStore?: import('@mde/plugin-sdk').PluginStateStore,
+   *          pluginStateStore?: import('@mdink/plugin-sdk').PluginStateStore,
    *          interactionMode?: MarkdownInteractionMode}} [options]
    */
   constructor(

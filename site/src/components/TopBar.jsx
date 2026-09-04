@@ -16,40 +16,39 @@ export default function TopBar({ page, onOpenSearch, onOpenNav, navOpen }) {
 
   return (
     <header
-      className="topbar sticky top-0 z-30 border-b border-rule-soft"
+      className={`topbar${page ? '' : ' is-landing'} sticky top-0 z-30 border-b border-rule-soft`}
       style={{ '--reading-progress': `${progress}%` }}
     >
       <div className="mx-auto flex h-[54px] w-full items-center gap-3 px-4 sm:px-6">
-        <button
-          type="button"
-          className="nav-toggle lg:hidden"
-          aria-expanded={navOpen}
-          aria-controls="sidebar"
-          onClick={onOpenNav}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d={navOpen ? 'M6 6l12 12M18 6L6 18' : 'M4 7h16M4 12h16M4 17h16'} />
-          </svg>
-          <span className="sr-only">{navOpen ? 'Close navigation' : 'Open navigation'}</span>
-        </button>
+        {page ? (
+          <button
+            type="button"
+            className="nav-toggle lg:hidden"
+            aria-expanded={navOpen}
+            aria-controls="sidebar"
+            onClick={onOpenNav}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d={navOpen ? 'M6 6l12 12M18 6L6 18' : 'M4 7h16M4 12h16M4 17h16'} />
+            </svg>
+            <span className="sr-only">{navOpen ? 'Close navigation' : 'Open navigation'}</span>
+          </button>
+        ) : null}
 
         <Link
-          className="flex items-baseline gap-[9px] font-mono text-[0.9rem] font-semibold tracking-[-0.01em] whitespace-nowrap text-text no-underline"
+          className="topbar-brand"
           to="/"
         >
-          mde
-          <em className="font-sans text-[0.78rem] font-normal tracking-normal not-italic text-faint max-[560px]:hidden">
-            web + swift
-          </em>
+          <span className="topbar-wordmark">@mdink</span>
+          <em>one source · every screen</em>
         </Link>
 
-        <Link
-          className="docs-label"
-          aria-label="Documentation overview"
-          to="/overview"
-        >
-          Docs
-        </Link>
+        <nav className="topbar-nav" aria-label="Primary">
+          <Link aria-label="Documentation overview" to="/docs/overview">
+            Docs
+          </Link>
+          <Link to="/docs/try">Live editor</Link>
+        </nav>
 
         {page ? (
           <span className="page-count" aria-label={`Page ${pageIndex + 1} of ${PAGES.length}`}>

@@ -57,8 +57,8 @@ export default function Decorations() {
         </tbody>
       </TableFrame>
       <Note>
-        Six is the whole set. A feature that cannot be drawn as one of these is not a feature this
-        editor can have — which is the point of the list being closed.
+        The renderer protocol intentionally supports only these six primitives. Extensions combine
+        them with custom roles instead of adding platform-specific drawing operations.
       </Note>
 
       <H2 id="roles">Roles are open strings</H2>
@@ -67,9 +67,9 @@ export default function Decorations() {
         interprets a role; it interns the name, hands back an id, and reports that id on every
         decoration. What the name <em>means</em> is entirely the theme’s business, which is what
         lets a manifest — or a{' '}
-        <Link to="/extend/layers">host layer invented at runtime</Link> — introduce roles the core
+        <Link to="/docs/extend/layers">host layer invented at runtime</Link> — introduce roles the core
         was never compiled with. The nineteen built-in ids are listed on{' '}
-        <Link to="/reference/roles">Roles and CSS classes</Link>.
+        <Link to="/docs/reference/roles">Roles and CSS classes</Link>.
       </p>
 
       <H2 id="offsets">Offsets are UTF-16 code units</H2>
@@ -124,12 +124,12 @@ export default function Decorations() {
       <SeeAlso
         links={[
           {
-            to: '/concepts/reveal',
+            to: '/docs/concepts/reveal',
             title: 'Reveal policy',
             note: 'the fourth field, and why a selection change produces a patch',
           },
           {
-            to: '/reference/ffi',
+            to: '/docs/reference/ffi',
             title: 'C ABI and wasm exports',
             note: 'the same structs, as bytes',
           },

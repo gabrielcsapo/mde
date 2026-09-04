@@ -1,14 +1,14 @@
 import { Aside, Clause, Clauses, H2, H3, Lede, Note, SeeAlso, TableFrame } from '../../components/Doc.jsx';
 import SourceFigure from '../../components/SourceFigure.jsx';
 
-const webExample = `import { slashCommandMenu } from '@mde/plugins/composer';
-import { linkEditor, templatePicker } from '@mde/plugins/productivity';
+const webExample = `import { slashCommandMenu } from '@mdink/plugins/composer';
+import { linkEditor, templatePicker } from '@mdink/plugins/productivity';
 
 editor.installPlugin(linkEditor());
 editor.installPlugin(templatePicker(templates));
 editor.installPlugin(slashCommandMenu()); // discovers both commands`;
 
-const sdkExample = `import { definePlugin } from '@mde/web';
+const sdkExample = `import { definePlugin } from '@mdink/web';
 
 export const wordCount = definePlugin({
   name: 'acme.word-count',
@@ -40,7 +40,7 @@ const suggestionExample = `suggestionPlugin({
     api.people.search(query, { signal }),
 });`;
 
-const htmlExample = `import { rawHTMLPlugin } from '@mde/plugins/raw-html';
+const htmlExample = `import { rawHTMLPlugin } from '@mdink/plugins/raw-html';
 
 editor.installPlugin(rawHTMLPlugin({
   name: 'journal.widgets',
@@ -77,7 +77,7 @@ const FEATURES = [
 export default function Plugins() {
   return (
     <>
-      <H2 id="platform">A plugin platform, not a popup hook</H2>
+      <H2 id="platform">Editor-owned plugin lifecycle</H2>
       <Lede>
         Commands, floating UI, suggestions, and background work share one editor-owned lifecycle.
         A package can add the interactions people expect without changing the renderer or putting UI
@@ -100,9 +100,9 @@ export default function Plugins() {
         </Clause>
       </Clauses>
 
-      <H2 id="sdk">A small, versioned capability API</H2>
+      <H2 id="sdk">Versioned capability API</H2>
       <Lede>
-        <code>@mde/plugin-sdk</code> contains data contracts only. Plugins declare the API version and
+        <code>@mdink/plugin-sdk</code> contains data contracts only. Plugins declare the API version and
         capabilities they need; installation fails before setup when a host cannot provide them.
         The web runtime and <code>MDEPluginKit</code> expose the same document, selection, semantic,
         state, input, and transfer model.
@@ -128,7 +128,7 @@ export default function Plugins() {
         <code>executePluginCommand(id:)</code>, and change notifications. No menu needs a private list.
       </p>
 
-      <H2 id="suggestions">One suggestion engine</H2>
+      <H2 id="suggestions">Suggestion sessions and autocomplete</H2>
       <Lede>
         The shipped engine handles async latest-wins providers, cancellation, debounce, a bounded
         cache, fuzzy ranking, groups, loading and empty states, keyboard navigation, and IME input.
@@ -140,7 +140,7 @@ export default function Plugins() {
         several selection callbacks while revealing a token at the caret.
       </Note>
 
-      <H2 id="renderers">Put anything on the canvas</H2>
+      <H2 id="renderers">Canvas presentations and floating UI</H2>
       <Lede>
         Renderer plugins turn parser-recognized ranges into ordinary editor widgets. They may mount
         DOM, canvas, interactive JavaScript, native views, or a managed web view; the core continues
@@ -169,21 +169,21 @@ export default function Plugins() {
         ))}</tbody>
       </TableFrame>
       <p className="mt-5">
-        Optional features ship from <code>@mde/plugins</code>, not the core renderer. Backlinks and
+        Optional features ship from <code>@mdink/plugins</code>, not the core renderer. Backlinks and
         the media-gallery recipe are intentionally implemented as ordinary capability-only plugins;
         they double as compatibility fixtures for third-party authors.
       </p>
 
-      <Aside tone="note" title="The document remains boring">
+      <Aside tone="note" title="Plugins preserve portable Markdown">
         A tag is still <code>#travel</code>, a wiki link is still <code>[[Day One]]</code>, and an
         attachment is still a short markdown reference. Plugins improve authoring; they do not create
         a proprietary document format.
       </Aside>
 
       <SeeAlso links={[
-        { to: '/extend/journal', title: 'Journal integration', note: 'media import and persistence' },
-        { to: '/extend/layers', title: 'Host decoration layers', note: 'non-interactive plugin output' },
-        { to: '/reference/web', title: 'Web API', note: 'exact signatures' },
+        { to: '/docs/extend/journal', title: 'Journal integration', note: 'media import and persistence' },
+        { to: '/docs/extend/layers', title: 'Host decoration layers', note: 'non-interactive plugin output' },
+        { to: '/docs/reference/web', title: 'Web API', note: 'exact signatures' },
       ]} />
     </>
   );

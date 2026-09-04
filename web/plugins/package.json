@@ -1,19 +1,68 @@
 {
-  "name": "@mde/plugins", "version": "0.1.0", "description": "Optional plugins and recipes for MDEditor.",
-  "type": "module", "license": "MIT", "sideEffects": ["./extensions.css"],
-  "exports": {
-    "./suggestions": { "types": "./dist/types/suggestions.d.ts", "import": "./dist/suggestions.js" },
-    "./attachments": { "types": "./dist/types/attachments.d.ts", "import": "./dist/attachments.js" },
-    "./productivity": { "types": "./dist/types/productivity.d.ts", "import": "./dist/productivity.js" },
-    "./composer": { "types": "./dist/types/composer.d.ts", "import": "./dist/composer.js" },
-    "./examples": { "types": "./dist/types/examples.d.ts", "import": "./dist/examples.js" },
-    "./typewriter": { "types": "./dist/types/typewriter.d.ts", "import": "./dist/typewriter.js" },
-    "./parts-of-speech": { "types": "./dist/types/parts-of-speech.d.ts", "import": "./dist/parts-of-speech.js" },
-    "./raw-html": { "types": "./dist/types/raw-html.d.ts", "import": "./dist/raw-html.js" },
-    "./extensions.css": "./extensions.css", "./package.json": "./package.json"
+  "name": "@mdink/plugins",
+  "version": "0.1.0",
+  "description": "Optional plugins and recipes for MDEditor.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
   },
-  "files": ["dist", "extensions.css", "README.md"],
-  "scripts": { "build": "pnpm run typecheck && vite build && tsc -p tsconfig.build.json", "typecheck": "tsc -p tsconfig.json" },
-  "dependencies": { "@mde/plugin-sdk": "workspace:*", "@mde/web": "workspace:*" },
-  "devDependencies": { "typescript": "^7.0.2", "vite": "^8.2.1" }
+  "sideEffects": [
+    "./extensions.css"
+  ],
+  "exports": {
+    "./suggestions": {
+      "types": "./dist/types/suggestions.d.ts",
+      "import": "./dist/suggestions.js"
+    },
+    "./attachments": {
+      "types": "./dist/types/attachments.d.ts",
+      "import": "./dist/attachments.js"
+    },
+    "./productivity": {
+      "types": "./dist/types/productivity.d.ts",
+      "import": "./dist/productivity.js"
+    },
+    "./composer": {
+      "types": "./dist/types/composer.d.ts",
+      "import": "./dist/composer.js"
+    },
+    "./examples": {
+      "types": "./dist/types/examples.d.ts",
+      "import": "./dist/examples.js"
+    },
+    "./typewriter": {
+      "types": "./dist/types/typewriter.d.ts",
+      "import": "./dist/typewriter.js"
+    },
+    "./parts-of-speech": {
+      "types": "./dist/types/parts-of-speech.d.ts",
+      "import": "./dist/parts-of-speech.js"
+    },
+    "./raw-html": {
+      "types": "./dist/types/raw-html.d.ts",
+      "import": "./dist/raw-html.js"
+    },
+    "./extensions.css": "./extensions.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "extensions.css",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm run typecheck && vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mdink/plugin-sdk": "workspace:*",
+    "@mdink/web": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
 }

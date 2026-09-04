@@ -178,7 +178,7 @@ clear_layer(name)`
 
 export const typewriterJs = tag(
   'typescript',
-  `import { definePlugin } from '@mde/web';
+  `import { definePlugin } from '@mdink/web';
 
 export const searchPlugin = definePlugin({
   name: 'com.example.search',
@@ -295,25 +295,26 @@ export const buildBash = tag(
                           # → apple/MDECore.xcframework`
 );
 
+export const installWeb = tag('bash', `pnpm add @mdink/web`);
+
+export const installReact = tag('bash', `pnpm add @mdink/react @mdink/web`);
+
 export const mountJs = tag(
   'javascript',
-  `import { MarkdownEditor, Role, encodeManifest, loadCore } from '@mde/web';
-import wasmUrl from '@mde/web/mde.wasm?url';
-import '@mde/web/theme.css';
+  `import { MarkdownEditor, loadCore } from '@mdink/web';
+import wasmUrl from '@mdink/web/mde.wasm?url';
+import '@mdink/web/theme.css';
 
 const core = await loadCore(wasmUrl);
-const engine = core.newEngine(encodeManifest(manifestSpec));
-
-const editor = new MarkdownEditor(document.getElementById('editor'), engine, {
-  widgetProvider,      // optional — draws replaced ranges
-  resourceResolver,    // optional — turns a reference into a view
-});
+const editor = new MarkdownEditor(
+  document.getElementById('editor'),
+  core.newEngine(),
+);
 
 editor.setMarkdown('# Hello\\n\\nMarkdown stays **markdown**.');
 
-editor.addEventListener('change', () => save(editor.markdown));
-editor.addEventListener('hit', (e) => {
-  if (e.detail.decoration.role === Role.TaskCheckbox) editor.toggleTask(e.detail.decoration);
+editor.addEventListener('change', () => {
+  console.log(editor.markdown);
 });`
 );
 
@@ -325,23 +326,18 @@ export const mountHtml = tag(
 
 export const mountSwift = tag(
   'swift',
-  `import MDECore
-import MDEditorUI
+  `import MDEditorUI
 
-let editor = MarkdownTextView(manifest: HostExtensions.manifest, theme: theme)
-editor.widgetProvider = HostWidgets()
-// References in the document resolve against a directory on disk — the note holds
-// \`![a chart](chart.png)\`, never the image itself.
-editor.resourceResolver = DiskResourceResolver(root: assetsDirectory)
-editor.resourceSizes = ResourceSizeStore.load()
-editor.markdownDelegate = self
+let editor = MarkdownTextView()
+editor.setMarkdown("# Hello\\n\\nMarkdown stays **markdown**.")
 
-editor.setMarkdown(document)`
+// UIKit: add editor to your view hierarchy.
+// AppKit: place editor in an NSScrollView as its documentView.`
 );
 
 export const packageSwift = tag(
   'swift',
-  `.package(path: "../mardown-editor/apple")
+  `.package(path: "../mdink/apple")
 
 // The package builds three products:
 //   MDECore      the engine and its value types
@@ -353,17 +349,16 @@ export const packageSwift = tag(
 
 export const reactBasicJsx = tag(
   'javascript',
-  `import { MarkdownEditor } from '@mde/react';
-import '../vendor/mardown-editor/web/src/theme.css'; // wherever you vendored it
+  `import { MarkdownEditor } from '@mdink/react';
+import wasmUrl from '@mdink/web/mde.wasm?url';
+import '@mdink/web/theme.css';
 
-export function Editor({ note, onSave }) {
+export function Editor() {
   return (
     <MarkdownEditor
-      defaultValue={note}
-      manifest={manifestSpec}
-      widgetProvider={widgetProvider}
-      resourceResolver={resourceResolver}
-      onChange={(markdown) => onSave(markdown)}
+      wasm={wasmUrl}
+      defaultValue={'# Hello\\n\\nMarkdown stays **markdown**.'}
+      onChange={(markdown) => console.log(markdown)}
       className="note-editor"
     />
   );

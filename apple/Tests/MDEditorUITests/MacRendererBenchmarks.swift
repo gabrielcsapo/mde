@@ -769,9 +769,9 @@ final class MacRendererBenchmarks: XCTestCase {
         let rows = (0..<100).map { row in
             "| " + columns.indices.map { "r\(row)c\($0)" }.joined(separator: " | ") + " |"
         }
-        let source = "| " + columns.joined(separator: " | ") + " |\n"
-            + "| " + columns.map { _ in "---" }.joined(separator: " | ") + " |\n"
-            + rows.joined(separator: "\n") + "\n"
+        let header = "| \(columns.joined(separator: " | ")) |"
+        let separator = "| \(columns.map { _ in "---" }.joined(separator: " | ")) |"
+        let source = ([header, separator] + rows + [""]).joined(separator: "\n")
         let (window, editor) = makeEditor()
         let projection = timed {
             editor.setMarkdown(source)

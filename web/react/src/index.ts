@@ -1,4 +1,4 @@
-// @mde/react — the React adapter variant for the drop-in markdown editor.
+// @mdink/react — the React adapter variant for the drop-in markdown editor.
 //
 // The editor in `web/src/` is framework-free and stays that way; this package is an
 // optional layer over it and imports it directly, never a fork of it.
@@ -20,4 +20,4 @@ export {
   composePluginManifests,
   definePlugin,
   encodeManifest,
-} from '@mde/web';
+} from '@mdink/web';

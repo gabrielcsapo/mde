@@ -1,9 +1,9 @@
 {
-  "name": "mde-site",
+  "name": "mdink-site",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The mde documentation site and live integration gallery.",
+  "description": "The mdink documentation site and live integration gallery.",
   "scripts": {
     "packages": "../scripts/build-web.sh",
     "predev": "pnpm run packages",
@@ -13,17 +13,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mde/react": "workspace:*",
-    "@mde/plugin-sdk": "workspace:*",
-    "@mde/plugins": "workspace:*",
-    "@mde/web": "workspace:*",
+    "@mdink/plugin-sdk": "workspace:*",
+    "@mdink/plugins": "workspace:*",
+    "@mdink/react": "workspace:*",
+    "@mdink/web": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "@vitejs/plugin-react": "^6.0.5",
+    "@vitejs/plugin-react": "^6.1.1",
     "tailwindcss": "^4.3.3",
-    "vite": "^8.2.1"
+    "vite": "^8.2.2"
   }
 }

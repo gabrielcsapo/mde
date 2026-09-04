@@ -2,12 +2,9 @@
 export default function Footer() {
   return (
     <footer className="doc-footer">
-      <span className="font-mono font-semibold text-text">mde</span>
-      <span>Core complete, with undo and resource references.</span>
-      <span>Three renderers, each with a reference app.</span>
-      <span>
-        Every suite, one command: <code>./scripts/test.sh</code>
-      </span>
+      <span className="font-mono font-semibold text-text">@mdink</span>
+      <span>Markdown editing for JS, React, iOS, and macOS.</span>
+      <span>Portable source, native input, extensible rendering.</span>
     </footer>
   );
 }

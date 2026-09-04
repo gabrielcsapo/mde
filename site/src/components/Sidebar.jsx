@@ -69,8 +69,7 @@ export default function Sidebar({ open, onNavigate }) {
           ))}
 
           <p className="nav-foot">
-            Every claim on this site comes from <code>DESIGN.md</code> or from the source it
-            describes.
+            API reference, integration guides, and verified renderer behavior.
           </p>
         </div>
       </nav>

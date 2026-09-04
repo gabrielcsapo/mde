@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
-import { MarkdownEditor, useEditorHistory, useMarkdownEditorRef } from '@mde/react';
-import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/plugins/composer';
-import { linkEditor } from '@mde/plugins/productivity';
-import { trustedHTMLPlugin } from '@mde/plugins/raw-html';
-import wasmUrl from '@mde/web/mde.wasm?url';
+import { MarkdownEditor, useEditorHistory, useMarkdownEditorRef } from '@mdink/react';
+import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mdink/plugins/composer';
+import { linkEditor } from '@mdink/plugins/productivity';
+import { trustedHTMLPlugin } from '@mdink/plugins/raw-html';
+import wasmUrl from '@mdink/web/mde.wasm?url';
 
 import {
   manifestSpec,

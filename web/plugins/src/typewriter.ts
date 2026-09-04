@@ -1,1 +1,1 @@
-export * from '@mde/web/extensions/typewriter';
+export * from '@mdink/web/extensions/typewriter';

@@ -419,9 +419,10 @@ final class MacRendererTests: XCTestCase {
 
     func testAWideNativeTableUsesReadableColumnsAndHorizontalScrolling() throws {
         let columns = (1...10).map { "Column \($0)" }
-        let source = "| " + columns.joined(separator: " | ") + " |\n"
-            + "| " + columns.map { _ in "---" }.joined(separator: " | ") + " |\n"
-            + "| " + columns.map { "value \($0)" }.joined(separator: " | ") + " |\n"
+        let header = "| \(columns.joined(separator: " | ")) |"
+        let separator = "| \(columns.map { _ in "---" }.joined(separator: " | ")) |"
+        let row = "| \(columns.map { "value \($0)" }.joined(separator: " | ")) |"
+        let source = [header, separator, row, ""].joined(separator: "\n")
         editor.setMarkdown(source)
         let paragraph = try XCTUnwrap(editor.textContentStorage(
             editor.contentStorage,

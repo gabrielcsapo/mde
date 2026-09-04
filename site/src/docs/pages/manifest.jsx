@@ -53,7 +53,7 @@ const PREFILTERS = [
 export default function Manifest() {
   return (
     <>
-      <H2 id="declarative">Declarative data, not code in the parser</H2>
+      <H2 id="declarative">Declarative extension rules</H2>
       <Lede>
         Day-one extension capabilities are custom <strong>block types</strong> and custom{' '}
         <strong>inline tokens</strong>. Both are data. No extension code runs inside the parser —
@@ -64,13 +64,13 @@ export default function Manifest() {
         Wasm plugins were considered and rejected: iOS forbids JIT, so it would mean shipping an
         interpreter into the per-keystroke path to buy flexibility neither day-one capability needs.
         For the features a manifest genuinely cannot describe, there is a second mechanism —{' '}
-        <Link to="/extend/layers">host decoration layers</Link>.
+        <Link to="/docs/extend/layers">host decoration layers</Link>.
       </p>
       <SourceFigure className="mt-8" path="extensions.toml" lang="toml" code={extensionsToml} />
       <Footnote>
         The host ships this manifest plus one widget renderer per platform. The core resolves
         syntax, ranges, capture groups, reveal state and identity; the host only draws. This exact
-        manifest is what the <Link to="/try">demo editor</Link> is running.
+        manifest is what the <Link to="/docs/try">demo editor</Link> is running.
       </Footnote>
 
       <H2 id="fields">Fields</H2>
@@ -143,7 +143,7 @@ export default function Manifest() {
         naming the rule, not a panic and not a rule that silently never matches.
       </Note>
 
-      <H2 id="prefilter">Every inline rule gets a prefilter, when one is provable</H2>
+      <H2 id="prefilter">Inline-rule prefilters</H2>
       <Lede>
         <code>regex-lite</code> has no literal prescan, so <code>@[a-zA-Z0-9_-]+</code> walked every
         byte of every text run looking for an <code>@</code> that was not there — 3.5 ms on 100 KB
@@ -178,7 +178,7 @@ export default function Manifest() {
         each row above.
       </Note>
 
-      <H2 id="roles-and-ids">Names become roles</H2>
+      <H2 id="roles-and-ids">Extension names and roles</H2>
       <p>
         Every <code>name</code> in the manifest is interned as a role, after the nineteen built-ins
         and in manifest order. Renderers and themes can therefore rely on the built-in ids being
@@ -188,7 +188,7 @@ export default function Manifest() {
         <code>Theme.extensionRoles</code>.
       </p>
 
-      <H2 id="binary">The binary form, for the web</H2>
+      <H2 id="binary">Binary manifest format</H2>
       <Lede>
         TOML stays the authoring format across platforms, but shipping a TOML parser into wasm cost
         about 350 KB for a parse that happens once at startup. The web build drops it and takes a
@@ -213,17 +213,17 @@ export default function Manifest() {
       <SeeAlso
         links={[
           {
-            to: '/extend/layers',
+            to: '/docs/extend/layers',
             title: 'Host decoration layers',
             note: 'for the features a manifest cannot describe',
           },
           {
-            to: '/concepts/widgets',
+            to: '/docs/concepts/widgets',
             title: 'Widgets and references',
             note: 'what the host does with a block_widget once it is declared',
           },
           {
-            to: '/reference/roles',
+            to: '/docs/reference/roles',
             title: 'Roles and CSS classes',
             note: 'the built-in ids an extension is interned after',
           },

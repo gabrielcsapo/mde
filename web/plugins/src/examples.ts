@@ -1,1 +1,1 @@
-export * from '@mde/web/extensions/examples';
+export * from '@mdink/web/extensions/examples';

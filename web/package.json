@@ -1,9 +1,12 @@
 {
-  "name": "@mde/web",
+  "name": "@mdink/web",
   "version": "0.1.0",
-  "description": "Framework-free inline markdown editor powered by the mde Rust core.",
+  "description": "Framework-free inline markdown editor powered by the mdink Rust core.",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": [
     "./theme.css",
     "./extensions.css"
@@ -57,7 +60,9 @@
     "dist",
     "src/theme.css",
     "extensions/extensions.css",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "pnpm run typecheck && vite build && pnpm run build:types",
@@ -85,15 +90,15 @@
     "wasm"
   ],
   "dependencies": {
-    "@mde/plugin-sdk": "workspace:*"
+    "@mdink/plugin-sdk": "workspace:*"
   },
   "devDependencies": {
-    "@vitest/browser-playwright": "^4.1.10",
+    "@vitest/browser-playwright": "^4.1.11",
     "playwright": "^1.62.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.10"
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
   }
 }

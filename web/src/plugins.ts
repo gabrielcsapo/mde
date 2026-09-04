@@ -12,13 +12,13 @@ import type {
   PluginSemanticsCapability,
   PluginStateCapability,
   PluginTransfersCapability,
-} from '@mde/plugin-sdk';
+} from '@mdink/plugin-sdk';
 export {
   MDE_PLUGIN_API_VERSION,
   PluginCompatibilityError,
   assertPluginRequirements,
-} from '@mde/plugin-sdk';
-export type * from '@mde/plugin-sdk';
+} from '@mdink/plugin-sdk';
+export type * from '@mdink/plugin-sdk';
 
 export type PluginCleanup = () => void;
 
@@ -119,11 +119,11 @@ export interface PluginResourceContribution {
   accepts?(request: ResourceRequest): boolean;
 }
 export interface PluginResourcesCapability {
-  register(name: string, contribution: PluginResourceContribution): import('@mde/plugin-sdk').PluginOwnedHandle;
+  register(name: string, contribution: PluginResourceContribution): import('@mdink/plugin-sdk').PluginOwnedHandle;
 }
 export interface PluginRenderersCapability {
   /** Register one renderer in deterministic plugin/install order. */
-  register(name: string, renderer: WidgetRenderer): import('@mde/plugin-sdk').PluginOwnedHandle;
+  register(name: string, renderer: WidgetRenderer): import('@mdink/plugin-sdk').PluginOwnedHandle;
 }
 
 export interface PluginAnalysisInput {
@@ -167,7 +167,7 @@ export interface EditorPlugin {
 /** The narrow, automatically-cleaned surface a plugin normally needs. */
 export interface EditorPluginContext {
   readonly apiVersion: 1;
-  readonly capabilities: ReadonlySet<import('@mde/plugin-sdk').PluginCapabilityName>;
+  readonly capabilities: ReadonlySet<import('@mdink/plugin-sdk').PluginCapabilityName>;
   readonly document: PluginDocumentCapability;
   readonly selection: PluginSelectionCapability;
   readonly semantics: PluginSemanticsCapability;
@@ -225,8 +225,8 @@ export interface EditorEventMap {
   commandconflict: CustomEvent<{ shortcut: string; commandIds: string[]; winner: string }>;
   plugintransaction: CustomEvent<{
     plugin: string;
-    transaction: import('@mde/plugin-sdk').PluginTransaction;
-    result: import('@mde/plugin-sdk').PluginTransactionResult;
+    transaction: import('@mdink/plugin-sdk').PluginTransaction;
+    result: import('@mdink/plugin-sdk').PluginTransactionResult;
   }>;
 }
 

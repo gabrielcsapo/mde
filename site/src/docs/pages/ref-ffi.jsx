@@ -22,7 +22,7 @@ const WASM_EXPORTS = [
 export default function RefFfi() {
   return (
     <>
-      <H2 id="one-abi">One C ABI, two consumers</H2>
+      <H2 id="one-abi">C ABI consumers</H2>
       <Lede>
         Apple ships a static library via a Swift package wrapping an XCFramework. The web ships{' '}
         <code>wasm32-unknown-unknown</code> with a hand-written binding —{' '}
@@ -70,7 +70,7 @@ export default function RefFfi() {
         emitting decorations computed from a document that never existed.
       </Note>
 
-      <H2 id="wasm">The wasm side is the same protocol, without pointers</H2>
+      <H2 id="wasm">Flat-memory wasm protocol</H2>
       <Lede>
         JavaScript cannot pass a struct pointer, so the wasm build inverts the argument passing: the
         host writes its arguments into a reserved input buffer, calls a function that takes only the
@@ -107,19 +107,19 @@ export default function RefFfi() {
         The browsable timeline crosses the same way:{' '}
         <code>mde_history_position</code>, <code>mde_revisions</code> and{' '}
         <code>mde_jump_to</code>, with the revision list written as a packed array the host reads
-        without allocating. <Link to="/concepts/history">History and undo</Link> covers what the
+        without allocating. <Link to="/docs/concepts/history">History and undo</Link> covers what the
         fields mean.
       </p>
 
       <SeeAlso
         links={[
           {
-            to: '/concepts/decorations',
+            to: '/docs/concepts/decorations',
             title: 'The decoration protocol',
             note: 'what these fields mean',
           },
-          { to: '/reference/web', title: 'Web API', note: 'the binding written against this' },
-          { to: '/reference/swift', title: 'Swift API', note: 'the other one' },
+          { to: '/docs/reference/web', title: 'Web API', note: 'the binding written against this' },
+          { to: '/docs/reference/swift', title: 'Swift API', note: 'the other one' },
         ]}
       />
     </>

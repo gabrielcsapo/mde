@@ -401,7 +401,7 @@ pub unsafe extern "C" fn mde_set_layer(e: *mut Engine) -> u32 {
 
     let spans = &rest[name_len..];
     let mut list = Vec::with_capacity(spans.len() / LAYER_SPAN_BYTES);
-    for c in spans.chunks_exact(LAYER_SPAN_BYTES) {
+    for c in spans.as_chunks::<LAYER_SPAN_BYTES>().0 {
         list.push(LayerSpan {
             start: u32::from_le_bytes([c[0], c[1], c[2], c[3]]),
             end: u32::from_le_bytes([c[4], c[5], c[6], c[7]]),

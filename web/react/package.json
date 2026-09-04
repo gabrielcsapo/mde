@@ -1,9 +1,12 @@
 {
-  "name": "@mde/react",
+  "name": "@mdink/react",
   "version": "0.1.0",
-  "description": "Optional React adapter for the framework-free @mde/web markdown editor.",
+  "description": "Optional React adapter for the framework-free @mdink/web markdown editor.",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -18,7 +21,9 @@
   "files": [
     "dist",
     "types",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "pnpm run typecheck && vite build",
@@ -26,7 +31,7 @@
     "dev": "vite build --watch"
   },
   "dependencies": {
-    "@mde/web": "workspace:^"
+    "@mdink/web": "workspace:^"
   },
   "peerDependencies": {
     "react": ">=18",
@@ -34,9 +39,9 @@
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react-dom": "^19.2.5",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1"
+    "vite": "^8.2.2"
   },
   "engines": {
     "node": ">=18"

@@ -24,6 +24,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private var redoItem: NSButton!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let isHeroCapture = CaptureMode.shot == "hero-video"
         var theme = Theme()
         theme.extensionRoles = [
             "wikilink": [
@@ -63,7 +64,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         editor.markdownDelegate = self
 
         let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
+        scroll.hasVerticalScroller = !isHeroCapture
         scroll.documentView = editor
         scroll.translatesAutoresizingMaskIntoConstraints = false
         editor.minSize = NSSize(width: 0, height: 0)
@@ -94,17 +95,26 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         bar.addArrangedSubview(NSView())
 
         let root = NSView()
-        root.addSubview(bar)
         root.addSubview(scroll)
-        NSLayoutConstraint.activate([
-            bar.topAnchor.constraint(equalTo: root.topAnchor),
-            bar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            bar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: bar.bottomAnchor),
-            scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-        ])
+        if isHeroCapture {
+            NSLayoutConstraint.activate([
+                scroll.topAnchor.constraint(equalTo: root.topAnchor),
+                scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+                scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            ])
+        } else {
+            root.addSubview(bar)
+            NSLayoutConstraint.activate([
+                bar.topAnchor.constraint(equalTo: root.topAnchor),
+                bar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+                bar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                scroll.topAnchor.constraint(equalTo: bar.bottomAnchor),
+                scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+                scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            ])
+        }
 
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: CaptureMode.width ?? 760, height: 900),
@@ -112,6 +122,12 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
+        if isHeroCapture {
+            window.hasShadow = false
+            window.isOpaque = true
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+        }
         window.title = "Note"
         window.contentView = root
         window.center()

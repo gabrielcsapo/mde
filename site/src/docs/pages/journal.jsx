@@ -1,7 +1,7 @@
 import { Aside, Clause, Clauses, H2, H3, Lede, Note, SeeAlso } from '../../components/Doc.jsx';
 import SourceFigure from '../../components/SourceFigure.jsx';
 
-const webJournal = `import { attachmentImports } from '@mde/plugins/attachments';
+const webJournal = `import { attachmentImports } from '@mdink/plugins/attachments';
 
 editor.installPlugin(attachmentImports({
   name: 'journal.assets',
@@ -95,9 +95,9 @@ export default function Journal() {
       </Aside>
 
       <SeeAlso links={[
-        { to: '/concepts/widgets', title: 'Widgets and references', note: 'how media is resolved' },
-        { to: '/extend/plugins', title: 'Interactive plugins', note: 'commands and floating UI' },
-        { to: '/internals/performance', title: 'Performance', note: 'heavy-media budgets' },
+        { to: '/docs/concepts/widgets', title: 'Widgets and references', note: 'how media is resolved' },
+        { to: '/docs/extend/plugins', title: 'Interactive plugins', note: 'commands and floating UI' },
+        { to: '/docs/internals/performance', title: 'Performance', note: 'heavy-media budgets' },
       ]} />
     </>
   );

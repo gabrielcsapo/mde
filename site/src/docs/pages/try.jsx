@@ -48,11 +48,11 @@ export default function Try() {
         ))}
       </ul>
 
-      <H2 id="what-is-running">What is actually running</H2>
+      <H2 id="what-is-running">JS and React integrations</H2>
       <Lede>
         Choose <strong>JS</strong> or <strong>React</strong> above. Both render the same Rust
-        core and framework-free editor: the first mounts <code>@mde/web</code> directly, while the
-        second lazy-loads the small <code>@mde/react</code> adapter.
+        core and framework-free editor: the first mounts <code>@mdink/web</code> directly, while the
+        second lazy-loads the small <code>@mdink/react</code> adapter.
       </Lede>
       <p>
         The extension manifest comes from <code>web/examples/vanilla/host.js</code> — the standalone
@@ -72,7 +72,7 @@ export default function Try() {
         navigating, and dismissing them cannot add presentation text to the markdown.
       </p>
 
-      <H2 id="toolbar">The toolbar is a list, not markup</H2>
+      <H2 id="toolbar">Descriptor-driven toolbar</H2>
       <p>
         Five capabilities, five objects in <code>site/src/lib/toolbar.js</code>. Each carries an id, a
         label, a <code>run</code>, and optionally an <code>enabled</code> or a <code>pressed</code>{' '}
@@ -89,30 +89,30 @@ export default function Try() {
         That matters for the last two buttons. <strong>Typewriter</strong> and{' '}
         <strong>Parts of speech</strong> are not editor features — they live in{' '}
         <code>web/extensions/</code>, they are written entirely against the public layer API, and
-        adding each of them to this page cost exactly one object in that array.{' '}
-        <Link to="/extend/showcase">That story has its own page.</Link>
+        each is registered as one toolbar descriptor.{' '}
+        <Link to="/docs/extend/showcase">See how both extensions are implemented.</Link>
       </p>
 
       <Aside tone="caution" title="If the editor does not appear">
         The wasm core needs a real origin, so a page opened over <code>file://</code> cannot
         instantiate it. Run <code>./scripts/serve-site.sh</code>, which builds{' '}
-        <code>@mde/web</code>, its wasm asset, and the React adapter first.
+        <code>@mdink/web</code>, its wasm asset, and the React adapter first.
       </Aside>
 
       <SeeAlso
         links={[
           {
-            to: '/concepts/reveal',
+            to: '/docs/concepts/reveal',
             title: 'Reveal policy',
             note: 'why the markers come back when the caret arrives, and not before',
           },
           {
-            to: '/platforms/web',
+            to: '/docs/platforms/web',
             title: 'Web platform notes',
             note: 'what it takes to make contenteditable behave like this',
           },
           {
-            to: '/install',
+            to: '/docs/install',
             title: 'Install and embed',
             note: 'the same editor, in your own page',
           },

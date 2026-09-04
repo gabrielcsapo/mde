@@ -3,20 +3,20 @@ import { Link } from '../../lib/router.jsx';
 
 const PRINCIPLES = [
   [
-    'The text is the truth',
-    'Every feature is expressible as decorations over a markdown string. If a feature requires a side model, it is out of scope.',
+    'Markdown remains the source',
+    'Every rendered feature maps to a range in the Markdown string, so edits never require conversion from a private document model.',
   ],
   [
-    'One brain, three faces',
-    'Parsing, extension semantics, reveal policy and widget identity are decided once, in Rust. Renderers apply; they do not decide.',
+    'Behavior stays consistent',
+    'The Rust core defines parsing, extension semantics, syntax reveal, and widget identity for every renderer.',
   ],
   [
     'The system text engine owns input',
     'Native IME, autocorrect, spellcheck, selection handles and accessibility come from TextKit and from the browser. We never reimplement a caret.',
   ],
   [
-    'Correctness first, incrementality later',
-    'Nothing may depend on incremental parsing for correctness. It is a profiling-driven optimization behind a fixed interface.',
+    'Incremental work preserves correctness',
+    'Incremental parsing changes how much work is performed, not the resulting decorations.',
   ],
   [
     'Files stay portable',
@@ -26,19 +26,19 @@ const PRINCIPLES = [
 
 const PATHS = [
   {
-    to: '/try',
-    label: 'Type in it',
-    body: 'The editor itself, running the real wasm core, with two extensions wired to toolbar toggles.',
+    to: '/docs/try',
+    label: 'Open the editor',
+    body: 'Try the JS or React integration with tables, media, custom syntax, and plugin tools.',
   },
   {
-    to: '/install',
-    label: 'Put it in an app',
-    body: 'Build the core, mount the view. Three imports on the web; a Swift package and a text view on Apple.',
+    to: '/docs/install',
+    label: 'Add it to an app',
+    body: 'Install the web package or Swift package and mount the native editor view.',
   },
   {
-    to: '/concepts/decorations',
+    to: '/docs/concepts/decorations',
     label: 'Understand the protocol',
-    body: 'Six primitives, open roles and a patch. Everything else on this site is a consequence of it.',
+    body: 'Learn how ranges, rendering primitives, roles, and patches define the renderer contract.',
   },
 ];
 
@@ -47,15 +47,14 @@ export default function Overview() {
     <>
       <H2 id="what-it-is">A text editor with a decoration layer</H2>
       <Lede>
-        Explicitly not a WYSIWYG. A WYSIWYG owns a document model and emits markdown as an export
-        format; this owns nothing. The buffer <em>is</em> the source, and every feature is a range
-        plus a primitive plus a role over that string.
+        The editable buffer is the Markdown source. Decorations add typography, controls, and
+        widgets without replacing it with a private document model.
       </Lede>
       <p>
-        That single constraint is what makes the rest fall out: files stay portable, three platforms
-        cannot drift, and “show me the markers while I am editing this word” becomes{' '}
-        <Link to="/concepts/reveal">a policy in one place</Link> rather than three piles of renderer
-        code.
+        Files remain portable, while the shared core keeps parsing and editing behavior consistent
+        across JS, React, iOS, and macOS. A{' '}
+        <Link to="/docs/concepts/reveal">shared reveal policy</Link> controls when syntax appears around
+        the selection.
       </p>
 
       <H2 id="start">Where to start</H2>
@@ -68,15 +67,11 @@ export default function Overview() {
           </Link>
         ))}
       </nav>
-      <Note>
-        Or read it front to back: every page ends with the next one, and the whole site is one
-        sequence from here to <Link to="/internals/status">the open questions</Link>.
-      </Note>
+      <Note>Each page links to the next topic and to related reference material.</Note>
 
       <H2 id="principles">Five principles</H2>
       <Lede>
-        These are the load-bearing ones. Everything on this site that looks like a rule is one of
-        them applied to a specific problem.
+        These constraints keep documents portable and interactions consistent across platforms.
       </Lede>
       <Clauses>
         {PRINCIPLES.map(([title, body]) => (
@@ -86,19 +81,17 @@ export default function Overview() {
         ))}
       </Clauses>
 
-      <H2 id="status">Where the project is</H2>
+      <H2 id="status">Implementation status</H2>
       <p>
         The core is complete, with undo and resource references. All three renderers — iOS, macOS
         and web — run against it, each with a reference app. What is left, and what is known to be
-        unresolved rather than quietly hoped about, is on{' '}
-        <Link to="/internals/status">Status and open questions</Link>.
+        still in progress is listed on{' '}
+        <Link to="/docs/internals/status">Status and open questions</Link>.
       </p>
 
-      <Aside tone="note" title="What this site is">
-        The documentation of a design document. Every factual claim here — the primitives, the
-        reveal table, the millisecond figures, the things that were tried and thrown away — comes
-        from <code>DESIGN.md</code> or from the source it describes. Nothing is estimated on the
-        project’s behalf.
+      <Aside tone="note" title="Verified documentation">
+        API signatures, renderer behavior, and performance results are generated from or checked
+        against the implementation and its tests.
       </Aside>
     </>
   );

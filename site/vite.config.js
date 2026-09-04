@@ -136,7 +136,7 @@ function docsSearchCorpus() {
 }
 
 /**
- * Deep links are real paths, so a static host has to answer `/concepts/reveal` with the
+ * Deep links are real paths, so a static host has to answer `/docs/concepts/reveal` with the
  * app rather than a 404. Vite's own dev server and `vite preview` already do; hosts that
  * do not, conventionally serve `404.html`, so the build leaves a copy of `index.html`
  * under that name. It costs 2 KB and removes a whole class of "works locally" bug.
@@ -167,6 +167,7 @@ const MIME = {
 
 export default defineConfig({
   root: here,
+  base: process.env.SITE_BASE_PATH || '/',
   plugins: [react(), tailwind(), staticDirs(['assets']), docsSearchCorpus(), spaFallbackCopy()],
   server: {
     fs: {

@@ -40,6 +40,20 @@ enum CaptureMode {
 
     static func apply(to editor: MarkdownTextView) {
         guard let shot else { return }
+
+        if shot == "hero-video" {
+            showHeroVideoFixture(editor)
+            after(0.3) {
+                guard let window = editor.window else { return }
+                window.appearance = NSAppearance(named: .darkAqua)
+                window.level = .floating
+                parkHero(window)
+                report(window)
+            }
+            after(1.7) { runHeroVideo(editor) }
+            return
+        }
+
         after(0.3) {
             guard let window = editor.window else { return }
             if shot == "cross-platform" || shot.hasPrefix("matrix-") {
@@ -165,6 +179,95 @@ enum CaptureMode {
         }
     }
 
+    /// The same demanding document as the iPhone film. Matching source makes the
+    /// platform comparison about native input and presentation rather than content.
+    private static func showHeroVideoFixture(_ editor: MarkdownTextView) {
+        let source = """
+        # Field notes
+
+        > Native text input. Portable Markdown source.
+
+        ## Live edit
+
+        """
+        editor.setMarkdown(source)
+        editor.window?.makeFirstResponder(editor)
+        editor.setSelectedRange(NSRange(location: (source as NSString).length, length: 0))
+        editor.scrollRangeToVisible(editor.selectedRange())
+        editor.window?.title = "Native Markdown"
+    }
+
+    /// Sends every character through NSTextView's ordinary input method, then fixes a
+    /// typo and applies the editor's public bold command just like the iPhone film.
+    private static func runHeroVideo(_ editor: MarkdownTextView) {
+        let segments = [
+            "- [x] **Incremental** edits repaint one paragraph\n",
+            "  - [ ] keep [source portable](https://commonmark.org)\n\n",
+            "| Surface | Native input |\n|:--|:--|\n| macOS | TextKit |\n| Web | contenteditable |\n\n\n\n",
+            "Native perfromance, measured in edits—not demos.",
+        ]
+
+        typeSegments(segments, at: 0, into: editor) {
+            let source = editor.markdown as NSString
+            let typo = source.range(of: "perfromance")
+            guard typo.location != NSNotFound else { return }
+
+            editor.setSelectedRange(typo)
+            editor.scrollRangeToVisible(typo)
+            after(0.65) {
+                editor.insertText("performance", replacementRange: typo)
+                let updated = editor.markdown as NSString
+                let word = updated.range(of: "performance")
+                guard word.location != NSNotFound else { return }
+                editor.setSelectedRange(word)
+
+                after(0.7) {
+                    _ = editor.execute(.bold, selection: word)
+                    after(0.9) {
+                        let end = (editor.markdown as NSString).length
+                        editor.setSelectedRange(NSRange(location: end, length: 0))
+                        editor.scrollRangeToVisible(editor.selectedRange())
+                    }
+                }
+            }
+        }
+    }
+
+    private static func typeSegments(
+        _ segments: [String],
+        at index: Int,
+        into editor: MarkdownTextView,
+        completion: @escaping () -> Void
+    ) {
+        guard index < segments.count else {
+            completion()
+            return
+        }
+        typeCharacters(Array(segments[index]), at: 0, into: editor) {
+            after(0.25) {
+                typeSegments(segments, at: index + 1, into: editor, completion: completion)
+            }
+        }
+    }
+
+    private static func typeCharacters(
+        _ characters: [Character],
+        at index: Int,
+        into editor: MarkdownTextView,
+        completion: @escaping () -> Void
+    ) {
+        guard index < characters.count else {
+            completion()
+            return
+        }
+        let character = String(characters[index])
+        editor.insertText(character, replacementRange: editor.selectedRange())
+        let delay = character == "\n" ? 0.085 : 0.019
+        after(delay) {
+            typeCharacters(characters, at: index + 1, into: editor, completion: completion)
+        }
+    }
+
     /// Moves the window into the top-left corner for the screencast.
     ///
     /// The still shots photograph the window itself (`screencapture -l`) and do not
@@ -179,6 +282,25 @@ enum CaptureMode {
         let size = NSSize(
             width: min(700, visible.width - margin * 2),
             height: min(880, visible.height - margin * 2)
+        )
+        window.setFrame(
+            NSRect(
+                x: visible.minX + margin,
+                y: visible.maxY - margin - size.height,
+                width: size.width,
+                height: size.height
+            ),
+            display: true
+        )
+    }
+
+    /// A landscape desktop frame sized for the landing-page player.
+    private static func parkHero(_ window: NSWindow) {
+        guard let visible = window.screen?.visibleFrame else { return }
+        let margin: CGFloat = 16
+        let size = NSSize(
+            width: min(650, visible.width - margin * 2),
+            height: min(390, visible.height - margin * 2)
         )
         window.setFrame(
             NSRect(

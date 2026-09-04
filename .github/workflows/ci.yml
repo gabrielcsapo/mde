@@ -44,6 +44,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir web exec playwright install --with-deps chromium
       - run: ./scripts/test.sh web
+      - run: pnpm pack:check
       - run: pnpm --dir site run build
       - uses: actions/upload-artifact@v7
         with:

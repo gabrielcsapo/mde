@@ -11,7 +11,7 @@ const REVEALS = [
 export default function Reveal() {
   return (
     <>
-      <H2 id="policy">Four policies, decided in the core</H2>
+      <H2 id="policy">Four syntax-reveal policies</H2>
       <Lede>
         The “show me the <code>**</code> while I am editing this word” behaviour lives in the core,
         not in renderer code, so it is identical on every platform and tunable per extension. A
@@ -50,8 +50,8 @@ export default function Reveal() {
 
       <H2 id="selection-is-input">A selection change produces a patch</H2>
       <Lede>
-        This is the consequence worth naming, because it decides an API shape:{' '}
-        <code>set_selection</code> is a first-class core entry point, not a renderer concern.
+        <code>set_selection</code> is a core entry point because selection changes which decorations
+        reveal their source.
       </Lede>
       <p>
         Moving the caret is not a display detail the renderer can handle locally — it changes which
@@ -88,16 +88,16 @@ export default function Reveal() {
       <SeeAlso
         links={[
           {
-            to: '/concepts/widgets',
+            to: '/docs/concepts/widgets',
             title: 'Widgets and references',
             note: 'what reveal means when the node is drawn by the host',
           },
           {
-            to: '/extend/manifest',
+            to: '/docs/extend/manifest',
             title: 'The extension manifest',
             note: 'where an extension declares which policy it wants',
           },
-          { to: '/try', title: 'Try it', note: 'arrow into a bold word and watch' },
+          { to: '/docs/try', title: 'Try it', note: 'arrow into a bold word and watch' },
         ]}
       />
     </>

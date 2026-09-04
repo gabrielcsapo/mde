@@ -39,6 +39,7 @@ DerivedData/
 /build/
 /web/mde.wasm
 /apple/MDECore.xcframework/
+/apple/MDECore-*.xcframework.zip
 
 # Test and coverage output
 /coverage/

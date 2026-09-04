@@ -5,8 +5,8 @@ import VanillaEditor from './VanillaEditor.jsx';
 const ReactEditor = lazy(() => import('./ReactEditor.jsx'));
 
 const VARIANTS = [
-  { id: 'vanilla', label: 'JS', detail: '@mde/web' },
-  { id: 'react', label: 'React', detail: '@mde/react' },
+  { id: 'vanilla', label: 'JS', detail: '@mdink/web' },
+  { id: 'react', label: 'React', detail: '@mdink/react' },
 ];
 
 export default function LiveEditor({ historyInitiallyOpen, descriptionId = 'things-to-try' }) {

@@ -1,22 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { tag } from '../lib/highlight.js';
 
 /**
  * A source panel: the file it came from, the language, a copy control, and the code.
  *
- * `code` is a token list built by the `hl` tagged template in `lib/highlight.js` — see
- * the note there for why the snippets are not written as JSX children.
+ * `code` may be a token list built ahead of time or a source string to tokenize here.
+ * Accepting both keeps authored documentation examples simple without weakening the
+ * older generated-snippet path.
  *
  * The copy button lived in the script rather than the markup on the previous version,
  * so a page without JavaScript would not show a control that could not work. That
  * distinction is gone here — the page *is* JavaScript now — so it is plain markup.
  *
  * @param {{path: string, lang: string, className?: string,
- *          code: import('../lib/highlight.js').Token[]}} props
+ *          code: string|import('../lib/highlight.js').Token[]}} props
  */
 export default function SourceFigure({ path, lang, className = '', code }) {
   const pre = useRef(null);
   const [label, setLabel] = useState('Copy');
   const done = label === 'Copied';
+  const tokens = useMemo(
+    () => (Array.isArray(code) ? code : tag(lang, String(code ?? ''))),
+    [code, lang],
+  );
 
   // One timer, cleared on unmount and restarted by each click.
   const timer = useRef(0);
@@ -57,7 +63,7 @@ export default function SourceFigure({ path, lang, className = '', code }) {
       </figcaption>
       <pre ref={pre}>
         <code>
-          {code.map((token, i) =>
+          {tokens.map((token, i) =>
             token.cls ? (
               <span className={token.cls} key={i}>
                 {token.text}

@@ -40,7 +40,7 @@ const SUITES = [
 export default function Testing() {
   return (
     <>
-      <H2 id="corpus">The corpus is the contract</H2>
+      <H2 id="corpus">Golden decoration corpus</H2>
       <Lede>
         The core is a pure function of text, selection and registry, so a snapshot pins observable
         behaviour completely. Each case in <code>tests/corpus/</code> has a <code>.snap</code>{' '}
@@ -48,7 +48,7 @@ export default function Testing() {
       </Lede>
       <p>
         A case may carry an inline extension manifest and a <code>‸</code> marker for the caret,
-        which is stripped before parsing — so <Link to="/concepts/reveal">reveal behaviour</Link> is
+        which is stripped before parsing — so <Link to="/docs/concepts/reveal">reveal behaviour</Link> is
         snapshotted too, not just the parse.
       </p>
       <p>
@@ -58,10 +58,9 @@ export default function Testing() {
         parsing conformance; these fixtures pin the decoration ranges every host consumes.
       </p>
       <SourceFigure className="mt-6" path="regenerating the snapshots" lang="bash" code={golden} />
-      <Aside tone="note" title="When a renderer disagrees with a snapshot, the renderer is wrong">
-        That is the whole point of writing three renderers against one corpus. It is also why the
-        decoration protocol is the thing the tests describe, rather than any particular platform’s
-        drawing.
+      <Aside tone="note" title="Snapshots define shared renderer input">
+        Every renderer consumes the same expected decoration protocol. Platform-specific suites
+        then verify how those decorations are drawn and edited.
       </Aside>
 
       <H2 id="suites">Five suites</H2>
@@ -91,19 +90,16 @@ export default function Testing() {
         length-preserving, undo restoring storage <em>and</em> decorations.
       </Note>
 
-      <H2 id="one-command">All of them, one command</H2>
+      <H2 id="one-command">Run every suite</H2>
       <SourceFigure className="mt-6" path="from the repository root" lang="bash" code={all} />
       <p className="mt-6">
-        This is not a convenience. The web half runs through Vitest Browser Mode with Playwright
-        in Chromium, Firefox, and WebKit, so selection, layout, focus and input stay native while
-        every case gets isolated reporting and reproducible automation. While the suite needed a human to
-        open a page, it grew a test that passed when written and failed on re-run because it
-        depended on the window’s size.{' '}
-        <strong>Nothing that is not in <code>test.sh</code> will stay honest.</strong>
+        Vitest Browser Mode and Playwright run the web suite in Chromium, Firefox, and WebKit, so
+        selection, layout, focus, and input use native browser behavior. The root script includes
+        these browser cases with the Rust and Swift suites.
       </p>
       <Note>
         The editor remains dependency-free at runtime. Vitest, Playwright, TypeScript and Vite are
-        development-only tooling and are not included in <code>@mde/web</code>’s published runtime.
+        development-only tooling and are not included in <code>@mdink/web</code>’s published runtime.
         On a fresh machine, run <code>pnpm --dir web run test:install-browser</code> once to install
         Playwright’s browser builds.
       </Note>
@@ -124,7 +120,7 @@ export default function Testing() {
         pass, the capture command succeeds, and all four images have been visually reviewed.
       </Aside>
 
-      <H2 id="performance-matrix">One edit contract, every client</H2>
+      <H2 id="performance-matrix">Cross-platform performance matrix</H2>
       <p>
         The performance suite runs the same Rust-generated 10 KB, 100 KB, 500 KB, and 1 MB
         documents through JS, React, UIKit, AppKit, and the core. At the beginning, middle, and
@@ -137,12 +133,12 @@ export default function Testing() {
       <SeeAlso
         links={[
           {
-            to: '/internals/performance',
+            to: '/docs/internals/performance',
             title: 'Performance',
             note: 'the tests that pin the optimizations, including byte-identical incremental output',
           },
           {
-            to: '/platforms/web',
+            to: '/docs/platforms/web',
             title: 'Web',
             note: 'the bugs that only exist in a real engine',
           },

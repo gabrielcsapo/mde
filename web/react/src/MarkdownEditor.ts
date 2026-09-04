@@ -1,4 +1,4 @@
-// The React adapter for `@mde/web`.
+// The React adapter for `@mdink/web`.
 //
 // Written with `createElement` rather than JSX on purpose: the adapter renders exactly
 // one element and gains nothing from JSX. Vite compiles this TypeScript file while
@@ -37,7 +37,7 @@ import {
   composePluginManifests,
   diffText,
   encodeManifest,
-} from '@mde/web';
+} from '@mdink/web';
 import { DEFAULT_WASM_URL, sharedCore, wasmKey } from './core.js';
 
 /**
@@ -53,7 +53,7 @@ export function activeEditorCount() {
   return alive.size;
 }
 
-/** @param {unknown} manifest @param {readonly import('@mde/web').EditorPlugin[]} plugins */
+/** @param {unknown} manifest @param {readonly import('@mdink/web').EditorPlugin[]} plugins */
 function manifestSignature(manifest, plugins) {
   const contributed = plugins.map((plugin) => plugin.manifest ?? null);
   if (!manifest && contributed.every((item) => item === null)) return 'none';
@@ -64,7 +64,7 @@ function manifestSignature(manifest, plugins) {
   return `spec:${JSON.stringify([manifest, contributed])}`;
 }
 
-/** @param {unknown} manifest @param {readonly import('@mde/web').EditorPlugin[]} plugins */
+/** @param {unknown} manifest @param {readonly import('@mdink/web').EditorPlugin[]} plugins */
 function manifestBytes(manifest, plugins) {
   const hasPluginManifest = plugins.some((plugin) => plugin.manifest);
   if (manifest instanceof Uint8Array) {
@@ -146,7 +146,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
   const history = useRef(NO_HISTORY);
   /** Layer signatures and interned role ids, reset whenever the engine is replaced. */
   const layerState = useRef({ /** @type {Record<string,string>} */ sigs: {}, roles: new Map() });
-  const pluginState = useRef(/** @type {Map<string, import('@mde/web').EditorPlugin>} */ (new Map()));
+  const pluginState = useRef(/** @type {Map<string, import('@mdink/web').EditorPlugin>} */ (new Map()));
 
   const [status, setStatus] = useState(/** @type {'loading'|'ready'|'error'} */ ('loading'));
   // Bumped when an editor instance is created. Effects that need an editor depend on it;
@@ -313,7 +313,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
         pluginState.current.clear();
         setStatus('error');
         if (latest.current.onError) latest.current.onError(error);
-        else console.error('@mde/react: failed to load the editor core', error);
+        else console.error('@mdink/react: failed to load the editor core', error);
       });
 
     return () => {
@@ -461,7 +461,7 @@ function MarkdownEditorImpl(props, forwardedRef) {
       }
     } catch (error) {
       if (latest.current.onError) latest.current.onError(error);
-      else console.error('@mde/react: failed to update plugins', error);
+      else console.error('@mdink/react: failed to update plugins', error);
     }
   }, [plugins, generation]);
 

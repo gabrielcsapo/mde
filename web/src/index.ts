@@ -6,7 +6,7 @@ export { MarkdownEditor, diffText } from './editor.js';
 export type { MarkdownInteractionMode } from './editor.js';
 export { composeManifests, encodeManifest } from './manifest.js';
 export { composePluginManifests, definePlugin, pluginLayerName } from './plugins.js';
-export { MDE_PLUGIN_API_VERSION, PluginCompatibilityError } from '@mde/plugin-sdk';
+export { MDE_PLUGIN_API_VERSION, PluginCompatibilityError } from '@mdink/plugin-sdk';
 export { ResourceCache } from './resources.js';
 export { MediaPreviewCache } from './media-previews.js';
 export { MarkdownSession } from './session.js';
@@ -52,7 +52,7 @@ export type {
   PluginPresentationPlacement,
   PluginRenderersCapability,
 } from './plugins.js';
-export type * from '@mde/plugin-sdk';
+export type * from '@mdink/plugin-sdk';
 export type { ResourceRequest, ResourceResolver, ResourceState } from './resources.js';
 export type {
   MediaPreviewCacheOptions,

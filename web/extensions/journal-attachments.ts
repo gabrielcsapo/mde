@@ -1,6 +1,6 @@
 import { definePlugin } from '../src/plugins.js';
 import type { EditorPlugin, PluginPresentationHandle } from '../src/plugins.js';
-import type { PluginTransferPayload } from '@mde/plugin-sdk';
+import type { PluginTransferPayload } from '@mdink/plugin-sdk';
 
 export type JournalMediaKind = 'image' | 'video' | 'audio' | 'file';
 

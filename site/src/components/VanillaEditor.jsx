@@ -5,11 +5,11 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 // browser test suite run, and the same `mde.wasm` binary. `vite.config.js` widens
 // `server.fs.allow` to the repository root so the dev server can read them, and the
 // `?url` import makes the wasm an emitted asset rather than something bundled.
-import { MarkdownEditor, Role, encodeManifest, loadCore } from '@mde/web';
-import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mde/plugins/composer';
-import { linkEditor } from '@mde/plugins/productivity';
-import { trustedHTMLPlugin } from '@mde/plugins/raw-html';
-import wasmUrl from '@mde/web/mde.wasm?url';
+import { MarkdownEditor, Role, encodeManifest, loadCore } from '@mdink/web';
+import { attachmentComposer, mentionAutocomplete, slashCommandMenu } from '@mdink/plugins/composer';
+import { linkEditor } from '@mdink/plugins/productivity';
+import { trustedHTMLPlugin } from '@mdink/plugins/raw-html';
+import wasmUrl from '@mdink/web/mde.wasm?url';
 import {
   manifestSpec,
   resourceResolver,
@@ -183,11 +183,9 @@ export default function VanillaEditor({ historyInitiallyOpen, descriptionId }) {
         <div className="editor-fallback">
           <p>The editor could not start: {error}</p>
           <p>
-            The wasm core is fetched over HTTP, so this usually means the dev or preview
-            server is no longer running — restart <code>./scripts/serve-site.sh</code> (or{' '}
-            <code>pnpm run preview</code> in <code>site/</code>) and reload. Opening the
-            built files directly from disk fails the same way: modules and wasm both need
-            a real origin.
+            The editor assets are unavailable from this page. Open the documentation through a
+            local or deployed web server and reload; browsers cannot load the modules and wasm core
+            from files opened directly from disk.
           </p>
         </div>
       ) : null}

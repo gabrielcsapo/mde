@@ -5,7 +5,7 @@ import type {
   PluginPresentationHandle,
 } from '../src/plugins.js';
 import type { SelectionRange } from '../src/core.js';
-import type { PluginDocumentCapability, PluginSelectionCapability } from '@mde/plugin-sdk';
+import type { PluginDocumentCapability, PluginSelectionCapability } from '@mdink/plugin-sdk';
 import type { PluginCommandsCapability } from '../src/plugins.js';
 
 export interface SuggestionMatch {

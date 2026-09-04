@@ -1,11 +1,11 @@
-import { Kind, definePlugin } from '@mde/web';
+import { Kind, definePlugin } from '@mdink/web';
 import type {
   EditorPlugin,
   PluginSemanticNode,
   WidgetRenderContext,
   WidgetRequest,
   WidgetResult,
-} from '@mde/web';
+} from '@mdink/web';
 
 export interface RawHTMLPluginOptions {
   /** Stable plugin identity. Defaults to `mde.raw-html`. */

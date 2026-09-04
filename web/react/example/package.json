@@ -1,5 +1,5 @@
 {
-  "name": "mde-react-example",
+  "name": "mdink-react-example",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,13 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mde/react": "workspace:*",
-    "@mde/web": "workspace:*",
+    "@mdink/react": "workspace:*",
+    "@mdink/web": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^6.0.5",
-    "vite": "^8.2.1"
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.2.2"
   }
 }

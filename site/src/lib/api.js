@@ -450,7 +450,7 @@ export const WEB_API = [
         name: 'checkPluginCompatibility',
         kind: 'function',
         signature:
-          "import { checkPluginCompatibility } from '@mde/web/plugin-testing'",
+          "import { checkPluginCompatibility } from '@mdink/web/plugin-testing'",
         summary:
           'Framework-neutral installation, source-preservation, layer-ownership and teardown check for plugin package tests.',
       },
@@ -499,7 +499,7 @@ export const WEB_API = [
 // ---------------------------------------------------------------- react
 
 /**
- * `@mde/react`, read from `web/react/README.md` and `web/react/types/index.d.ts` — the
+ * `@mdink/react`, read from `web/react/README.md` and `web/react/types/index.d.ts` — the
  * package's own documented surface, which is also what its consumers compile against.
  *
  * That directory belongs to the React adapter and is never written from here; this file
@@ -779,7 +779,7 @@ export const REACT_API = [
       {
         name: 'Kind / Reveal / Role / encodeManifest',
         kind: 'type',
-        signature: "import { Kind, Reveal, Role, encodeManifest } from '@mde/react'",
+        signature: "import { Kind, Reveal, Role, encodeManifest } from '@mdink/react'",
         summary:
           'Re-exported from the editor, so a host does not have to reach past this package for the vocabulary the decoration protocol is written in.',
       },
@@ -1162,7 +1162,7 @@ export const SWIFT_API = [
 
 /** Everything, for the search index. */
 export const API_PAGES = [
-  { path: '/reference/web', groups: WEB_API },
-  { path: '/reference/swift', groups: SWIFT_API },
-  { path: '/embed/react', groups: REACT_API },
+  { path: '/docs/reference/web', groups: WEB_API },
+  { path: '/docs/reference/swift', groups: SWIFT_API },
+  { path: '/docs/embed/react', groups: REACT_API },
 ];

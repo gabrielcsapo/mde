@@ -1,1 +1,1 @@
-export * from '@mde/web/extensions/journal-attachments';
+export * from '@mdink/web/extensions/journal-attachments';

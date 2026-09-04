@@ -148,7 +148,7 @@ async function waitFor(cdp, expression, message) {
 }
 
 async function capture(cdp, origin, variant, scenario) {
-  await cdp.send('Page.navigate', { url: `${origin}/try` });
+  await cdp.send('Page.navigate', { url: `${origin}/docs/try` });
   await waitFor(cdp, 'window.__mde?.editor', 'the JS editor did not become ready');
 
   if (variant === 'react') {
